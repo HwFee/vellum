@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { animateScrollTo } from "./smoothScroll";
+import { animateScrollTo, cancelScrollAnimation } from "./smoothScroll";
 
 function makeContainer(initial = 0): HTMLElement {
   const el = document.createElement("div");
@@ -72,6 +72,31 @@ describe("animateScrollTo", () => {
     now = 100;
     callbacks.shift()!(100);
     cancel();
+
+    expect(cancelSpy).toHaveBeenCalled();
+  });
+
+  it("a new animation on the same container replaces the previous one", () => {
+    vi.spyOn(performance, "now").mockImplementation(() => 0);
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    const cancelSpy = vi.spyOn(window, "cancelAnimationFrame");
+
+    const container = makeContainer(0);
+    animateScrollTo(container, 1000);
+    animateScrollTo(container, 500);
+
+    // 第一段动画被取消
+    expect(cancelSpy).toHaveBeenCalled();
+  });
+
+  it("cancelScrollAnimation cancels the running animation on the container", () => {
+    vi.spyOn(performance, "now").mockImplementation(() => 0);
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    const cancelSpy = vi.spyOn(window, "cancelAnimationFrame");
+
+    const container = makeContainer(0);
+    animateScrollTo(container, 1000);
+    cancelScrollAnimation(container);
 
     expect(cancelSpy).toHaveBeenCalled();
   });

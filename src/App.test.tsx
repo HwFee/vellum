@@ -385,12 +385,31 @@ describe("App outline integration", () => {
     await loadDocument();
     fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
 
+    // jsdom 的 getBoundingClientRect 全为 0，mock 出标题位于视口下方 500px
     const section = document.getElementById("section")!;
-    const scrollIntoView = vi.spyOn(section, "scrollIntoView");
+    vi.spyOn(section, "getBoundingClientRect").mockReturnValue({ top: 500 } as DOMRect);
+    const raf = vi.spyOn(window, "requestAnimationFrame");
 
     fireEvent.click(screen.getByRole("button", { name: "Section" }));
 
-    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" }));
+    // 点击后应启动 rAF 缓动滚动动画
+    await waitFor(() => expect(raf).toHaveBeenCalled());
+  });
+
+  it("cancels the heading-jump animation when the user scrolls", async () => {
+    await loadDocument();
+    fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
+
+    const section = document.getElementById("section")!;
+    vi.spyOn(section, "getBoundingClientRect").mockReturnValue({ top: 500 } as DOMRect);
+    const cancel = vi.spyOn(window, "cancelAnimationFrame");
+
+    fireEvent.click(screen.getByRole("button", { name: "Section" }));
+    const scrollContainer = document.querySelector(".document-scroll") as HTMLElement;
+    fireEvent.wheel(scrollContainer);
+
+    // 用户滚动应取消进行中的跳转动画
+    await waitFor(() => expect(cancel).toHaveBeenCalled());
   });
 
   it("closes the outline after selecting a heading on narrow windows", async () => {

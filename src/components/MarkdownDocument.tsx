@@ -6,6 +6,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { isValidElement, memo, useCallback, useLayoutEffect, useMemo, useRef, type ReactElement, type ReactNode } from "react";
 import { MarkdownImage } from "./MarkdownImage";
 import { slugify } from "../lib/outline";
+import { animateScrollTo } from "../lib/smoothScroll";
 import { CodeBlock } from "./CodeBlock";
 import type { OutlineHeading } from "../types";
 import type { PluggableList } from "unified";
@@ -346,7 +347,18 @@ export const MarkdownDocument = memo(function MarkdownDocument({ markdown, headi
     const currentIndex = Math.max(0, Math.min(activeMatchIndex, marks.length - 1));
     const current = marks[currentIndex];
     current.classList.add("search-match--current");
-    current.scrollIntoView({ behavior: "smooth", block: "center" });
+    // 与恢复位置/大纲跳转同一套缓动动画（居中滚动），用户滚动/按键可被 App 的监听取消；
+    // 原生 smooth scrollIntoView 不会响应用户打断，会产生拉扯闪动
+    const container = current.closest(".document-scroll");
+    if (container) {
+      const containerRect = container.getBoundingClientRect();
+      const currentRect = current.getBoundingClientRect();
+      const target =
+        container.scrollTop +
+        (currentRect.top - containerRect.top) -
+        (container.clientHeight - currentRect.height) / 2;
+      animateScrollTo(container as HTMLElement, target);
+    }
   }, [searchQuery, activeMatchIndex, markdown, onMatchCountChange]);
 
   return (

@@ -288,19 +288,22 @@ plain block
 
   it("highlights searches declaratively across query changes and resets", () => {
     const onMatchCountChange = vi.fn();
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-      configurable: true,
-      value: scrollIntoView,
+    // mock 出「匹配项在视口下方 500px」的位置差，让搜索跳转真正启动 rAF 缓动动画
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const top = this.classList.contains("document-scroll") ? 0 : 500;
+      return { top, bottom: top + 20, height: 20 } as DOMRect;
     });
+    const raf = vi.spyOn(window, "requestAnimationFrame");
 
     const { container, rerender } = render(
-      <MarkdownDocument
-        markdown="Alpha alpha beta"
-        searchQuery="ALPHA"
-        activeMatchIndex={1}
-        onMatchCountChange={onMatchCountChange}
-      />
+      <div className="document-scroll">
+        <MarkdownDocument
+          markdown="Alpha alpha beta"
+          searchQuery="ALPHA"
+          activeMatchIndex={1}
+          onMatchCountChange={onMatchCountChange}
+        />
+      </div>
     );
 
     let marks = container.querySelectorAll("mark.search-match");
@@ -308,15 +311,18 @@ plain block
     expect(marks[0]).toHaveTextContent("Alpha");
     expect(marks[1]).toHaveClass("search-match--current");
     expect(onMatchCountChange).toHaveBeenLastCalledWith(2);
-    expect(scrollIntoView).toHaveBeenLastCalledWith({ behavior: "smooth", block: "center" });
+    // 搜索跳转应启动 rAF 缓动动画（而非原生 scrollIntoView）
+    expect(raf).toHaveBeenCalled();
 
     rerender(
-      <MarkdownDocument
-        markdown="Alpha alpha beta"
-        searchQuery="beta"
-        activeMatchIndex={0}
-        onMatchCountChange={onMatchCountChange}
-      />
+      <div className="document-scroll">
+        <MarkdownDocument
+          markdown="Alpha alpha beta"
+          searchQuery="beta"
+          activeMatchIndex={0}
+          onMatchCountChange={onMatchCountChange}
+        />
+      </div>
     );
     marks = container.querySelectorAll("mark.search-match");
     expect(marks).toHaveLength(1);

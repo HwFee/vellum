@@ -14,7 +14,7 @@ import { useOutlineSync } from "./hooks/useOutlineSync";
 import { extractOutline } from "./lib/outline";
 import { loadLastOpened, saveLastOpened } from "./lib/lastOpened";
 import { loadScrollPosition, saveScrollPosition } from "./lib/scrollMemory";
-import { animateScrollTo } from "./lib/smoothScroll";
+import { animateScrollTo, cancelScrollAnimation } from "./lib/smoothScroll";
 import type { DocumentState, LoadedDocument } from "./types";
 
 // 代码分割：react-markdown + rehype/remark + 语法高亮是体积最大的依赖，
@@ -36,7 +36,6 @@ export default function App() {
   const pendingScrollRef = useRef<number | null>(null);
   const scrollSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRestoredPathRef = useRef<string | null>(null);
-  const restoreCancelRef = useRef<(() => void) | null>(null);
   const [isOutlineOpen, toggleOutline, setIsOutlineOpen] = useOutlineOpen(true);
   const isNarrow = useIsNarrow();
 
@@ -266,19 +265,16 @@ export default function App() {
       if (currentPathRef.current !== path) return;
       const max = container.scrollHeight - container.clientHeight;
       // 自定义缓动（起步快、收尾慢），替代浏览器原生匀速 smooth 滚动
-      restoreCancelRef.current?.();
-      restoreCancelRef.current = animateScrollTo(container, Math.round(ratio * max));
+      animateScrollTo(container, Math.round(ratio * max));
     });
   }, []);
 
-  // 恢复动画期间用户主动滚动/按键，立即取消动画让出控制权
+  // 程序化滚动动画（恢复位置/大纲跳转/搜索跳转）期间用户主动滚动/按键，
+  // 立即取消动画让出控制权
   useEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
-    const cancelRestore = () => {
-      restoreCancelRef.current?.();
-      restoreCancelRef.current = null;
-    };
+    const cancelRestore = () => cancelScrollAnimation(container);
     container.addEventListener("wheel", cancelRestore, { passive: true });
     container.addEventListener("touchstart", cancelRestore, { passive: true });
     window.addEventListener("keydown", cancelRestore);
@@ -364,8 +360,15 @@ export default function App() {
 
   const handleSelectHeading = (id: string) => {
     const element = document.getElementById(id);
-    if (element) {
-      element.scrollIntoView({ behavior: "smooth", block: "start" });
+    const container = scrollRef.current;
+    if (element && container) {
+      // 与恢复位置同一套缓动动画；用户滚动/按键会经上面的监听取消动画，
+      // 避免原生 smooth 滚动与用户输入互相拉扯导致的闪动
+      const target =
+        container.scrollTop +
+        element.getBoundingClientRect().top -
+        container.getBoundingClientRect().top;
+      animateScrollTo(container, target);
     }
     if (isNarrow) {
       setIsOutlineOpen(false);
