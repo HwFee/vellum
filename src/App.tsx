@@ -14,6 +14,7 @@ import { useOutlineSync } from "./hooks/useOutlineSync";
 import { extractOutline } from "./lib/outline";
 import { loadLastOpened, saveLastOpened } from "./lib/lastOpened";
 import { loadScrollPosition, saveScrollPosition } from "./lib/scrollMemory";
+import { animateScrollTo } from "./lib/smoothScroll";
 import type { DocumentState, LoadedDocument } from "./types";
 
 // 代码分割：react-markdown + rehype/remark + 语法高亮是体积最大的依赖，
@@ -35,6 +36,7 @@ export default function App() {
   const pendingScrollRef = useRef<number | null>(null);
   const scrollSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRestoredPathRef = useRef<string | null>(null);
+  const restoreCancelRef = useRef<(() => void) | null>(null);
   const [isOutlineOpen, toggleOutline, setIsOutlineOpen] = useOutlineOpen(true);
   const isNarrow = useIsNarrow();
 
@@ -263,8 +265,28 @@ export default function App() {
       // 异步期间可能已切换到别的文档，作废本次恢复
       if (currentPathRef.current !== path) return;
       const max = container.scrollHeight - container.clientHeight;
-      container.scrollTo({ top: Math.round(ratio * max), behavior: "smooth" });
+      // 自定义缓动（起步快、收尾慢），替代浏览器原生匀速 smooth 滚动
+      restoreCancelRef.current?.();
+      restoreCancelRef.current = animateScrollTo(container, Math.round(ratio * max));
     });
+  }, []);
+
+  // 恢复动画期间用户主动滚动/按键，立即取消动画让出控制权
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const cancelRestore = () => {
+      restoreCancelRef.current?.();
+      restoreCancelRef.current = null;
+    };
+    container.addEventListener("wheel", cancelRestore, { passive: true });
+    container.addEventListener("touchstart", cancelRestore, { passive: true });
+    window.addEventListener("keydown", cancelRestore);
+    return () => {
+      container.removeEventListener("wheel", cancelRestore);
+      container.removeEventListener("touchstart", cancelRestore);
+      window.removeEventListener("keydown", cancelRestore);
+    };
   }, []);
 
   // 滚动时防抖记录阅读位置，窗口关闭前再兜底保存一次

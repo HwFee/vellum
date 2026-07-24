@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { buildOutlineTree, type OutlineNode } from "../lib/outline";
+import { animateScrollTo } from "../lib/smoothScroll";
 import type { OutlineHeading } from "../types";
 
 type OutlinePanelProps = {
@@ -105,20 +106,39 @@ export function OutlinePanel({
   searchInputRef,
 }: OutlinePanelProps) {
   const navRef = useRef<HTMLElement>(null);
+  const scrollCancelRef = useRef<(() => void) | null>(null);
   const isSearching = searchQuery.length > 0;
   // 大纲树只在 headings 变化时重建，搜索输入等高频渲染不再重复计算
   const outlineTree = useMemo(() => buildOutlineTree(headings), [headings]);
 
   // 搜索激活时跳过自动滚动：搜索已通过文档内的 scrollIntoView 滚动正文，
   // 若大纲面板再跟随滚动会形成连锁反应（正文↔侧边栏互相触发），导致抖动甚至白屏。
+  // 正文滚动时 activeHeadingId 高频变化，原生 smooth scrollIntoView 被连续打断会"近距离慢挪、
+  // 远距离直跳"；这里手动计算 block:"nearest" 目标位置，用自定义缓动从当前位置接续动画，
+  // 保证大纲始终平滑跟随。
   useEffect(() => {
     if (!activeHeadingId) return;
     if (isSearching) return;
     const active = navRef.current?.querySelector(".outline-panel__link--active");
-    if (active) {
-      active.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const container = active?.closest(".outline-sidebar");
+    if (!active || !container) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const activeRect = active.getBoundingClientRect();
+    let target: number | null = null;
+    if (activeRect.top < containerRect.top) {
+      target = container.scrollTop + (activeRect.top - containerRect.top) - 8;
+    } else if (activeRect.bottom > containerRect.bottom) {
+      target = container.scrollTop + (activeRect.bottom - containerRect.bottom) + 8;
     }
+    if (target === null) return;
+
+    scrollCancelRef.current?.();
+    scrollCancelRef.current = animateScrollTo(container as HTMLElement, target);
   }, [activeHeadingId, isSearching]);
+
+  // 卸载时取消进行中的跟随动画
+  useEffect(() => () => scrollCancelRef.current?.(), []);
 
   return (
     <nav ref={navRef} className="outline-panel" aria-label="文档大纲">
