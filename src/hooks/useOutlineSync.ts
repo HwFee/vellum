@@ -40,6 +40,17 @@ export function useOutlineSync(
         }
       }
 
+      // 顶部兜底：页面在文档开头时所有标题都在阈值线下方，没有候选；
+      // 此时激活文档顺序中的第一个标题（即「即将进入的那一节」），保证高亮不消失
+      if (bestId === undefined) {
+        for (const id of headingIds) {
+          if (document.getElementById(id)) {
+            bestId = id;
+            break;
+          }
+        }
+      }
+
       if (activeRef.current !== bestId) {
         setActiveHeadingId(bestId);
       }

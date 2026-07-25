@@ -111,16 +111,14 @@ export function OutlinePanel({
   // 大纲树只在 headings 变化时重建，搜索输入等高频渲染不再重复计算
   const outlineTree = useMemo(() => buildOutlineTree(headings), [headings]);
 
-  // 搜索激活时跳过自动滚动：搜索已通过文档内的 scrollIntoView 滚动正文，
-  // 若大纲面板再跟随滚动会形成连锁反应（正文↔侧边栏互相触发），导致抖动甚至白屏。
-  // 正文滚动时 activeHeadingId 高频变化，原生 smooth scrollIntoView 被连续打断会"近距离慢挪、
-  // 远距离直跳"；这里手动计算 block:"nearest" 目标位置，用自定义缓动从当前位置接续动画，
-  // 保证大纲始终平滑跟随。
+  // 所有正文滚动（普通滚动、搜索输入/删除/导航跳转）都会经滚动监听更新
+  // activeHeadingId，大纲始终跟随。高频变化时原生 smooth scrollIntoView 被连续打断
+  // 会"近距离慢挪、远距离直跳"；这里手动计算 block:"nearest" 目标位置，用自定义缓动
+  // 从当前位置接续动画（同容器新动画自动顶掉旧的），保证大纲始终平滑跟随不抖动。
   useEffect(() => {
     if (!activeHeadingId) return;
-    if (isSearching) return;
     const active = navRef.current?.querySelector(".outline-panel__link--active");
-    const container = active?.closest(".outline-sidebar");
+    const container = active?.closest(".outline-panel__scroll");
     if (!active || !container) return;
 
     const containerRect = container.getBoundingClientRect();
@@ -135,7 +133,7 @@ export function OutlinePanel({
 
     scrollCancelRef.current?.();
     scrollCancelRef.current = animateScrollTo(container as HTMLElement, target);
-  }, [activeHeadingId, isSearching]);
+  }, [activeHeadingId]);
 
   // 卸载时取消进行中的跟随动画
   useEffect(() => () => scrollCancelRef.current?.(), []);
@@ -187,15 +185,19 @@ export function OutlinePanel({
         )}
       </div>
 
-      {headings.length === 0 ? (
-        <p className="outline-panel__empty">本文档暂无目录</p>
-      ) : (
-        <OutlineItems
-          nodes={outlineTree}
-          activeHeadingId={activeHeadingId}
-          onSelectHeading={onSelectHeading}
-        />
-      )}
+      {/* 大纲列表独立滚动：搜索框固定在滚动区外，跟随滚动不会把激活项藏到搜索框后，
+          搜索框位置也不会随侧栏滚动上浮（连点上/下导航按钮不会误点） */}
+      <div className="outline-panel__scroll">
+        {headings.length === 0 ? (
+          <p className="outline-panel__empty">本文档暂无目录</p>
+        ) : (
+          <OutlineItems
+            nodes={outlineTree}
+            activeHeadingId={activeHeadingId}
+            onSelectHeading={onSelectHeading}
+          />
+        )}
+      </div>
     </nav>
   );
 }

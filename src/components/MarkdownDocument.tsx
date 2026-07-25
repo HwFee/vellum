@@ -17,6 +17,9 @@ type MarkdownDocumentProps = {
   /** 内容渲染进 DOM 后回调（用于在懒加载完成后恢复滚动位置等） */
   onRendered?: () => void;
   searchQuery?: string;
+  /** 输入框中的新词尚未同步到 searchQuery（useDeferredValue 的 urgent 渲染期间为 true）。
+   *  此时 activeMatchIndex 已被重置为 0 是输入的副产物，effect 不得据此滚动 */
+  searchQueryPending?: boolean;
   activeMatchIndex?: number;
   onMatchCountChange?: (count: number) => void;
 };
@@ -323,8 +326,10 @@ const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuer
   );
 });
 
-export const MarkdownDocument = memo(function MarkdownDocument({ markdown, headings, onRendered, searchQuery, activeMatchIndex, onMatchCountChange }: MarkdownDocumentProps) {
+export const MarkdownDocument = memo(function MarkdownDocument({ markdown, headings, onRendered, searchQuery, searchQueryPending, activeMatchIndex, onMatchCountChange }: MarkdownDocumentProps) {
   const articleRef = useRef<HTMLElement>(null);
+  const prevQueryRef = useRef("");
+  const deleteScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 内容提交到 DOM 后通知父级（useLayoutEffect 在绘制前同步执行，此时 scrollHeight 已可用于测量）
   useLayoutEffect(() => {
@@ -334,7 +339,15 @@ export const MarkdownDocument = memo(function MarkdownDocument({ markdown, headi
   // 搜索标记由 rehype 插件声明式生成；此 effect 负责：
   // 1. 统计匹配数并通知父级
   // 2. 用 DOM 操作为「当前匹配」打上 search-match--current 类并滚动到它
-  // 放在绘制前的 layout effect 中，用户不会看到类名切换的中间态
+  // 放在绘制前的 layout effect 中，用户不会看到类名切换的中间态。
+  // 滚动时机分流：
+  // - 「纯删除」（新词更短且是旧词的子串）→ 延迟 300ms，连续退格时每次击键
+  //   取消上一个定时器，只在停手后滚动一次；延迟触发时若首个匹配已在视口内
+  //   （留边距）则只保留高亮不再滚动——删短词后首个匹配通常已在屏幕上。
+  // - searchQueryPending（输入已变、deferred 词未跟进的 urgent 渲染）→ 不滚动。
+  //   此时 activeMatchIndex 被重置为 0 只是输入的副产物，若据此立即滚动，
+  //   页面会秒跳到旧词的第一个匹配，防抖形同虚设；等 deferred 提交后再决定。
+  // - 其余（输入变长/替换/上一个下一个按钮）→ 立即滚动。
   useLayoutEffect(() => {
     const marks = articleRef.current?.querySelectorAll<HTMLElement>("mark.search-match") ?? [];
     onMatchCountChange?.(marks.length);
@@ -342,24 +355,57 @@ export const MarkdownDocument = memo(function MarkdownDocument({ markdown, headi
     for (const mark of marks) {
       mark.classList.remove("search-match--current");
     }
+
+    const nextQuery = searchQuery ?? "";
+    const isDeletion =
+      nextQuery.length < prevQueryRef.current.length &&
+      prevQueryRef.current.includes(nextQuery);
+    prevQueryRef.current = nextQuery;
+
     if (marks.length === 0 || activeMatchIndex === undefined) return;
 
     const currentIndex = Math.max(0, Math.min(activeMatchIndex, marks.length - 1));
     const current = marks[currentIndex];
     current.classList.add("search-match--current");
+
     // 与恢复位置/大纲跳转同一套缓动动画（居中滚动），用户滚动/按键可被 App 的监听取消；
     // 原生 smooth scrollIntoView 不会响应用户打断，会产生拉扯闪动
-    const container = current.closest(".document-scroll");
-    if (container) {
+    const scrollToCurrent = (onlyIfOutsideViewport: boolean) => {
+      const container = current.closest(".document-scroll");
+      if (!container) return;
       const containerRect = container.getBoundingClientRect();
       const currentRect = current.getBoundingClientRect();
+      if (onlyIfOutsideViewport) {
+        const margin = 24;
+        const alreadyVisible =
+          currentRect.top >= containerRect.top + margin &&
+          currentRect.bottom <= containerRect.bottom - margin;
+        if (alreadyVisible) return;
+      }
       const target =
         container.scrollTop +
         (currentRect.top - containerRect.top) -
         (container.clientHeight - currentRect.height) / 2;
       animateScrollTo(container as HTMLElement, target);
+    };
+
+    if (isDeletion) {
+      deleteScrollTimerRef.current = setTimeout(() => {
+        deleteScrollTimerRef.current = null;
+        // 300ms 后重新测量（等待期间用户可能已自行滚动）
+        scrollToCurrent(true);
+      }, 300);
+    } else if (!searchQueryPending) {
+      scrollToCurrent(false);
     }
-  }, [searchQuery, activeMatchIndex, markdown, onMatchCountChange]);
+
+    return () => {
+      if (deleteScrollTimerRef.current) {
+        clearTimeout(deleteScrollTimerRef.current);
+        deleteScrollTimerRef.current = null;
+      }
+    };
+  }, [searchQuery, searchQueryPending, activeMatchIndex, markdown, onMatchCountChange]);
 
   return (
     <article className="markdown-body" ref={articleRef}>

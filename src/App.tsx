@@ -48,6 +48,9 @@ export default function App() {
   // 搜索词延迟传给文档渲染层：输入框即时响应，大文档的高亮重解析
   // 以低优先级在后台进行（MarkdownDocument 已 memo， deferred 值不变时整体跳过渲染）
   const deferredSearchQuery = useDeferredValue(searchQuery);
+  // urgent 渲染期间 deferred 值尚未跟进：此时 activeMatchIndex 已被重置为 0，
+  // MarkdownDocument 凭此标记知道「索引重置是输入的副产物」，不触发滚动
+  const searchQueryPending = searchQuery !== deferredSearchQuery;
 
   const handleSearchChange = useCallback((query: string) => {
     setSearchQuery(query);
@@ -422,6 +425,7 @@ export default function App() {
                     headings={headings}
                     onRendered={handleContentRendered}
                     searchQuery={deferredSearchQuery}
+                    searchQueryPending={searchQueryPending}
                     activeMatchIndex={activeMatchIndex}
                     onMatchCountChange={handleMatchCountChange}
                   />

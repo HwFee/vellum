@@ -153,7 +153,8 @@ describe("useOutlineSync", () => {
       return useOutlineSync(contentRef, headings);
     });
 
-    expect(result.current).toBeUndefined();
+    // 所有标题都在阈值线下方（页面在顶部）：兜底激活第一个标题
+    expect(result.current).toBe("title");
 
     titleTop = 50;
     act(() => {
@@ -255,7 +256,8 @@ describe("useOutlineSync", () => {
       return useOutlineSync(contentRef, headings);
     });
 
-    expect(result.current).toBeUndefined();
+    // 所有标题都在阈值线下方（页面在顶部）：兜底激活第一个标题
+    expect(result.current).toBe("title");
 
     titleTop = 50;
     act(() => {
@@ -359,7 +361,8 @@ describe("useOutlineSync", () => {
       return useOutlineSync(contentRef, headings);
     });
 
-    expect(result.current).toBeUndefined();
+    // 所有标题都在阈值线下方（页面在顶部）：兜底激活第一个标题
+    expect(result.current).toBe("title");
     expect(addEventListenerSpy).toHaveBeenCalledWith("scroll", expect.any(Function), { passive: true });
 
     titleTop = 50;

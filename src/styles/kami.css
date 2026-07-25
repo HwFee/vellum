@@ -251,8 +251,9 @@ textarea {
   z-index: 800;
   background: var(--parchment);
   border-right: 1px solid var(--hairline);
-  overflow-y: auto;
-  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .outline-sidebar--open {
@@ -262,7 +263,20 @@ textarea {
 }
 
 .outline-panel {
-  padding: 0 12px 20px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 0 12px;
+}
+
+/* 大纲列表独立滚动区：搜索框固定在其外，位置不随滚动变化 */
+.outline-panel__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 20px;
 }
 
 .outline-panel__header {
@@ -366,9 +380,7 @@ textarea {
 
 /* ===== 搜索框（样式 C 描边式） ===== */
 .outline-search {
-  position: sticky;
-  top: 0;
-  z-index: 10;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 6px;

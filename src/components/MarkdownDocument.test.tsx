@@ -351,6 +351,145 @@ plain block
     expect(container.querySelectorAll("mark.search-match")).toHaveLength(2);
   });
 
+  it("debounces scroll while deleting and resets the timer on each keystroke", () => {
+    vi.useFakeTimers();
+    try {
+      // mock 出「匹配项在视口下方 500px」的位置差，滚动若触发一定会调 rAF
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+        const top = this.classList.contains("document-scroll") ? 0 : 500;
+        return { top, bottom: top + 20, height: 20 } as DOMRect;
+      });
+      const raf = vi.spyOn(window, "requestAnimationFrame");
+
+      const { rerender } = render(
+        <div className="document-scroll">
+          <MarkdownDocument markdown="Alpha alpha beta" searchQuery="alpha" activeMatchIndex={0} />
+        </div>
+      );
+      // 输入（变长）保持立即滚动
+      expect(raf).toHaveBeenCalled();
+      raf.mockClear();
+
+      // 删除一个字符：不立即滚动
+      rerender(
+        <div className="document-scroll">
+          <MarkdownDocument markdown="Alpha alpha beta" searchQuery="alph" activeMatchIndex={0} />
+        </div>
+      );
+      expect(raf).not.toHaveBeenCalled();
+
+      // 300ms 内继续删除：上一个定时器被取消重排
+      rerender(
+        <div className="document-scroll">
+          <MarkdownDocument markdown="Alpha alpha beta" searchQuery="alp" activeMatchIndex={0} />
+        </div>
+      );
+      act(() => {
+        vi.advanceTimersByTime(299);
+      });
+      expect(raf).not.toHaveBeenCalled();
+
+      // 停手满 300ms：以最终关键词滚动一次
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(raf).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not scroll on the urgent render while the deleted query is still pending", () => {
+    vi.useFakeTimers();
+    try {
+      // mock 出「匹配项在视口下方 500px」的位置差，滚动若触发一定会调 rAF
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+        const top = this.classList.contains("document-scroll") ? 0 : 500;
+        return { top, bottom: top + 20, height: 20 } as DOMRect;
+      });
+      const raf = vi.spyOn(window, "requestAnimationFrame");
+
+      const { rerender } = render(
+        <div className="document-scroll">
+          <MarkdownDocument markdown="Alpha alpha beta" searchQuery="alpha" activeMatchIndex={1} />
+        </div>
+      );
+      // 导航到第 2 个匹配：立即滚动
+      expect(raf).toHaveBeenCalled();
+      raf.mockClear();
+
+      // urgent 渲染：deferred 词未跟进（query 未变）、索引被重置为 0、pending=true
+      // —— 索引重置只是输入的副产物，不得滚动（否则删除时页面秒跳到旧词首个匹配）
+      rerender(
+        <div className="document-scroll">
+          <MarkdownDocument
+            markdown="Alpha alpha beta"
+            searchQuery="alpha"
+            searchQueryPending
+            activeMatchIndex={0}
+          />
+        </div>
+      );
+      expect(raf).not.toHaveBeenCalled();
+
+      // deferred 提交：新词是「纯删除」结果 → 进入 300ms 防抖，仍不立即滚动
+      rerender(
+        <div className="document-scroll">
+          <MarkdownDocument
+            markdown="Alpha alpha beta"
+            searchQuery="alph"
+            searchQueryPending={false}
+            activeMatchIndex={0}
+          />
+        </div>
+      );
+      expect(raf).not.toHaveBeenCalled();
+
+      // 停手满 300ms：以最终关键词滚动一次
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+      expect(raf).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("skips the debounced scroll when the first match is already in the viewport", () => {
+    vi.useFakeTimers();
+    try {
+      // 容器高 600px，匹配项在 top=100，已完整落在视口内
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+        const inContainer = this.classList.contains("document-scroll");
+        const top = inContainer ? 0 : 100;
+        const height = inContainer ? 600 : 20;
+        return { top, bottom: top + height, height } as DOMRect;
+      });
+      const raf = vi.spyOn(window, "requestAnimationFrame");
+
+      const { rerender } = render(
+        <div className="document-scroll">
+          <MarkdownDocument markdown="Alpha alpha beta" searchQuery="alpha" activeMatchIndex={0} />
+        </div>
+      );
+      expect(raf).toHaveBeenCalled();
+      raf.mockClear();
+
+      rerender(
+        <div className="document-scroll">
+          <MarkdownDocument markdown="Alpha alpha beta" searchQuery="alph" activeMatchIndex={0} />
+        </div>
+      );
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+      // 延迟触发时首个匹配已在视口内：只留高亮，不滚动
+      expect(raf).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("supports markdown updates, parent count state updates, and unmount while searching", () => {
     function SearchHarness() {
       const [count, setCount] = useState(-1);

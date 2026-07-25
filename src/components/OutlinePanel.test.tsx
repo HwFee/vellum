@@ -69,12 +69,18 @@ describe("OutlinePanel", () => {
     }
   });
 
-  it("does not scroll the active outline item while search is active", () => {
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-      configurable: true,
-      value: scrollIntoView,
+  it("follows the active outline item even while search is active", () => {
+    // 激活项在列表滚动区视口下方，跟随触发时一定会启动 rAF 缓动动画
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("outline-panel__scroll")) {
+        return { top: 0, bottom: 600, height: 600 } as DOMRect;
+      }
+      if (this.classList.contains("outline-panel__link--active")) {
+        return { top: 700, bottom: 720, height: 20 } as DOMRect;
+      }
+      return { top: 0, bottom: 0, height: 0 } as DOMRect;
     });
+    const raf = vi.spyOn(window, "requestAnimationFrame");
 
     render(
       <OutlinePanel
@@ -85,6 +91,7 @@ describe("OutlinePanel", () => {
       />
     );
 
-    expect(scrollIntoView).not.toHaveBeenCalled();
+    // 所有正文滚动大纲都跟随：搜索激活（含输入/删除驱动）也不例外
+    expect(raf).toHaveBeenCalled();
   });
 });

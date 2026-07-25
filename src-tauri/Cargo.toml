@@ -1,6 +1,6 @@
 [package]
 name = "vellum"
-version = "1.3.1"
+version = "1.3.2"
 description = "Vellum · 素笺 - an elegant Markdown viewer for Windows"
 authors = ["Vellum · 素笺"]
 edition = "2021"
