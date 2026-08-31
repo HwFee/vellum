@@ -174,6 +174,97 @@ describe("useOutlineSync", () => {
     document.body.removeChild(container);
   });
 
+  it("keeps nav target active during locked navigation, then resumes following", () => {
+    const headings: OutlineHeading[] = [
+      { id: "title", level: 1, text: "Title" },
+      { id: "section", level: 2, text: "Section" },
+    ];
+
+    const container = document.createElement("div");
+    container.innerHTML = '<h1 id="title">Title</h1><h2 id="section">Section</h2>';
+    document.body.appendChild(container);
+
+    const title = document.getElementById("title")!;
+    const section = document.getElementById("section")!;
+
+    let titleTop = 200;
+    let sectionTop = 400;
+
+    vi.spyOn(container, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      width: 0,
+      height: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    });
+
+    vi.spyOn(title, "getBoundingClientRect").mockImplementation(() => ({
+      top: titleTop,
+      left: 0,
+      right: 0,
+      bottom: titleTop + 20,
+      width: 0,
+      height: 20,
+      x: 0,
+      y: titleTop,
+      toJSON: () => {},
+    }));
+
+    vi.spyOn(section, "getBoundingClientRect").mockImplementation(() => ({
+      top: sectionTop,
+      left: 0,
+      right: 0,
+      bottom: sectionTop + 20,
+      width: 0,
+      height: 20,
+      x: 0,
+      y: sectionTop,
+      toJSON: () => {},
+    }));
+
+    const navTargetRef = { current: null as string | null };
+
+    const { result } = renderHook(() => {
+      const contentRef = useRef<HTMLDivElement | null>(container as unknown as HTMLDivElement);
+      return useOutlineSync(contentRef, headings, navTargetRef);
+    });
+
+    expect(result.current).toBe("title");
+
+    // 点击跳转到 section：锁定期间途经位置（title 已滚过阈值）不改变激活标题
+    navTargetRef.current = "section";
+    titleTop = -100;
+    sectionTop = 50;
+    act(() => {
+      container.dispatchEvent(new Event("scroll"));
+    });
+
+    expect(result.current).toBe("section");
+
+    // 锁定期间即使几何位置指向 title，也保持锁定目标
+    titleTop = 50;
+    sectionTop = 400;
+    act(() => {
+      container.dispatchEvent(new Event("scroll"));
+    });
+
+    expect(result.current).toBe("section");
+
+    // 动画结束解除锁定后恢复正常跟随
+    navTargetRef.current = null;
+    act(() => {
+      container.dispatchEvent(new Event("scroll"));
+    });
+
+    expect(result.current).toBe("title");
+
+    document.body.removeChild(container);
+  });
+
   it("disconnects observer when unmounted", () => {
     const headings: OutlineHeading[] = [{ id: "title", level: 1, text: "Title" }];
 

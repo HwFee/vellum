@@ -3,7 +3,10 @@ import type { OutlineHeading } from "../types";
 
 export function useOutlineSync(
   scrollContainerRef: React.RefObject<HTMLElement | null>,
-  headings: OutlineHeading[]
+  headings: OutlineHeading[],
+  // 大纲点击跳转期间锁定的目标标题 id：正文缓动滚动会途经中间标题，
+  // 锁定期间 activeHeadingId 固定为目标，避免大纲跟随动画先跑去中间位置再折返
+  navTargetRef?: React.RefObject<string | null>
 ): string | undefined {
   const [activeHeadingId, setActiveHeadingId] = useState<string | undefined>(undefined);
   const headingIdsKey = useMemo(() => headings.map((h) => h.id).join(","), [headings]);
@@ -24,6 +27,15 @@ export function useOutlineSync(
     const headingIds = headings.map((h) => h.id);
 
     const updateActive = () => {
+      // 导航锁定期间直接采用目标标题，忽略途经位置
+      const navTarget = navTargetRef?.current;
+      if (navTarget) {
+        if (activeRef.current !== navTarget) {
+          setActiveHeadingId(navTarget);
+        }
+        return;
+      }
+
       const containerRect = container.getBoundingClientRect();
       const threshold = containerRect.top + 80;
 

@@ -15,8 +15,13 @@ export function cancelScrollAnimation(container: HTMLElement): void {
 /**
  * 用 requestAnimationFrame 把容器平滑滚动到目标 scrollTop（先快后慢）。
  * 时长随距离自适应并封顶，返回取消函数；同一容器上的新动画会自动取消上一段。
+ * onComplete 在动画自然结束或被取消（含被同容器新动画顶掉）时触发。
  */
-export function animateScrollTo(container: HTMLElement, targetTop: number): () => void {
+export function animateScrollTo(
+  container: HTMLElement,
+  targetTop: number,
+  onComplete?: () => void
+): () => void {
   cancelScrollAnimation(container);
   const start = container.scrollTop;
   const delta = targetTop - start;
@@ -35,6 +40,7 @@ export function animateScrollTo(container: HTMLElement, targetTop: number): () =
     if (activeAnimations.get(container) === cancel) {
       activeAnimations.delete(container);
     }
+    onComplete?.();
   };
 
   const step = (now: number) => {
@@ -48,6 +54,7 @@ export function animateScrollTo(container: HTMLElement, targetTop: number): () =
       if (activeAnimations.get(container) === cancel) {
         activeAnimations.delete(container);
       }
+      onComplete?.();
     }
   };
   rafId = requestAnimationFrame(step);

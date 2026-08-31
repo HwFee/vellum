@@ -89,6 +89,28 @@ describe("animateScrollTo", () => {
     expect(cancelSpy).toHaveBeenCalled();
   });
 
+  it("onComplete fires on natural finish and on cancel", () => {
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const callbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      callbacks.push(cb);
+      return callbacks.length;
+    });
+
+    const container = makeContainer(0);
+    const onFinish = vi.fn();
+    animateScrollTo(container, 1000, onFinish);
+    now = 500;
+    while (callbacks.length > 0) callbacks.shift()!(now);
+    expect(onFinish).toHaveBeenCalledTimes(1);
+
+    const onCancel = vi.fn();
+    animateScrollTo(container, 0, onCancel);
+    cancelScrollAnimation(container);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
   it("cancelScrollAnimation cancels the running animation on the container", () => {
     vi.spyOn(performance, "now").mockImplementation(() => 0);
     vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);

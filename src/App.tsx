@@ -14,8 +14,9 @@ import { useOutlineSync } from "./hooks/useOutlineSync";
 import { extractOutline } from "./lib/outline";
 import { loadLastOpened, saveLastOpened } from "./lib/lastOpened";
 import { loadScrollPosition, saveScrollPosition } from "./lib/scrollMemory";
+import { captureScrollPosition, restoreScrollPosition } from "./lib/scrollRestore";
 import { animateScrollTo, cancelScrollAnimation } from "./lib/smoothScroll";
-import type { DocumentState, LoadedDocument } from "./types";
+import type { DocumentState, LoadedDocument, OutlineHeading } from "./types";
 
 // 代码分割：react-markdown + rehype/remark + 语法高亮是体积最大的依赖，
 // 懒加载后首屏（顶栏/空状态）先行渲染，文档引擎在后台加载。
@@ -34,8 +35,14 @@ export default function App() {
   const documentContentRef = useRef<HTMLDivElement>(null);
   const currentPathRef = useRef<string | null>(null);
   const pendingScrollRef = useRef<number | null>(null);
+  // 大纲点击跳转的目标标题 id（动画期间锁定，见 handleSelectHeading）
+  const outlineNavTargetRef = useRef<string | null>(null);
   const scrollSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRestoredPathRef = useRef<string | null>(null);
+  // 恢复落位守护的取消函数（切换文档/重复恢复时终止上一段守护）
+  const restoreCancelRef = useRef<(() => void) | null>(null);
+  // headings 供事件回调读取最新值（滚动保存等 effect 只注册一次，避免闭包过期）
+  const headingsRef = useRef<OutlineHeading[]>([]);
   const [isOutlineOpen, toggleOutline, setIsOutlineOpen] = useOutlineOpen(true);
   const isNarrow = useIsNarrow();
 
@@ -85,19 +92,20 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleSearchShortcut);
   }, [isOutlineOpen, setIsOutlineOpen]);
 
-  /** 把当前滚动位置以比例形式写入持久化存储 */
+  /** 把当前滚动位置（锚点 + 偏移 + 比例兜底）写入持久化存储 */
   function persistCurrentScroll() {
     const path = currentPathRef.current;
     const container = scrollRef.current;
     if (!path || !container) return;
-    const max = container.scrollHeight - container.clientHeight;
-    const ratio = max > 0 ? container.scrollTop / max : 0;
-    void saveScrollPosition(path, ratio);
+    void saveScrollPosition(path, captureScrollPosition(container, headingsRef.current));
   }
 
   async function loadPath(path: string) {
     // 切换文档前先保存上一篇的阅读位置
     persistCurrentScroll();
+    // 终止上一篇文档可能仍在进行的恢复落位守护
+    restoreCancelRef.current?.();
+    restoreCancelRef.current = null;
     // 连续打开文件时只有最新一次请求允许写回状态，避免慢响应覆盖新文档
     const requestId = ++loadRequestRef.current;
     setShowReloadNote(false);
@@ -254,6 +262,9 @@ export default function App() {
   // 因为 MarkdownDocument 是懒加载，state ready 时正文 chunk 可能尚未加载、未进 DOM，
   // 此时 scrollHeight 不可用，会导致恢复位置计算为 0。用 lastRestoredPathRef 记录已恢复的
   // 路径，仅在切换到新文档时恢复；同文档的热重载/重渲染不处理（由 pendingScrollRef 负责）。
+  // 恢复走锚点优先（restoreScrollPosition）：标题被删则落到最近幸存标题附近；
+  // 恢复后图片/字体加载会撑大 scrollHeight 导致落点漂移（间歇性恢复失败的根因），
+  // 由落位守护在布局稳定前持续重新锚定。
   const handleContentRendered = useCallback(() => {
     const container = scrollRef.current;
     const path = currentPathRef.current;
@@ -262,13 +273,19 @@ export default function App() {
     lastRestoredPathRef.current = path;
     // 先归零，避免沿用上一篇文档的滚动位置
     container.scrollTop = 0;
-    void loadScrollPosition(path).then((ratio) => {
-      if (ratio === null) return;
+    void loadScrollPosition(path).then((record) => {
+      if (record === null) return;
       // 异步期间可能已切换到别的文档，作废本次恢复
       if (currentPathRef.current !== path) return;
-      const max = container.scrollHeight - container.clientHeight;
-      // 自定义缓动（起步快、收尾慢），替代浏览器原生匀速 smooth 滚动
-      animateScrollTo(container, Math.round(ratio * max));
+      const content = contentRef.current;
+      if (!content) return;
+      restoreCancelRef.current?.();
+      restoreCancelRef.current = restoreScrollPosition(
+        container,
+        content,
+        record,
+        headingsRef.current
+      );
     });
   }, []);
 
@@ -359,7 +376,8 @@ export default function App() {
     () => (activeDocument ? extractOutline(activeDocument.markdown) : []),
     [activeDocument?.markdown]
   );
-  const activeHeadingId = useOutlineSync(scrollRef, headings);
+  headingsRef.current = headings;
+  const activeHeadingId = useOutlineSync(scrollRef, headings, outlineNavTargetRef);
 
   const handleSelectHeading = (id: string) => {
     const element = document.getElementById(id);
@@ -371,7 +389,15 @@ export default function App() {
         container.scrollTop +
         element.getBoundingClientRect().top -
         container.getBoundingClientRect().top;
-      animateScrollTo(container, target);
+      // 动画期间锁定 activeHeadingId 为点击目标：否则正文途经的中间标题会让大纲
+      // 跟随动画先滚去中间位置、到位后再折返（先上后下的跳动）。动画自然结束或
+      // 被用户滚动/按键打断时解除锁定，恢复正常跟随。
+      if (Math.abs(target - container.scrollTop) >= 1) {
+        animateScrollTo(container, target, () => {
+          outlineNavTargetRef.current = null;
+        });
+        outlineNavTargetRef.current = id;
+      }
     }
     if (isNarrow) {
       setIsOutlineOpen(false);
