@@ -723,6 +723,120 @@ test("clears timer and unmounts badge when switching to a regular document", asy
   expect(screen.queryByText("记录中 · PI")).not.toBeInTheDocument();
 });
 
+test("end-to-end: live mdlog lifecycle from bottom stickiness to disconnection recovery", async () => {
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+
+  const saveSpy = vi.fn();
+  storeSet.mockImplementation(saveSpy);
+  const { Store } = await import("@tauri-apps/plugin-store");
+  vi.mocked(Store.load).mockResolvedValue({
+    get: vi.fn(() => Promise.resolve(undefined)),
+    set: saveSpy,
+    save: vi.fn(() => Promise.resolve()),
+  } as unknown as Awaited<ReturnType<typeof Store.load>>);
+
+  let currentDocMarkdown = "# Session Log\n\nInitial message.";
+  let liveState: { lastWriteAt: number; heartbeatAt: number; expiresAt: number } | null = {
+    lastWriteAt: 1_000_000,
+    heartbeatAt: 1_000_000,
+    expiresAt: 1_120_000,
+  };
+
+  backendInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === "load_document") {
+      return {
+        path: "C:/logs/pi.md",
+        fileName: "pi.md",
+        parentPath: "C:/logs",
+        markdown: currentDocMarkdown,
+      };
+    }
+    if (cmd === "read_mdlog_state") {
+      return liveState;
+    }
+    return undefined;
+  });
+
+  vi.mocked(open).mockResolvedValueOnce("C:/logs/pi.md");
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Session Log" })).toBeInTheDocument());
+
+  // 1. 验证徽章渲染且副作用抑制开启
+  expect(screen.getByText("记录中 · PI")).toBeInTheDocument();
+  expect(screen.queryByText("墨迹未干")).not.toBeInTheDocument();
+
+  const scrollContainer = document.querySelector(".document-scroll") as HTMLElement;
+  let scrollTop = 600;
+  Object.defineProperty(scrollContainer, "scrollHeight", { value: 1000, configurable: true });
+  Object.defineProperty(scrollContainer, "clientHeight", { value: 400, configurable: true });
+  Object.defineProperty(scrollContainer, "scrollTop", {
+    configurable: true,
+    get: () => scrollTop,
+    set: (v: number) => {
+      scrollTop = v;
+    },
+  });
+
+  // 2. 模拟热重载（贴底状态下追加对话）
+  currentDocMarkdown = "# Session Log\n\nInitial message.\n\nNew AI response appended.";
+  const fileChangedCall = vi.mocked(listen).mock.calls.find(
+    ([event]) => event === "file-changed"
+  );
+  await act(async () => {
+    (fileChangedCall![1] as (payload: unknown) => void)({ payload: {} });
+  });
+
+  await waitFor(() => expect(screen.getByText("New AI response appended.")).toBeInTheDocument());
+  // 确认自动贴底且未挂载印章
+  expect(scrollContainer.scrollTop).toBe(1000);
+  expect(screen.queryByText("墨迹未干")).not.toBeInTheDocument();
+
+  // 3. 用户主动上滑查看历史（滚至顶部 scrollTop = 100，距离底部 1000 - 100 - 400 = 500 > 80）
+  scrollTop = 100;
+  fireEvent.wheel(scrollContainer);
+
+  // 再次发生热重载
+  currentDocMarkdown = "# Session Log\n\nInitial message.\n\nNew AI response appended.\n\nAnother turn.";
+  await act(async () => {
+    (fileChangedCall![1] as (payload: unknown) => void)({ payload: {} });
+  });
+
+  await waitFor(() => expect(screen.getByText("Another turn.")).toBeInTheDocument());
+  // 用户不在底部，滚动位置必须严格保持在 100，不得强制落底
+  expect(scrollContainer.scrollTop).toBe(100);
+
+  // 4. 会话结束断开（sidecar 删除或心跳超时，返回 null）
+  saveSpy.mockClear();
+  liveState = null;
+  const stateChangedCall = vi.mocked(listen).mock.calls.find(
+    ([event]) => event === "mdlog-state-changed"
+  );
+  await act(async () => {
+    if (stateChangedCall) {
+      (stateChangedCall[1] as (payload: unknown) => void)({ payload: {} });
+    }
+  });
+
+  // 徽章静默隐藏，阅读位置集中补写一次
+  await waitFor(() => expect(screen.queryByText("记录中 · PI")).not.toBeInTheDocument());
+  expect(saveSpy).toHaveBeenCalledWith("C:/logs/pi.md", expect.any(Object));
+
+  // 5. 断开后的普通热重载恢复印章显示
+  currentDocMarkdown = "# Session Log\n\nManual edit by user.";
+  await act(async () => {
+    (fileChangedCall![1] as (payload: unknown) => void)({ payload: {} });
+  });
+
+  await waitFor(() => expect(screen.getByText("Manual edit by user.")).toBeInTheDocument());
+  expect(screen.getByText("墨迹未干")).toBeInTheDocument();
+
+  vi.useRealTimers();
+});
+
+
 describe("App outline integration", () => {
   beforeEach(() => {
     vi.mocked(invoke).mockClear();
