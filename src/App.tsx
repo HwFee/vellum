@@ -17,7 +17,7 @@ import { loadScrollPosition, saveScrollPosition } from "./lib/scrollMemory";
 import { captureScrollPosition, restoreScrollPosition } from "./lib/scrollRestore";
 import { animateScrollTo, cancelScrollAnimation } from "./lib/smoothScroll";
 import { isContainerNearBottom } from "./lib/scrollStick";
-import type { MdlogState } from "./lib/mdlogState";
+import { computeRecheckDelay, type MdlogState } from "./lib/mdlogState";
 import type { DocumentState, LoadedDocument, OutlineHeading } from "./types";
 
 // 代码分割：react-markdown + rehype/remark + 语法高亮是体积最大的依赖，
@@ -33,6 +33,7 @@ export default function App() {
   const isMdlogActiveRef = useRef(false);
   isMdlogActiveRef.current = isMdlogActive;
   const prevIsMdlogActiveRef = useRef(false);
+  const recheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shouldStickToBottomRef = useRef(false);
   const startupLoaded = useRef(false);
   const openRequestSeenRef = useRef(false);
@@ -100,6 +101,27 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleSearchShortcut);
   }, [isOutlineOpen, setIsOutlineOpen]);
 
+  const scheduleRecheck = useCallback((liveState: MdlogState | null) => {
+    if (recheckTimerRef.current !== null) {
+      clearTimeout(recheckTimerRef.current);
+      recheckTimerRef.current = null;
+    }
+    if (!liveState) return;
+
+    const delay = computeRecheckDelay(liveState.expiresAt);
+    recheckTimerRef.current = setTimeout(async () => {
+      recheckTimerRef.current = null;
+      if (!currentPathRef.current) return;
+      try {
+        const latestState = await invoke<MdlogState | null>("read_mdlog_state");
+        setMdlogState(latestState);
+        scheduleRecheck(latestState);
+      } catch {
+        setMdlogState(null);
+      }
+    }, delay);
+  }, []);
+
   /** 把当前滚动位置（锚点 + 偏移 + 比例兜底）写入持久化存储 */
   function persistCurrentScroll() {
     const path = currentPathRef.current;
@@ -109,12 +131,17 @@ export default function App() {
   }
 
   async function loadPath(path: string) {
-    shouldStickToBottomRef.current = false;
     // 切换文档前先保存上一篇的阅读位置
     persistCurrentScroll();
     // 终止上一篇文档可能仍在进行的恢复落位守护
     restoreCancelRef.current?.();
     restoreCancelRef.current = null;
+    if (recheckTimerRef.current !== null) {
+      clearTimeout(recheckTimerRef.current);
+      recheckTimerRef.current = null;
+    }
+    setMdlogState(null);
+    shouldStickToBottomRef.current = false;
     // 连续打开文件时只有最新一次请求允许写回状态，避免慢响应覆盖新文档
     const requestId = ++loadRequestRef.current;
     setShowReloadNote(false);
@@ -134,6 +161,7 @@ export default function App() {
         const liveState = await invoke<MdlogState | null>("read_mdlog_state");
         if (loadRequestRef.current === requestId) {
           setMdlogState(liveState);
+          scheduleRecheck(liveState);
         }
       } catch {
         if (loadRequestRef.current === requestId) {
@@ -413,6 +441,7 @@ export default function App() {
         const liveState = await invoke<MdlogState | null>("read_mdlog_state");
         if (!cancelled) {
           setMdlogState(liveState);
+          scheduleRecheck(liveState);
         }
       } catch {
         if (!cancelled) {
@@ -437,8 +466,12 @@ export default function App() {
     return () => {
       cancelled = true;
       unlisten?.();
+      if (recheckTimerRef.current !== null) {
+        clearTimeout(recheckTimerRef.current);
+        recheckTimerRef.current = null;
+      }
     };
-  }, []);
+  }, [scheduleRecheck]);
 
   // 记录态断开时集中补写一次阅读位置
   useEffect(() => {
@@ -535,17 +568,22 @@ export default function App() {
               ) : null}
               {state.status === "error" ? <ErrorState message={state.message} path={state.path} /> : null}
               {state.status === "ready" ? (
-                <Suspense fallback={null}>
-                  <MarkdownDocument
-                    markdown={state.document.markdown}
-                    headings={headings}
-                    onRendered={handleContentRendered}
-                    searchQuery={deferredSearchQuery}
-                    searchQueryPending={searchQueryPending}
-                    activeMatchIndex={activeMatchIndex}
-                    onMatchCountChange={handleMatchCountChange}
-                  />
-                </Suspense>
+                <>
+                  <Suspense fallback={null}>
+                    <MarkdownDocument
+                      markdown={state.document.markdown}
+                      headings={headings}
+                      onRendered={handleContentRendered}
+                      searchQuery={deferredSearchQuery}
+                      searchQueryPending={searchQueryPending}
+                      activeMatchIndex={activeMatchIndex}
+                      onMatchCountChange={handleMatchCountChange}
+                    />
+                  </Suspense>
+                  {mdlogState !== null && (
+                    <div className="mdlog-live">记录中 · PI</div>
+                  )}
+                </>
               ) : null}
             </div>
           </div>

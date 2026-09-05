@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import App from "./App";
+import "./components/MarkdownDocument";
 
 const backendInvoke = vi.fn();
 const drainInvoke = vi.fn(() => Promise.resolve<string[]>([]));
@@ -528,6 +529,198 @@ test("pauses debounced scrollMemory saving during active mdlog and flushes once 
   await waitFor(() => {
     expect(saveSpy).toHaveBeenCalledWith("C:/notes/scroll-live.md", expect.any(Object));
   });
+});
+
+test("renders '记录中 · PI' badge when read_mdlog_state returns active state", async () => {
+  backendInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === "load_document") {
+      return {
+        path: "C:/notes/live-doc.md",
+        fileName: "live-doc.md",
+        parentPath: "C:/notes",
+        markdown: "# Live Title",
+      };
+    }
+    if (cmd === "read_mdlog_state") {
+      return {
+        lastWriteAt: 1_000_000,
+        heartbeatAt: 1_000_000,
+        expiresAt: 1_120_000,
+      };
+    }
+    return undefined;
+  });
+
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/live-doc.md");
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Live Title" })).toBeInTheDocument(), { timeout: 5000 });
+
+  const badge = await screen.findByText("记录中 · PI");
+  expect(badge).toBeInTheDocument();
+  expect(badge).toHaveClass("mdlog-live");
+  // 断言徽章位于 .document-content 容器内部
+  expect(badge.parentElement).toHaveClass("document-content");
+});
+
+test("silently hides badge when expiresAt arrives and sidecar expired (Z1)", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+
+  const now = Date.now();
+  let stateResult: { lastWriteAt: number; heartbeatAt: number; expiresAt: number } | null = {
+    lastWriteAt: now,
+    heartbeatAt: now,
+    expiresAt: now + 50_000,
+  };
+
+  backendInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === "load_document") {
+      return {
+        path: "C:/notes/expire.md",
+        fileName: "expire.md",
+        parentPath: "C:/notes",
+        markdown: "# Expire Test",
+      };
+    }
+    if (cmd === "read_mdlog_state") {
+      return stateResult;
+    }
+    return undefined;
+  });
+
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/expire.md");
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Expire Test" })).toBeInTheDocument());
+  expect(await screen.findByText("记录中 · PI")).toBeInTheDocument();
+
+  // 模拟到期后 sidecar 判定失效（进程崩溃，无心跳）
+  stateResult = null;
+
+  // 快进 50_000ms 到达 expiresAt
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(50_000);
+  });
+
+  await waitFor(() => {
+    expect(screen.queryByText("记录中 · PI")).not.toBeInTheDocument();
+  });
+
+  vi.useRealTimers();
+});
+
+test("keeps badge alive across 200s idle time when heartbeat refreshes (Z1 spec §9.2)", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+
+  let currentTime = 1_000_000;
+  vi.spyOn(Date, "now").mockImplementation(() => currentTime);
+
+  let stateResult = {
+    lastWriteAt: 1_000_000,
+    heartbeatAt: 1_000_000,
+    expiresAt: 1_120_000, // +120s
+  };
+
+  backendInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === "load_document") {
+      return {
+        path: "C:/notes/idle.md",
+        fileName: "idle.md",
+        parentPath: "C:/notes",
+        markdown: "# Idle Session",
+      };
+    }
+    if (cmd === "read_mdlog_state") {
+      return stateResult;
+    }
+    return undefined;
+  });
+
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/idle.md");
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Idle Session" })).toBeInTheDocument());
+  expect(await screen.findByText("记录中 · PI")).toBeInTheDocument();
+
+  // 模拟空闲期间每 30s 刷新一次心跳，持续至 200s（无内容写，但 heartbeatAt/expiresAt 递增）
+  const stateChangedCall = vi.mocked(listen).mock.calls.find(
+    ([event]) => event === "mdlog-state-changed"
+  );
+
+  for (let t = 30_000; t <= 200_000; t += 30_000) {
+    currentTime = 1_000_000 + t;
+    stateResult = {
+      lastWriteAt: 1_000_000, // 内容未变
+      heartbeatAt: currentTime,
+      expiresAt: currentTime + 120_000,
+    };
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+      if (stateChangedCall) {
+        (stateChangedCall[1] as (payload: unknown) => void)({ payload: {} });
+      }
+    });
+  }
+
+  // 200s 后徽章依旧保持存活
+  expect(screen.getByText("记录中 · PI")).toBeInTheDocument();
+
+  vi.useRealTimers();
+});
+
+test("clears timer and unmounts badge when switching to a regular document", async () => {
+  backendInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
+    if (cmd === "load_document") {
+      const p = (args as { path: string }).path;
+      return {
+        path: p,
+        fileName: p.endsWith("live.md") ? "live.md" : "plain.md",
+        parentPath: "C:/notes",
+        markdown: p.endsWith("live.md") ? "# Live" : "# Plain",
+      };
+    }
+    if (cmd === "read_mdlog_state") {
+      return {
+        lastWriteAt: Date.now(),
+        heartbeatAt: Date.now(),
+        expiresAt: Date.now() + 120_000,
+      };
+    }
+    return undefined;
+  });
+
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/live.md");
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Live" })).toBeInTheDocument());
+  expect(await screen.findByText("记录中 · PI")).toBeInTheDocument();
+
+  // 切换到普通文档（read_mdlog_state 返回 null）
+  backendInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
+    if (cmd === "load_document") {
+      const p = (args as { path: string }).path;
+      return {
+        path: p,
+        fileName: "plain.md",
+        parentPath: "C:/notes",
+        markdown: "# Plain",
+      };
+    }
+    if (cmd === "read_mdlog_state") {
+      return null;
+    }
+    return undefined;
+  });
+
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/plain.md");
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Plain" })).toBeInTheDocument());
+  expect(screen.queryByText("记录中 · PI")).not.toBeInTheDocument();
 });
 
 describe("App outline integration", () => {
