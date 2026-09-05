@@ -388,8 +388,13 @@ const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuer
             const code = extractText(codeChild.props.children).replace(/\n$/, "");
 
             if (language === "vellum-widget") {
-              const codeBytes = new TextEncoder().encode(code).length;
-              if (codeBytes > 524288) {
+              // P9: 512KB 预检短路：字符数超 524288 字节数必超（短路超限）；
+              // 字符数 <= 131072 即便全部为 4 字节 UTF-8 字符也绝不可能超（短路安全）；
+              // 仅在临界区间 (131072, 524288] 才执行 TextEncoder 编码。
+              const isOversized =
+                code.length > 524288 ||
+                (code.length > 131072 && new TextEncoder().encode(code).length > 524288);
+              if (isOversized) {
                 return <CodeBlock code={code} language="" />;
               }
               return (

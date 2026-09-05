@@ -686,6 +686,59 @@ plain block
     expect(container.querySelector(".code-block")).toBeInTheDocument();
   });
 
+  it("P9: short-circuits 512KB pre-check without TextEncoder when length > 524288 or safe range", async () => {
+    const encodeSpy = vi.spyOn(TextEncoder.prototype, "encode");
+
+    // 1. 字符数超 524288：直接短路降级为 CodeBlock，不得调用 TextEncoder.encode
+    const oversizedCode = "a".repeat(524290);
+    const mdOversized = [
+      "<!-- mdlog:v1 s=123 -->",
+      "",
+      "```vellum-widget",
+      oversizedCode,
+      "```",
+    ].join("\n");
+
+    const { container: c1 } = render(<MarkdownDocument markdown={mdOversized} />);
+    await act(async () => {});
+    expect(c1.querySelector(".code-block")).toBeInTheDocument();
+    expect(encodeSpy).not.toHaveBeenCalled();
+
+    // 2. 字符数安全范围（<= 131072）：直接短路安全进入 WidgetSandbox，不得调用 TextEncoder.encode
+    const safeCode = "<div>short content</div>";
+    const mdSafe = [
+      "<!-- mdlog:v1 s=123 -->",
+      "",
+      "```vellum-widget",
+      safeCode,
+      "```",
+    ].join("\n");
+
+    const { container: c2 } = render(<MarkdownDocument markdown={mdSafe} />);
+    await act(async () => {});
+    expect(c2.querySelector(".mdlog-widget")).toBeInTheDocument();
+    expect(encodeSpy).not.toHaveBeenCalled();
+
+    // 3. 临界区间 (131072, 524288]：多字节字符超 512KB 需调用 TextEncoder.encode 并在超限时降级
+    // 200,000 个汉字 "字"（每个 3 字节，共 600,000 字节 > 524288）
+    const boundaryCode = "字".repeat(200000);
+    const mdBoundary = [
+      "<!-- mdlog:v1 s=123 -->",
+      "",
+      "```vellum-widget",
+      boundaryCode,
+      "```",
+    ].join("\n");
+
+    const { container: c3 } = render(<MarkdownDocument markdown={mdBoundary} />);
+    await act(async () => {});
+    expect(encodeSpy).toHaveBeenCalled();
+    expect(c3.querySelector(".code-block")).toBeInTheDocument();
+    expect(c3.querySelector(".mdlog-widget")).not.toBeInTheDocument();
+
+    encodeSpy.mockRestore();
+  });
+
   it("preserves components memo and iframe DOM instance across markdown appends", async () => {
     vi.spyOn(globalThis, "IntersectionObserver").mockImplementation(function (
       this: unknown,
