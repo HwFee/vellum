@@ -12,6 +12,7 @@ import { useIsNarrow } from "./hooks/useIsNarrow";
 import { useOutlineOpen } from "./hooks/useOutlineOpen";
 import { useOutlineSync } from "./hooks/useOutlineSync";
 import { extractOutline } from "./lib/outline";
+import { isSamePath } from "./lib/path";
 import { loadLastOpened, saveLastOpened } from "./lib/lastOpened";
 import { loadScrollPosition, saveScrollPosition } from "./lib/scrollMemory";
 import { captureScrollPosition, restoreScrollPosition } from "./lib/scrollRestore";
@@ -142,6 +143,14 @@ export default function App() {
   }
 
   async function loadPath(path: string) {
+    // 同路径重新打开（第二实例深链 drain_pending_open_paths 命中当前文档，或用户再次
+    // 选中同一文件）：绝不能走 loading 帧——ready 分支整体卸载会销毁所有 widget iframe
+    // 并丢失正在进行的交互状态。改走静默热重载（reloadCurrent 内部复用当前路径，
+    // 保留滚动位置并以 reloadTick 驱动落墨/贴底仲裁）。
+    if (isSamePath(path, currentPathRef.current)) {
+      await reloadCurrent();
+      return;
+    }
     // 切换文档前先保存上一篇的阅读位置
     persistCurrentScroll();
     // 切换文档时重置 mdlog 活跃路径与前置标志，避免切换过渡时误触发断开补写

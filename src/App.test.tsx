@@ -1394,4 +1394,98 @@ describe("App outline integration", () => {
 
     expect(screen.getByRole("img", { name: "Preview" })).toBe(imageBeforeToggle);
   });
+
+  it("F8/C7: re-opening the same path does not destroy ready state or widget iframe", async () => {
+    const docPath = "C:/notes/live-widget.md";
+    const doc = {
+      path: docPath,
+      fileName: "live-widget.md",
+      parentPath: "C:/notes",
+      // 必须带 mdlog:v1 头：autoMount 仅对受信 mdlog 日志生效，否则交互块停在
+      // 「点击加载」占位块上，iframe 根本不会挂载，本用例就测不到保活语义。
+      markdown:
+        "<!-- mdlog:v1 s=123 -->\n\n# Title\n\n```vellum-widget\n<div>persisted widget</div>\n```",
+    };
+
+    let loadDocumentCalls = 0;
+    let gateSecondLoad: ((value: unknown) => void) | null = null;
+    backendInvoke.mockImplementation((command: string) => {
+      if (command === "load_document") {
+        loadDocumentCalls += 1;
+        // 第二次加载挂起，留出观察窗口：bug 下 loading 帧会在 resolve 之前浮现
+        if (loadDocumentCalls === 1) return Promise.resolve(doc);
+        return new Promise((resolve) => {
+          gateSecondLoad = resolve;
+        });
+      }
+      if (command === "read_mdlog_state") {
+        return {
+          lastWriteAt: 1000,
+          heartbeatAt: 1000,
+          expiresAt: Date.now() + 120_000,
+        };
+      }
+      if (command === "register_widget") {
+        return Promise.resolve({
+          id: "w-persist-1",
+          url: "http://vellum-widget.localhost/w-persist-1",
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    // jsdom 的 IntersectionObserver 桩件永不回调，需模拟「进入视口」才会走注册→挂载流程
+    vi.spyOn(globalThis, "IntersectionObserver").mockImplementation(function (
+      this: unknown,
+      callback: IntersectionObserverCallback
+    ) {
+      return {
+        observe: vi.fn(() => {
+          callback(
+            [{ isIntersecting: true } as IntersectionObserverEntry],
+            {} as IntersectionObserver
+          );
+        }),
+        unobserve: vi.fn(),
+        disconnect: vi.fn(),
+        takeRecords: vi.fn(() => []),
+        root: null,
+        rootMargin: "200px",
+        thresholds: [0],
+      } as unknown as IntersectionObserver;
+    });
+
+    // 1. 首次打开文档并等待 iframe 挂载
+    vi.mocked(open).mockResolvedValueOnce(docPath);
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+    const iframeBefore = await screen.findByTitle("交互演示");
+    expect(iframeBefore).toBeInTheDocument();
+
+    // 2. 同路径二次 open（例如由系统/第二实例再次请求相同路径）
+    vi.mocked(open).mockResolvedValueOnce(docPath);
+    fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+    // 给 loading 帧充分浮现的机会（若实现有 bug，此处就能看到「加载中...」与 iframe 被卸）
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.queryByText("加载中...")).not.toBeInTheDocument();
+    expect(document.contains(iframeBefore)).toBe(true);
+
+    await act(async () => {
+      gateSecondLoad?.(doc);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(loadDocumentCalls).toBe(2);
+    const iframeAfter = screen.getByTitle("交互演示");
+    // 核心断言：同路径重开绝不能销毁原有 iframe DOM 实例
+    expect(iframeAfter).toBe(iframeBefore);
+    // 保活的等价证据：未重建沙箱就不会再走一次 register_widget
+    expect(
+      backendInvoke.mock.calls.filter(([command]) => command === "register_widget")
+    ).toHaveLength(1);
+  });
 });
