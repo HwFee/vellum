@@ -73,6 +73,15 @@ export const WidgetSandbox = memo(function WidgetSandbox({
     const unsubscribe = widgetRegistry.subscribe((targetId, dormant) => {
       if (targetId === instanceId) {
         setIsDormant(dormant);
+        if (dormant) {
+          // P4: 进入休眠时立即注销后端资源并清空 widgetUrl，防止持续占内存并确保唤醒后重新注册新 URL
+          if (idRef.current) {
+            const idToUnregister = idRef.current;
+            idRef.current = null;
+            void Promise.resolve(invoke("unregister_widget", { id: idToUnregister })).catch(() => {});
+          }
+          setWidgetUrl(null);
+        }
       }
     });
 
@@ -198,6 +207,7 @@ export const WidgetSandbox = memo(function WidgetSandbox({
           type="button"
           className="mdlog-widget__placeholder"
           onClick={() => {
+            setIsInViewport(true);
             widgetRegistry.activate(instanceId);
             setIsDormant(false);
           }}

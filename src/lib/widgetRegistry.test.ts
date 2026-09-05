@@ -114,4 +114,33 @@ describe("widgetRegistry", () => {
     widgetRegistry.activate("w-temp");
     expect(called).toBe(false);
   });
+
+  it("P4: activate() clears dormant flag without prematurely occupying active count until requestMount succeeds", () => {
+    // 登记并挂载 10 个
+    for (let i = 1; i <= 10; i++) {
+      widgetRegistry.register(`w-${i}`);
+      expect(widgetRegistry.requestMount(`w-${i}`)).toBe(true);
+      widgetRegistry.markVisible(`w-${i}`);
+    }
+
+    // 登记第 11 个并请求挂载触发淘汰
+    widgetRegistry.register("w-11");
+    expect(widgetRegistry.requestMount("w-11")).toBe(true);
+    widgetRegistry.markVisible("w-11");
+    vi.advanceTimersByTime(400);
+
+    // w-1 被淘汰休眠，活跃计数应为 10
+    expect(widgetRegistry.__getActiveCount()).toBe(10);
+    expect(widgetRegistry.requestMount("w-1")).toBe(false);
+
+    // 调用 activate("w-1") 唤醒
+    widgetRegistry.activate("w-1");
+
+    // P4 核心约束：activate 应当解除休眠，但绝不虚占活跃计数（必须由后续 requestMount 成功挂载时才计入）
+    expect(widgetRegistry.__getActiveCount()).toBe(10);
+
+    // 显式调用 requestMount 成功后才计入活跃集
+    expect(widgetRegistry.requestMount("w-1")).toBe(true);
+    expect(widgetRegistry.__getActiveCount()).toBe(11);
+  });
 });

@@ -173,12 +173,17 @@ describe("WidgetSandbox", () => {
     expect(code?.textContent).toBe("<div>err</div>");
   });
 
-  it("renders dormant placeholder and reactivates upon click", async () => {
+  it("renders dormant placeholder and reactivates upon click (P4: unregisters on dormant and re-registers on wake)", async () => {
     vi.useFakeTimers();
     try {
-      vi.mocked(invoke).mockResolvedValue({
-        id: "w-5",
-        url: "http://vellum-widget.localhost/w-5",
+      let registerCallsCount = 0;
+      vi.mocked(invoke).mockImplementation(async (cmd) => {
+        if (cmd === "register_widget") {
+          return registerCallsCount++ === 0
+            ? { id: "w-5-a", url: "http://vellum-widget.localhost/w-5-a" }
+            : { id: "w-5-b", url: "http://vellum-widget.localhost/w-5-b" };
+        }
+        return null;
       });
 
       const activateSpy = vi.spyOn(widgetRegistry, "activate");
@@ -191,7 +196,10 @@ describe("WidgetSandbox", () => {
         );
       });
 
-      expect(screen.getByTitle("交互演示")).toBeInTheDocument();
+      const iframeInitial = screen.getByTitle("交互演示") as HTMLIFrameElement;
+      expect(iframeInitial).toBeInTheDocument();
+      expect(iframeInitial.src).toBe("http://vellum-widget.localhost/w-5-a");
+      expect(invoke).toHaveBeenCalledWith("register_widget", { html: "<div>dormant</div>" });
 
       // 模拟 registry 广播休眠事件
       act(() => {
@@ -203,7 +211,8 @@ describe("WidgetSandbox", () => {
         vi.advanceTimersByTime(400);
       });
 
-      // 断言休眠文案「交互已休眠 · 点击查看」渲染（B3）
+      // P4 断言：进入休眠时必须调用 unregister_widget 释放后端资源，且 iframe 必须销毁
+      expect(invoke).toHaveBeenCalledWith("unregister_widget", { id: "w-5-a" });
       const dormantBtn = screen.getByText("交互已休眠 · 点击查看");
       expect(dormantBtn).toBeInTheDocument();
       expect(screen.queryByTitle("交互演示")).not.toBeInTheDocument();
@@ -213,9 +222,15 @@ describe("WidgetSandbox", () => {
         fireEvent.click(dormantBtn);
       });
 
-      // 断言 activate() 被调且 iframe 重新挂载
+      // 断言 activate() 被调且走完整注册流程（重新调用 register_widget 获得新 URL）
       expect(activateSpy).toHaveBeenCalledWith(expect.any(String));
-      expect(screen.getByTitle("交互演示")).toBeInTheDocument();
+      const registerCalls = vi.mocked(invoke).mock.calls.filter(
+        (call) => call[0] === "register_widget"
+      );
+      expect(registerCalls.length).toBe(2);
+      const iframeReactivated = screen.getByTitle("交互演示") as HTMLIFrameElement;
+      expect(iframeReactivated).toBeInTheDocument();
+      expect(iframeReactivated.src).toBe("http://vellum-widget.localhost/w-5-b");
     } finally {
       vi.useRealTimers();
     }

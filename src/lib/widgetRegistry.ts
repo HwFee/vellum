@@ -129,10 +129,10 @@ export function createWidgetRegistry(): WidgetRegistry & {
       const entry = widgets.get(id);
       if (!entry) return;
       entry.dormant = false;
-      entry.mounted = true;
       entry.lastVisible = Date.now();
       notify(id, false);
-      scheduleEviction();
+      // S2/P4: 不在此预先 entry.mounted = true，由组件在 requestMount 成功时置为 true，
+      // 防止在 requestMount 失败或取消时不虚占活跃计数
     },
 
     subscribe(cb: (id: string, dormant: boolean) => void): () => void {
