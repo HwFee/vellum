@@ -173,11 +173,37 @@ describe("kami.css mdlog widget and live indicator tokens", () => {
     expect(frameRule).toMatch(/border-top:\s*1px solid var\(--hairline\)/);
     expect(frameRule).toMatch(/background:\s*var\(--parchment\)/);
 
-    const placeholderRule = css.match(/\.mdlog-widget__placeholder\s*\{[^}]*\}/s)?.[0] ?? "";
+    const placeholderRule = css.match(/\.markdown-body\s+\.mdlog-widget__placeholder\s*\{[^}]*\}/s)?.[0] ?? "";
     expect(placeholderRule).toMatch(/min-height:\s*120px/);
     expect(placeholderRule).toMatch(/border-top:\s*1px solid var\(--hairline\)/);
     expect(placeholderRule).toMatch(/background:\s*var\(--parchment\)/);
     expect(placeholderRule).toMatch(/color:\s*var\(--stone\)/);
+    expect(placeholderRule).toMatch(/box-shadow:\s*none/);
+    expect(placeholderRule).toMatch(/border-radius:\s*0/);
+
+    const placeholderHoverRule = css.match(/\.markdown-body\s+\.mdlog-widget__placeholder:hover\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(placeholderHoverRule).toMatch(/background:\s*var\(--ivory\)/);
+    expect(placeholderHoverRule).toMatch(/color:\s*var\(--brand\)/);
+
+    // P12: 占位块/休眠块补 :focus-visible 2px --brand 描边
+    const placeholderFocusRule = css.match(/\.markdown-body\s+\.mdlog-widget__placeholder:focus-visible\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(placeholderFocusRule).toMatch(/outline:\s*2px solid var\(--brand\)/);
+    expect(placeholderFocusRule).toMatch(/outline-offset:\s*-2px/);
+  });
+
+  it("P3/P12: ensures placeholder specificity (.markdown-body .mdlog-widget__placeholder) overrides .markdown-body button", () => {
+    // 级联断言：选择器特异性与出现位置
+    const buttonIndex = css.indexOf(".markdown-body button {");
+    const placeholderIndex = css.indexOf(".markdown-body .mdlog-widget__placeholder {");
+    expect(buttonIndex).toBeGreaterThan(-1);
+    expect(placeholderIndex).toBeGreaterThan(-1);
+    // .markdown-body .mdlog-widget__placeholder 声明位置在 .markdown-body button 之后
+    expect(placeholderIndex).toBeGreaterThan(buttonIndex);
+
+    // 显式断言占位块选择器包含 .markdown-body 前缀（特异性 0,2,0 > 0,1,1）
+    expect(css).toMatch(/\.markdown-body\s+\.mdlog-widget__placeholder\s*\{/);
+    expect(css).toMatch(/\.markdown-body\s+\.mdlog-widget__placeholder:hover\s*\{/);
+    expect(css).toMatch(/\.markdown-body\s+\.mdlog-widget__placeholder:focus-visible\s*\{/);
   });
 
   it("declares live indicator rules with 5x5px square dot and breathing animation", () => {

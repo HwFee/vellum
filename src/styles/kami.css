@@ -1181,7 +1181,7 @@ mark.search-match--current {
   background: var(--parchment);
 }
 
-.mdlog-widget__placeholder {
+.markdown-body .mdlog-widget__placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1190,6 +1190,8 @@ mark.search-match--current {
   padding: 24px;
   border: 0;
   border-top: 1px solid var(--hairline);
+  border-radius: 0;
+  box-shadow: none;
   background: var(--parchment);
   color: var(--stone);
   font-family: var(--serif);
@@ -1198,9 +1200,15 @@ mark.search-match--current {
   user-select: none;
 }
 
-.mdlog-widget__placeholder:hover {
+.markdown-body .mdlog-widget__placeholder:hover {
   background: var(--ivory);
   color: var(--brand);
+  box-shadow: none;
+}
+
+.markdown-body .mdlog-widget__placeholder:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
 }
 
 .mdlog-live {
