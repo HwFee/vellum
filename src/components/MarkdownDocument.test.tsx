@@ -3,6 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
 import { MarkdownDocument } from "./MarkdownDocument";
 import { extractOutline } from "../lib/outline";
+import { widgetRegistry } from "../lib/widgetRegistry";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -837,5 +838,94 @@ plain block
     ).length;
     expect(registerCallsAfterSwitch).toBe(1);
     expect(invoke).toHaveBeenCalledWith("unregister_widget", { id: "widget-x-id" });
+  });
+
+  it("P4 防线：休眠导致 unregister 并在唤醒后重新 register 新 URL", async () => {
+    vi.useFakeTimers();
+    try {
+      if ("__clear" in widgetRegistry && typeof widgetRegistry.__clear === "function") {
+        widgetRegistry.__clear();
+      }
+
+      vi.spyOn(globalThis, "IntersectionObserver").mockImplementation(function (
+        this: unknown,
+        callback: IntersectionObserverCallback
+      ) {
+        return {
+          observe: vi.fn(() => {
+            callback(
+              [{ isIntersecting: true } as IntersectionObserverEntry],
+              {} as IntersectionObserver
+            );
+          }),
+          unobserve: vi.fn(),
+          disconnect: vi.fn(),
+          takeRecords: vi.fn(() => []),
+          root: null,
+          rootMargin: "200px",
+          thresholds: [0],
+        } as unknown as IntersectionObserver;
+      });
+
+      let registerCallsCount = 0;
+      vi.mocked(invoke).mockImplementation(async (cmd) => {
+        if (cmd === "register_widget") {
+          return registerCallsCount++ === 0
+            ? { id: "w-md-1", url: "http://vellum-widget.localhost/w-md-1" }
+            : { id: "w-md-2", url: "http://vellum-widget.localhost/w-md-2" };
+        }
+        return null;
+      });
+
+      const md = [
+        "<!-- mdlog:v1 s=123 -->",
+        "",
+        "# Live Section",
+        "",
+        "```vellum-widget",
+        "<div>dormant md doc</div>",
+        "```",
+      ].join("\n");
+      const headings = extractOutline(md);
+
+      const { container } = render(<MarkdownDocument markdown={md} headings={headings} />);
+      await act(async () => {});
+
+      const initialIframe = container.querySelector("iframe");
+      expect(initialIframe).toBeInTheDocument();
+      expect(initialIframe?.src).toBe("http://vellum-widget.localhost/w-md-1");
+
+      // 模拟全局 LRU 淘汰导致其休眠
+      act(() => {
+        for (let i = 1; i <= 11; i++) {
+          widgetRegistry.register(`other-${i}`);
+          widgetRegistry.requestMount(`other-${i}`);
+          widgetRegistry.markVisible(`other-${i}`);
+        }
+        vi.advanceTimersByTime(400);
+      });
+
+      // P4 断言：进入休眠时必须调用 unregister_widget，且 iframe 必须销毁
+      expect(invoke).toHaveBeenCalledWith("unregister_widget", { id: "w-md-1" });
+      const dormantBtn = screen.getByText("交互已休眠 · 点击查看");
+      expect(dormantBtn).toBeInTheDocument();
+      expect(container.querySelector("iframe")).not.toBeInTheDocument();
+
+      // 用户点击唤醒
+      await act(async () => {
+        fireEvent.click(dormantBtn);
+      });
+
+      // 断言重新向后端 register_widget 获得新 URL
+      const registerCalls = vi.mocked(invoke).mock.calls.filter(
+        (call) => call[0] === "register_widget"
+      );
+      expect(registerCalls.length).toBe(2);
+      const reactivatedIframe = container.querySelector("iframe");
+      expect(reactivatedIframe).toBeInTheDocument();
+      expect(reactivatedIframe?.src).toBe("http://vellum-widget.localhost/w-md-2");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
