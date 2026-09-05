@@ -8,12 +8,7 @@ use tauri::{Emitter, Manager};
 use vellum_lib::document::{self, LoadedDocument};
 use vellum_lib::state::AppState;
 use vellum_lib::watcher;
-use vellum_lib::widget::{
-    build_widget_response, register_widget, unregister_widget, read_mdlog_state,
-    __cmd__register_widget, __cmd__unregister_widget, __cmd__read_mdlog_state,
-    __tauri_command_name_register_widget, __tauri_command_name_unregister_widget, __tauri_command_name_read_mdlog_state,
-    WidgetState,
-};
+use vellum_lib::widget::{build_widget_response, WidgetRegistry, WidgetState};
 
 #[cfg(windows)]
 mod early_single_instance {
@@ -165,7 +160,6 @@ fn drain_pending_open_paths(state: tauri::State<PendingOpenPaths>) -> Result<Vec
     Ok(paths.drain(..).collect())
 }
 
-
 #[tauri::command]
 async fn load_document(
     path: String,
@@ -176,44 +170,24 @@ async fn load_document(
     let doc = document::load_markdown_file(Path::new(&path))?;
     let canonical = PathBuf::from(&doc.path);
 
-    let needs_rebind = {
-        let current = state
-            .current
-            .lock()
-            .map_err(|_| "Document state lock poisoned".to_string())?;
-        let watcher = state
-            .watcher
-            .lock()
-            .map_err(|_| "Watcher lock poisoned".to_string())?;
-        should_rebind(current.as_ref(), &canonical, watcher.is_some())
-    };
+    // W1: 将「判定 -> 清空注册表 -> 重建 watcher -> 写 current」收拢进同一临界区。
+    // 统一锁序：current -> watcher -> widget_state.0，彻底消除 TOCTOU 竞态。
+    // S2: AppState 与 WidgetRegistry 为纯内存状态，中毒时通过 into_inner() 安全自愈，避免文档切换永久不可逆失败。
+    {
+        let mut current_lock = state.current.lock().unwrap_or_else(|p| p.into_inner());
+        let mut watcher_lock = state.watcher.lock().unwrap_or_else(|p| p.into_inner());
 
-    if needs_rebind {
-        // G1: 仅当 canonical 绝对路径改变（切换文档）或 watcher 异常缺失时，才清空 widget 注册表并重建 watcher。
-        // 同一文档的热重载保持 watcher 与 registry 存活，彻底杜绝 sidecar deadline 被扼杀与 iframe 失效。
-        {
-            let mut registry = widget_state
-                .0
-                .lock()
-                .map_err(|_| "Widget registry lock poisoned".to_string())?;
-            registry.clear();
-        }
-        {
-            let mut watcher_lock = state
-                .watcher
-                .lock()
-                .map_err(|_| "Watcher lock poisoned".to_string())?;
+        let has_watcher = watcher_lock.is_some();
+        if should_rebind(current_lock.as_ref(), &canonical, has_watcher) {
+            let mut registry = widget_state.0.lock().unwrap_or_else(|p| p.into_inner());
+            apply_rebind(&mut registry, &mut current_lock, &canonical, has_watcher);
+
             *watcher_lock = None;
             match watcher::watch_file(app_handle.clone(), canonical.clone()) {
                 Ok(w) => *watcher_lock = Some(w),
                 Err(e) => eprintln!("file watcher disabled: {e}"),
             }
         }
-        let mut current = state
-            .current
-            .lock()
-            .map_err(|_| "Document state lock poisoned".to_string())?;
-        *current = Some(canonical);
     }
 
     Ok(doc)
@@ -225,10 +199,8 @@ async fn resolve_asset(
     asset_src: String,
 ) -> Result<String, String> {
     let anchor_dir = {
-        let current = state
-            .current
-            .lock()
-            .map_err(|_| "Document state lock poisoned".to_string())?;
+        // S2: AppState 仅保存当前文档路径；中毒时安全读取 inner 引用，防止资产解析永久失败。
+        let current = state.current.lock().unwrap_or_else(|p| p.into_inner());
         current
             .as_ref()
             .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
@@ -256,15 +228,35 @@ fn should_rebind(current: Option<&PathBuf>, next: &Path, has_watcher: bool) -> b
     }
 }
 
+/// 纯函数：执行重新绑定状态转移（S6）。
+/// 当满足 should_rebind 条件时，清空 widget 注册表并将 current 更新为 next；
+/// 若无需 rebind（同路径且 watcher 存活），则保持 registry 与 current 不变。
+/// 返回 true 表示触发了 rebind。
+fn apply_rebind(
+    registry: &mut WidgetRegistry,
+    current: &mut Option<PathBuf>,
+    next: &Path,
+    has_watcher: bool,
+) -> bool {
+    if should_rebind(current.as_ref(), next, has_watcher) {
+        registry.clear();
+        *current = Some(next.to_path_buf());
+        true
+    } else {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{first_markdown_from_args, should_rebind};
+    use super::{apply_rebind, first_markdown_from_args, should_rebind};
 
     #[test]
     fn tauri_conf_csp_contains_frame_src_for_widget() {
         let conf_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json");
         let content = std::fs::read_to_string(&conf_path).expect("read tauri.conf.json");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse tauri.conf.json");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&content).expect("parse tauri.conf.json");
 
         let csp = parsed["app"]["security"]["csp"]
             .as_str()
@@ -272,6 +264,40 @@ mod tests {
 
         let expected_csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self' data:; frame-src http://vellum-widget.localhost";
         assert_eq!(csp, expected_csp);
+    }
+
+    #[test]
+    fn apply_rebind_clears_registry_on_path_change() {
+        let mut registry = vellum_lib::widget::WidgetRegistry::default();
+        registry
+            .insert("w1".to_string(), "<div>1</div>".to_string())
+            .unwrap();
+        assert_eq!(registry.len(), 1);
+
+        let mut current = Some(std::path::PathBuf::from("C:/notes/doc1.md"));
+        let next = std::path::Path::new("C:/notes/doc2.md");
+
+        let rebinded = apply_rebind(&mut registry, &mut current, next, true);
+        assert!(rebinded);
+        assert_eq!(registry.len(), 0);
+        assert_eq!(current, Some(std::path::PathBuf::from("C:/notes/doc2.md")));
+    }
+
+    #[test]
+    fn apply_rebind_preserves_registry_on_same_path_with_watcher() {
+        let mut registry = vellum_lib::widget::WidgetRegistry::default();
+        registry
+            .insert("w1".to_string(), "<div>1</div>".to_string())
+            .unwrap();
+        assert_eq!(registry.len(), 1);
+
+        let p1 = std::path::PathBuf::from("C:/notes/doc1.md");
+        let mut current = Some(p1.clone());
+
+        let rebinded = apply_rebind(&mut registry, &mut current, &p1, true);
+        assert!(!rebinded);
+        assert_eq!(registry.len(), 1);
+        assert_eq!(current, Some(p1));
     }
 
     #[test]
@@ -359,9 +385,9 @@ fn main() {
             load_document,
             resolve_asset,
             drain_pending_open_paths,
-            register_widget,
-            unregister_widget,
-            read_mdlog_state,
+            vellum_lib::widget::register_widget,
+            vellum_lib::widget::unregister_widget,
+            vellum_lib::widget::read_mdlog_state,
         ])
         .setup(|app| {
             // 兜底：3 秒后强制显示窗口，防止前端 JS 加载失败导致窗口永久隐藏。

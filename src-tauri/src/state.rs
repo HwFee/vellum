@@ -1,6 +1,6 @@
+use notify::RecommendedWatcher;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use notify::RecommendedWatcher;
 
 /// Canonicalized path of the currently loaded Markdown document and its active watcher.
 /// This is the only trusted anchor for resolving local asset paths and sidecar metadata,

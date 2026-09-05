@@ -24,7 +24,7 @@
 - 语言提取正则改为 `/language-([\w-]+)/`；widget 围栏语言名逐字为 `vellum-widget`。
 - 协议与安全：iframe `sandbox="allow-scripts"`（严禁 allow-same-origin）；widget 响应必带 4 条头（Content-Type: text/html; charset=utf-8 · CSP `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:` · X-Content-Type-Options: nosniff · Cache-Control: no-store）；404 响应同样带 CSP；CSP 仅追加 `frame-src http://vellum-widget.localhost`。
 - pi 扩展纪律：事件 handler 内严禁 await 写入/复制（登记 + setTimeout 调度 + 串行 Promise 链）；心跳 setInterval 30s 写 `heartbeatAt`；I/O 错误就地指数退避 50/150/300ms。
-- 测试基线时刻全绿：开工前前端基线 17 文件 / 175 用例，后端基线 15 用例（lib 13 + main 2）；随着各 Task 逐步落地递增，最终前端达到 22 文件 / 211 用例，后端达到 36 用例（lib 32 + main 4）。每个 Task 以 commit 收尾，提交前必须两套全绿。
+- 测试基线时刻全绿：开工前前端基线 17 文件 / 175 用例，后端基线 15 用例（lib 13 + main 2）；随着各 Task 逐步落地递增，最终前端达到 22 文件 / 211 用例，后端达到 37 用例（lib 33 + main 4）[勘误说明：原计划算术少计 Task 1.4 第 6 个用例 widget_state_registers_and_unregisters]。每个 Task 以 commit 收尾，提交前必须两套全绿。
 - TDD：每个 Task 先写失败测试再实现；测试代码与实现代码都必须是可直接运行的真实代码。
 - 包边界：包 1（Rust）→ 包 2/3（前端）→ 包 4（pi 扩展）→ 包 5（技能与文档）；跨包契约以各 Task 的 Interfaces 段为准，逐字一致。
 
@@ -1319,7 +1319,7 @@ test widget_tests::read_mdlog_state_returns_none_for_corrupted_json ... ok
 test widget_tests::read_mdlog_state_reads_valid_sidecar_and_computes_expires_at ... ok
 test widget_tests::read_mdlog_state_returns_none_when_heartbeat_expired_or_pid_dead ... ok
 test widget_tests::widget_state_registers_and_unregisters ... ok
-test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out [勘误说明：原计划算术 27 + 6 少计 1]
 ```
 
 - [ ] **Step 5: Commit**
@@ -1521,7 +1521,7 @@ npm test
    - `test tests::tauri_conf_csp_contains_frame_src_for_widget ... ok`
    - `test tests::should_rebind_matrix_evaluation ... ok`
    `test result: ok. 4 passed; 0 failed; 0 ignored`
-2. `cargo test` 全量通过（36 passed: lib 32 + main 4，0 failed）
+2. `cargo test` 全量通过（37 passed: lib 33 + main 4，0 failed）[勘误说明：原计划算术少计 Task 1.4 第 6 个用例]
 3. `npm test` 现有前端基线全量通过（17 文件全部通过，175 用例全部 ok）
 
 - [ ] **Step 5: Commit**
@@ -2903,7 +2903,7 @@ Expected: PASS，全量测试用例全部通过。
 
 Run 全量验证：
 `npm test`（前端 20 个测试文件全部通过，共 194 用例全绿：175 基线 + WP2 新增 19 用例：Task 2.1: +1, Task 2.2: +3, Task 2.3: +4, Task 2.4: +6, Task 2.5: +5）
-`cd src-tauri && cargo test`（后端 36 用例保持全绿：lib 32 + main 4）
+`cd src-tauri && cargo test`（后端 37 用例保持全绿：lib 33 + main 4）
 
 - [ ] **Step 5: Commit**
 
@@ -7896,7 +7896,7 @@ Expected: 22 passed (22 files), 211 passed (211 tests). 必须 100% 保持全绿
 - [ ] **Step 5: Run full Cargo backend suite**
 
 Run: `cd src-tauri && cargo test`
-Expected: 36 passed (32 in `vellum_lib`, 4 in `vellum`), 0 failed. 必须 100% 保持全绿（lib 13 基线 + state 2 + watcher 5 + widget 12 = 32；main 2 基线 + 2 新增 = 4）。
+Expected: 37 passed (33 in `vellum_lib`, 4 in `vellum`), 0 failed. 必须 100% 保持全绿（lib 13 基线 + state 2 + watcher 5 + widget 13 = 33；main 2 基线 + 2 新增 = 4）[勘误说明：原计划算术少计 Task 1.4 第 6 个用例 widget_state_registers_and_unregisters]。
 
 - [ ] **Step 6: Update `AGENTS.md` command baseline**
 

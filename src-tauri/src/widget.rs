@@ -1,11 +1,11 @@
+use crate::state::AppState;
+use crate::watcher::sidecar_path_for;
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::http::{header, Response, StatusCode};
 use tauri::State;
-use crate::state::AppState;
-use crate::watcher::sidecar_path_for;
 
 pub const MAX_WIDGET_HTML_BYTES: usize = 512 * 1024; // 512KB
 pub const MAX_REGISTRY_CAPACITY: usize = 64;
@@ -100,6 +100,9 @@ pub struct MdlogSidecarData {
 
 /// 从请求 URI 中提取 widget id。
 /// 支持形如 "http://vellum-widget.localhost/<id>" 或 "vellum-widget://localhost/<id>"。
+/// 注意（Gemini S2）：本实现故意不剥离 '?' 查询参数（如 /<id>?query=1）。
+/// 任何附带查询串的请求均会被整体截取为 ID，因与注册表中的 UUID 键不匹配而安全回退 404，
+/// 严格杜绝未授权的查询变种探测。
 fn extract_widget_id(uri: &str) -> Option<&str> {
     let path = if let Some(idx) = uri.find("://") {
         let after_scheme = &uri[idx + 3..];
@@ -155,17 +158,19 @@ pub fn build_widget_response(
     }
 }
 
-/// 纯函数：判定 sidecar 对应的记录进程是否仍然有效。
-/// 判据：pid 存活 且 now - heartbeatAt <= 120_000ms。
+/// 纯函数：判定 sidecar 对应的记录进程是否仍然有效（S7）。
+/// 判据：心跳先行省 syscall；now >= heartbeat_at 且 now - heartbeat_at <= 120_000ms；pid 存活。
 pub fn judge_mdlog_alive(
     state: &MdlogSidecarData,
     now: u64,
     pid_alive: &dyn Fn(u32) -> bool,
 ) -> bool {
-    if !pid_alive(state.pid) {
+    // S7: 心跳先行，超时直接返回 false，省去进程查询 syscall；
+    // 同时要求 state.heartbeat_at <= now，防止系统时钟回拨导致陈旧 sidecar 误判为存活。
+    if state.heartbeat_at > now || now - state.heartbeat_at > HEARTBEAT_TIMEOUT_MS {
         return false;
     }
-    now.saturating_sub(state.heartbeat_at) <= HEARTBEAT_TIMEOUT_MS
+    pid_alive(state.pid)
 }
 
 /// Windows 原生 Win32 进程存活检查：
@@ -268,10 +273,10 @@ pub async fn register_widget(
     let id = uuid::Uuid::new_v4().to_string();
     let url = format!("http://vellum-widget.localhost/{id}");
 
-    let mut registry = state
-        .0
-        .lock()
-        .map_err(|_| "Widget registry lock poisoned".to_string())?;
+    // S2: WidgetRegistry 为纯内存 LRU 表，即使先前操作 panic 导致 Mutex 中毒，
+    // 获取 inner 引用后最坏情况仅存在 LRU 顺序轻微偏差，恢复后 insert 仍安全有效，
+    // 避免因中毒导致交互块注册永久不可逆失败。
+    let mut registry = state.0.lock().unwrap_or_else(|p| p.into_inner());
     registry.insert(id.clone(), html)?;
 
     Ok(RegisterResult { id, url })
@@ -279,14 +284,9 @@ pub async fn register_widget(
 
 /// 卸载指定的交互块。
 #[tauri::command]
-pub async fn unregister_widget(
-    state: State<'_, WidgetState>,
-    id: String,
-) -> Result<(), String> {
-    let mut registry = state
-        .0
-        .lock()
-        .map_err(|_| "Widget registry lock poisoned".to_string())?;
+pub async fn unregister_widget(state: State<'_, WidgetState>, id: String) -> Result<(), String> {
+    // S2: 纯内存 LRU 表，Mutex 中毒时安全恢复清理，避免卸载命令永久报错。
+    let mut registry = state.0.lock().unwrap_or_else(|p| p.into_inner());
     registry.remove(&id);
     Ok(())
 }
@@ -296,10 +296,11 @@ pub async fn unregister_widget(
 pub async fn read_mdlog_state(
     state: State<'_, AppState>,
 ) -> Result<Option<MdlogStateResponse>, String> {
+    // S2: AppState 仅保存当前文档路径；中毒时安全读取 inner 引用，防止状态查询失败。
     let current = state
         .current
         .lock()
-        .map_err(|_| "AppState current lock poisoned".to_string())?
+        .unwrap_or_else(|p| p.into_inner())
         .clone();
 
     let now = SystemTime::now()

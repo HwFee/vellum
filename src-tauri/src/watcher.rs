@@ -18,6 +18,21 @@ pub fn sidecar_path_for(file_path: &Path) -> PathBuf {
     file_path.with_file_name(name)
 }
 
+/// 路径比较助手：在 Windows 下统一路径分隔符并进行 ASCII 大小写不敏感比较，
+/// 消除历史文件重命名大小写残留与斜杠/反斜杠差异导致的事件漏检（S5）。
+fn paths_equal(p1: &Path, p2: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        let s1 = p1.to_string_lossy().replace('/', "\\");
+        let s2 = p2.to_string_lossy().replace('/', "\\");
+        s1.eq_ignore_ascii_case(&s2)
+    }
+    #[cfg(not(windows))]
+    {
+        p1 == p2
+    }
+}
+
 /// 标识单次超时检测需要触发的 Tauri 事件。
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct DebounceEmits {
@@ -51,10 +66,10 @@ impl DoubleDebounceTracker {
 
     /// 根据接收到的事件路径，分别刷新对应管线的 deadline。
     pub fn handle_event_paths(&mut self, paths: &[PathBuf], now: Instant) {
-        if paths.iter().any(|p| p == &self.target) {
+        if paths.iter().any(|p| paths_equal(p, &self.target)) {
             self.log_deadline = Some(now + self.debounce);
         }
-        if paths.iter().any(|p| p == &self.sidecar_target) {
+        if paths.iter().any(|p| paths_equal(p, &self.sidecar_target)) {
             self.sidecar_deadline = Some(now + self.debounce);
         }
     }

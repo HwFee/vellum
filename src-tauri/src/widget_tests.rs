@@ -1,9 +1,9 @@
-use std::fs;
 use crate::widget::{
     build_widget_response, judge_mdlog_alive, read_mdlog_state_from_path, MdlogSidecarData,
     MdlogStateResponse, RegisterResult, WidgetRegistry, WidgetState, MAX_REGISTRY_CAPACITY,
     MAX_WIDGET_HTML_BYTES,
 };
+use std::fs;
 
 #[test]
 fn registry_rejects_html_exceeding_512kb() {
@@ -56,6 +56,22 @@ fn register_result_serializes_to_camel_case() {
     assert!(json.contains("\"url\":\"http://vellum-widget.localhost/abc-123\""));
 }
 
+fn assert_all_security_headers(response: &tauri::http::Response<Vec<u8>>) {
+    assert_eq!(
+        response.headers().get("Content-Type").unwrap(),
+        "text/html; charset=utf-8"
+    );
+    assert_eq!(
+        response.headers().get("Content-Security-Policy").unwrap(),
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:"
+    );
+    assert_eq!(
+        response.headers().get("X-Content-Type-Options").unwrap(),
+        "nosniff"
+    );
+    assert_eq!(response.headers().get("Cache-Control").unwrap(), "no-store");
+}
+
 #[test]
 fn build_widget_response_returns_200_with_all_4_security_headers() {
     let mut registry = WidgetRegistry::default();
@@ -70,22 +86,7 @@ fn build_widget_response_returns_200_with_all_4_security_headers() {
     );
 
     assert_eq!(response.status().as_u16(), 200);
-    assert_eq!(
-        response.headers().get("Content-Type").unwrap(),
-        "text/html; charset=utf-8"
-    );
-    assert_eq!(
-        response.headers().get("Content-Security-Policy").unwrap(),
-        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:"
-    );
-    assert_eq!(
-        response.headers().get("X-Content-Type-Options").unwrap(),
-        "nosniff"
-    );
-    assert_eq!(
-        response.headers().get("Cache-Control").unwrap(),
-        "no-store"
-    );
+    assert_all_security_headers(&response);
     assert_eq!(response.body(), b"<h1>Hello</h1>");
 }
 
@@ -100,14 +101,7 @@ fn build_widget_response_returns_404_with_all_4_security_headers_for_unknown_or_
         &mut registry,
     );
     assert_eq!(resp_404.status().as_u16(), 404);
-    assert_eq!(
-        resp_404.headers().get("Content-Type").unwrap(),
-        "text/html; charset=utf-8"
-    );
-    assert_eq!(
-        resp_404.headers().get("Content-Security-Policy").unwrap(),
-        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:"
-    );
+    assert_all_security_headers(&resp_404);
 
     // 2. 非 GET 请求拒绝为 404
     let resp_post = build_widget_response(
@@ -116,6 +110,7 @@ fn build_widget_response_returns_404_with_all_4_security_headers_for_unknown_or_
         &mut registry,
     );
     assert_eq!(resp_post.status().as_u16(), 404);
+    assert_all_security_headers(&resp_post);
 
     // 3. 越界或非法多段路径
     let resp_traversal = build_widget_response(
@@ -124,6 +119,35 @@ fn build_widget_response_returns_404_with_all_4_security_headers_for_unknown_or_
         &mut registry,
     );
     assert_eq!(resp_traversal.status().as_u16(), 404);
+    assert_all_security_headers(&resp_traversal);
+}
+
+#[test]
+fn build_widget_response_rejects_boundary_uris_as_404() {
+    let mut registry = WidgetRegistry::default();
+    registry
+        .insert("test-id".to_string(), "<h1>Hello</h1>".to_string())
+        .unwrap();
+
+    // 1. 无路径 URI: http://vellum-widget.localhost
+    let resp_no_path =
+        build_widget_response("GET", "http://vellum-widget.localhost", &mut registry);
+    assert_eq!(resp_no_path.status().as_u16(), 404);
+    assert_all_security_headers(&resp_no_path);
+
+    // 2. 仅根路径: http://vellum-widget.localhost/
+    let resp_root = build_widget_response("GET", "http://vellum-widget.localhost/", &mut registry);
+    assert_eq!(resp_root.status().as_u16(), 404);
+    assert_all_security_headers(&resp_root);
+
+    // 3. 编码遍历: http://vellum-widget.localhost/%2e%2e%2f%2e%2e%2fwindows
+    let resp_encoded_traversal = build_widget_response(
+        "GET",
+        "http://vellum-widget.localhost/%2e%2e%2f%2e%2e%2fwindows",
+        &mut registry,
+    );
+    assert_eq!(resp_encoded_traversal.status().as_u16(), 404);
+    assert_all_security_headers(&resp_encoded_traversal);
 }
 
 #[test]
@@ -154,9 +178,14 @@ fn judge_mdlog_alive_matrix_and_pid_fallback_evaluation() {
     let dead_both = judge_mdlog_alive(&sidecar, 250_000, &|_pid| false);
     assert!(!dead_both);
 
-    // 5. 原生 Win32 进程存活检查：不存在的 pid 必须返回 false（A1）
+    // 5. 时钟回拨加固（now < heartbeat_at）：直接返回 false，防止回拨误判为存活（S7）
+    let clock_rollback = judge_mdlog_alive(&sidecar, 90_000, &|pid| pid == 9999);
+    assert!(!clock_rollback);
+
+    // 6. 原生 Win32 进程存活检查：自身 pid 必须为 true（正例 W3）；不存在的 pid 必须返回 false（A1）
     #[cfg(windows)]
     {
+        assert!(crate::widget::is_pid_alive_win32(std::process::id()));
         assert!(!crate::widget::is_pid_alive_win32(u32::MAX));
     }
 }
@@ -258,7 +287,8 @@ fn widget_state_registers_and_unregisters() {
     let state = WidgetState::default();
     {
         let mut reg = state.0.lock().unwrap();
-        reg.insert("w-1".to_string(), "<div>1</div>".to_string()).unwrap();
+        reg.insert("w-1".to_string(), "<div>1</div>".to_string())
+            .unwrap();
         assert_eq!(reg.len(), 1);
         assert!(reg.get("w-1").is_some());
 
