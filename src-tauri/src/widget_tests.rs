@@ -1,6 +1,8 @@
+use std::fs;
 use crate::widget::{
-    build_widget_response, judge_mdlog_alive, MdlogSidecarData, RegisterResult, WidgetRegistry,
-    MAX_REGISTRY_CAPACITY, MAX_WIDGET_HTML_BYTES,
+    build_widget_response, judge_mdlog_alive, read_mdlog_state_from_path, MdlogSidecarData,
+    MdlogStateResponse, RegisterResult, WidgetRegistry, WidgetState, MAX_REGISTRY_CAPACITY,
+    MAX_WIDGET_HTML_BYTES,
 };
 
 #[test]
@@ -170,5 +172,98 @@ fn uuid_generation_entropy_and_format_check() {
         let variant = id.chars().nth(19).unwrap();
         assert!(matches!(variant, '8' | '9' | 'a' | 'b')); // RFC 4122 variant
         assert!(ids.insert(id), "UUID collision detected!");
+    }
+}
+
+#[test]
+fn read_mdlog_state_returns_none_when_current_doc_is_none() {
+    let result = read_mdlog_state_from_path(None, &|_| true, 100_000);
+    assert_eq!(result, None);
+}
+
+#[test]
+fn read_mdlog_state_returns_none_when_sidecar_file_does_not_exist() {
+    let temp_doc = std::env::temp_dir().join("test_non_existent_doc.md");
+    let result = read_mdlog_state_from_path(Some(&temp_doc), &|_| true, 100_000);
+    assert_eq!(result, None);
+}
+
+#[test]
+fn read_mdlog_state_returns_none_for_corrupted_json() {
+    let temp_doc = std::env::temp_dir().join("test_corrupted_doc.md");
+    let temp_sidecar = std::env::temp_dir().join("test_corrupted_doc.md.mdlog");
+    fs::write(&temp_sidecar, "{ corrupted json").unwrap();
+
+    let result = read_mdlog_state_from_path(Some(&temp_doc), &|_| true, 100_000);
+    let _ = fs::remove_file(&temp_sidecar);
+
+    assert_eq!(result, None);
+}
+
+#[test]
+fn read_mdlog_state_reads_valid_sidecar_and_computes_expires_at() {
+    let temp_doc = std::env::temp_dir().join("test_valid_doc.md");
+    let temp_sidecar = std::env::temp_dir().join("test_valid_doc.md.mdlog");
+
+    let sidecar_json = r#"{
+        "version": 1,
+        "sessionId": "pi-test-session",
+        "pid": 4321,
+        "connectedAt": 1000,
+        "lastWriteAt": 50000,
+        "heartbeatAt": 60000,
+        "anchorLost": false
+    }"#;
+    fs::write(&temp_sidecar, sidecar_json).unwrap();
+
+    // 当前时间 70_000（心跳过去 10s <= 120s，pid 存活）
+    let result = read_mdlog_state_from_path(Some(&temp_doc), &|pid| pid == 4321, 70_000);
+    let _ = fs::remove_file(&temp_sidecar);
+
+    assert_eq!(
+        result,
+        Some(MdlogStateResponse {
+            last_write_at: 50000,
+            heartbeat_at: 60000,
+            expires_at: 180_000, // 60000 + 120_000
+        })
+    );
+}
+
+#[test]
+fn read_mdlog_state_returns_none_when_heartbeat_expired_or_pid_dead() {
+    let temp_doc = std::env::temp_dir().join("test_expired_doc.md");
+    let temp_sidecar = std::env::temp_dir().join("test_expired_doc.md.mdlog");
+
+    let sidecar_json = r#"{
+        "pid": 4321,
+        "lastWriteAt": 50000,
+        "heartbeatAt": 60000
+    }"#;
+    fs::write(&temp_sidecar, sidecar_json).unwrap();
+
+    // 1. 超时测试：当前时间 180_001（心跳相差 120_001ms > 120s）
+    let res_expired = read_mdlog_state_from_path(Some(&temp_doc), &|pid| pid == 4321, 180_001);
+    assert_eq!(res_expired, None);
+
+    // 2. pid 死亡测试：pid_alive 返回 false
+    let res_dead = read_mdlog_state_from_path(Some(&temp_doc), &|_| false, 70_000);
+    assert_eq!(res_dead, None);
+
+    let _ = fs::remove_file(&temp_sidecar);
+}
+
+#[test]
+fn widget_state_registers_and_unregisters() {
+    let state = WidgetState::default();
+    {
+        let mut reg = state.0.lock().unwrap();
+        reg.insert("w-1".to_string(), "<div>1</div>".to_string()).unwrap();
+        assert_eq!(reg.len(), 1);
+        assert!(reg.get("w-1").is_some());
+
+        reg.remove("w-1");
+        assert_eq!(reg.len(), 0);
+        assert!(reg.get("w-1").is_none());
     }
 }

@@ -1,5 +1,11 @@
 use std::collections::{HashMap, VecDeque};
+use std::path::Path;
+use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::http::{header, Response, StatusCode};
+use tauri::State;
+use crate::state::AppState;
+use crate::watcher::sidecar_path_for;
 
 pub const MAX_WIDGET_HTML_BYTES: usize = 512 * 1024; // 512KB
 pub const MAX_REGISTRY_CAPACITY: usize = 64;
@@ -205,4 +211,102 @@ pub fn is_pid_alive_win32(pid: u32) -> bool {
 #[cfg(not(windows))]
 pub fn is_pid_alive_win32(_pid: u32) -> bool {
     true
+}
+
+/// Tauri 状态容器：统一托管 WidgetRegistry，无全局 static 变量。
+#[derive(Debug, Default)]
+pub struct WidgetState(pub Mutex<WidgetRegistry>);
+
+/// `read_mdlog_state` 返回的前端契约数据（严格 camelCase）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MdlogStateResponse {
+    pub last_write_at: u64,
+    pub heartbeat_at: u64,
+    pub expires_at: u64,
+}
+
+/// 纯函数：根据当前激活文档路径读取同级 sidecar 文件并仲裁存活。
+/// 抽离本函数使存活判断可完全脱离 Tauri 运行时进行高可靠单元测试。
+pub fn read_mdlog_state_from_path(
+    current_path: Option<&Path>,
+    pid_alive: &dyn Fn(u32) -> bool,
+    now: u64,
+) -> Option<MdlogStateResponse> {
+    let current = current_path?;
+    let sidecar_path = sidecar_path_for(current);
+
+    if !sidecar_path.is_file() {
+        return None;
+    }
+
+    let content = std::fs::read_to_string(&sidecar_path).ok()?;
+    let data: MdlogSidecarData = serde_json::from_str(&content).ok()?;
+
+    if !judge_mdlog_alive(&data, now, pid_alive) {
+        return None;
+    }
+
+    let expires_at = data.heartbeat_at.saturating_add(HEARTBEAT_TIMEOUT_MS);
+    Some(MdlogStateResponse {
+        last_write_at: data.last_write_at,
+        heartbeat_at: data.heartbeat_at,
+        expires_at,
+    })
+}
+
+/// 注册交互块 HTML 并返回随机 128-bit UUID 及访问 URL。
+#[tauri::command]
+pub async fn register_widget(
+    state: State<'_, WidgetState>,
+    html: String,
+) -> Result<RegisterResult, String> {
+    if html.len() > MAX_WIDGET_HTML_BYTES {
+        return Err("Widget HTML exceeds maximum size of 512KB".to_string());
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let url = format!("http://vellum-widget.localhost/{id}");
+
+    let mut registry = state
+        .0
+        .lock()
+        .map_err(|_| "Widget registry lock poisoned".to_string())?;
+    registry.insert(id.clone(), html)?;
+
+    Ok(RegisterResult { id, url })
+}
+
+/// 卸载指定的交互块。
+#[tauri::command]
+pub async fn unregister_widget(
+    state: State<'_, WidgetState>,
+    id: String,
+) -> Result<(), String> {
+    let mut registry = state
+        .0
+        .lock()
+        .map_err(|_| "Widget registry lock poisoned".to_string())?;
+    registry.remove(&id);
+    Ok(())
+}
+
+/// 读取当前文档的 mdlog sidecar 存活状态（无入参命令，强制锚定 AppState.current）。
+#[tauri::command]
+pub async fn read_mdlog_state(
+    state: State<'_, AppState>,
+) -> Result<Option<MdlogStateResponse>, String> {
+    let current = state
+        .current
+        .lock()
+        .map_err(|_| "AppState current lock poisoned".to_string())?
+        .clone();
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    let result = read_mdlog_state_from_path(current.as_deref(), &is_pid_alive_win32, now);
+    Ok(result)
 }
