@@ -17,7 +17,7 @@ Tauri 2 + React 19 桌面 Markdown 阅读器，Windows 10/11 x64。
 ```bash
 npm run dev          # Vite 开发服务器（端口 1420）
 npm run build        # tsc + vite build
-npm test             # vitest run（14 测试文件，142 用例）
+npm test             # vitest run（22 测试文件，223+ 用例）
 npm run tauri        # Tauri CLI
 ```
 
@@ -28,6 +28,8 @@ npm run tauri        # Tauri CLI
 全局技能仓库：`C:/Users/17445/Desktop/HwFee-skills/.agents/skills/`
 
 每个项目通过**符号链接**引用仓库中的技能，**不拷贝**。
+
+> **例外说明**：`vellum-mdlog` 为项目专属技能，以真实目录存放于 `.pi/skills/` 并随仓库版本化，**不迁入全局仓库**、**不使用符号联接**。理由：该技能包含针对 Vellum 交互沙箱协议、kami 设计 token 与 CommonMark 围栏规范的强绑定契约，随 Vellum 仓库一同分发版本管理，确保外部开发者 clone 本仓库后无需额外联接即可开箱即用。
 
 ### 安装新技能
 
@@ -56,6 +58,7 @@ npm run tauri        # Tauri CLI
 | `tauri-v2` | Tauri 2 架构、IPC 通信、插件与原生桌面事件开发规范 |
 | `web-artifacts-builder` | 交互式 HTML / React / 可视化 Artifacts 沙箱构建规范 |
 | `superpowers` | 工程化研发方法论套件（头脑风暴、TDD、系统化调试、执行计划、工作流规约） |
+| `vellum-mdlog` | Vellum 交互式 mdlog 日志生成与 `vellum-widget` 交互块编写规范（项目专属技能，随仓库版本化） |
 
 ## 性能优化
 
@@ -85,7 +88,9 @@ npm run tauri        # Tauri CLI
 - 阅读位置记忆是「锚点 + 偏移 + 比例兜底」（`scrollMemory.ts` 记录 / `scrollRestore.ts` 恢复）：恢复优先按 anchorId 定位，标题被删则按 anchorIndex 找最近幸存标题，都没有才退回比例；恢复后图片/字体会撑大 scrollHeight 使落点漂移，`restoreScrollPosition` 的落位守护（ResizeObserver，用户输入/5s 超时结束）会在布局稳定前持续重锚——**不要**改回一次性 `ratio × scrollHeight`，那就是间歇性恢复失败的根因
 - 侧栏布局：目錄 header + 搜索框固定在滚动区外，只有大纲列表在 `.outline-panel__scroll` 内滚动，跟随滚动以它为参照容器；**不要**把搜索框改回 sticky 或放回滚动容器内——会重新引入「搜索框遮挡激活项」和「连点导航按钮时搜索框上浮误点」
 - 数学公式：remark-math + rehype-katex。katex 必须位于 rehype 管线末尾（sanitize 和搜索高亮之后）——提前会让 KaTeX 输出被 sanitize 剥光，或被高亮逻辑拆坏公式 DOM；remark 侧的 `remarkMathCurrencyGuard` 是 Pandoc 式货币保护（「$5 和 $10」不误判为公式），别删；KaTeX 字体由 `vite.config.ts` 的 `katexWoff2Only` 插件裁成 woff2-only（WebView2 不需要 woff/ttf）
-- `components` prop 必须是 `useMemo` 结果；文档无原始 HTML 时会自动跳过 `rehype-raw`
+- `WidgetSandbox` 组件必须严格实施 `React.memo` 与全局最多 10 个存活 iframe LRU 休眠机制；沙箱必须懒挂载，追加写入触发整篇重载时已有 iframe 必须保持位置稳定，严禁未经 memo 或频繁重建导致 WebView 子帧暴涨与交互状态丢失
+- `CodeBlock.tsx` 与 `MarkdownDocument.tsx` 语言提取正则必须支持连字符（`/language-([\w-]+)/`），确保 `vellum-widget` 与 `objective-c` 等语言标识完整提取，未注册语言平滑降级为普通代码块
+- `components` prop 必须是 `useMemo` 结果；其引用稳定性由生产接线级回归测试（`MarkdownDocument.test.tsx` 接线用例）保证，热重载不得重建 iframe；文档无原始 HTML 时会自动跳过 `rehype-raw`
 - 完整优化记录见 `OPTIMIZATION_HANDOFF.md`（含评估后放弃的方向）
 
 ### 文件索引

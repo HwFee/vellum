@@ -823,3 +823,19 @@ frontmatter 包含 name 与 description（含关键词：`对话记录`、`vellu
 | **建议 7** | 建议 | 复审 A / Rust 侧存活判定与协议响应测试需具备可注入性 | **已采纳**。§9.2 规定将存活判定抽象为纯函数 `judge_mdlog_alive`（注入 pid_alive 函数指针），协议处理抽象为纯函数 `build_widget_response`，脱离 GUI/OS 环境可测。 |
 | **建议 8** | 建议 | 复审 A / 补充 wry 前缀匹配说明 | **已采纳**。§4.3 补充说明 wry 前缀匹配机制使外部同名主机名请求安全进入本地 handler 并返回 404。 |
 | **建议 9** | 建议 | 复审 A / 精确化 rehype-sanitize 描述 | **已采纳**。§4.2 明确围栏源码作为字符串原样传给沙箱，文档整体依然经由 sanitize 保护，Unified 管线不新增任何标签例外。 |
+
+---
+
+## 附录：实现勘误与对齐（v3 落地后补记，2026-09-05）
+
+实施与两轮集成审核（`docs/superpowers/reviews/2026-09-05-integration-audit-qwen.md`、`2026-09-05-intfix-review-{qwen,gemini}.md`）后，以下实现细节与正文存在偏差，以此附录为准：
+
+| 节 | 正文设计 | 落地实现 | 理由 |
+|---|---|---|---|
+| §4.1 | `widgetRegistry.subscribe(id, onDormant)` 带 widgetId 过滤 | `subscribe(cb)` 无过滤，订阅方自行比对 | 实现更简单；休眠判定只发生在 WidgetSandbox 内部，过滤无收益 |
+| §4.2 | `register_widget` 长度预检按字符 | 按字节（Rust `String::len()` 即字节数，> 512×1024 拒绝） | Rust 语义即字节；CJK 内容更早触发预检属保守方向 |
+| §4.3 | pid 存活判定（未定实现） | `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` + `GetExitCodeProcess`（`STILL_ACTIVE=259` 为存活，API 失败视为死亡）+ `CloseHandle` | Windows 标准做法；纯函数 `judge_mdlog_alive` 注入 pid_alive 便于测试 |
+| §4.4 | `should_rebind` 统一重绑判定 | 拆分为：watcher 解码失败自清 watcher；注册表清理由 `should_clear_registry` 判定；尾款轮进一步删除兼容包装 `should_rebind`，`apply_rebind` 直接收「路径是否变更」布尔 | 消除「清了 watcher 却没清表」分叉风险；消除死代码警告 |
+| §7.2 | 授权按「该文档」语义 | 门禁以 widget `html` 字符串为键：**同一份 widget 内容只需授权一次**，跨文档逐字节相同内容不复位、不重复要求点击 | 内容相同即无串档风险；避免重复打扰 |
+| §4.1/§8 | 降级渲染语言未统一 | 统一为 `language="markup"`（PrismLight 已注册；`xml` 别名未注册，写了也无高亮） | 两条同义降级路径（512KB 预检 / IPC 失败 fallback）行为一致 |
+| §9.2 | 测试基线 17 文件 / 175 用例、后端 37 | 见 `AGENTS.md` 命令节终值（前端 22 文件 / 223+ 用例、后端 cargo 42：lib 35 + main 7） | WP3 修复、集成修复批与尾款轮持续补测；AGENTS.md 为测试基线唯一真源 |
