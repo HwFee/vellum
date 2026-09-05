@@ -34,13 +34,14 @@ const lastOpenedGet = vi.fn(() => Promise.resolve<string | undefined>(undefined)
 const storeGet = vi.fn((key: string) =>
   key === "lastOpenedPath" ? lastOpenedGet() : Promise.resolve(undefined)
 );
+const storeSet = vi.fn(() => Promise.resolve());
 
 vi.mock("@tauri-apps/plugin-store", () => ({
   Store: {
     load: vi.fn(() =>
       Promise.resolve({
         get: storeGet,
-        set: vi.fn(() => Promise.resolve()),
+        set: storeSet,
         save: vi.fn(() => Promise.resolve()),
       })
     ),
@@ -74,6 +75,8 @@ beforeEach(() => {
   drainInvoke.mockReset();
   drainInvoke.mockResolvedValue([]);
   storeGet.mockClear();
+  storeSet.mockClear();
+  storeSet.mockImplementation(() => Promise.resolve());
   lastOpenedGet.mockReset();
   lastOpenedGet.mockResolvedValue(undefined);
   vi.mocked(listen).mockReset();
@@ -393,6 +396,138 @@ test("sticks to bottom and launches settle guard when hot reload occurs near bot
   await waitFor(() => expect(screen.getByText("Appended new lines.")).toBeInTheDocument());
   // 新内容渲染后 scrollTop 必须被设为最新的 scrollHeight (落底)
   expect(scrollContainer.scrollTop).toBe(scrollContainer.scrollHeight);
+});
+
+test("suppresses reload note and fresh-ink animation during hot reload when mdlog is active", async () => {
+  vi.mocked(listen).mockClear();
+
+  // 模拟当前文档存在存活的 sidecar
+  backendInvoke.mockImplementation(async (cmd: string, _args?: unknown) => {
+    if (cmd === "load_document") {
+      return {
+        path: "C:/notes/live.md",
+        fileName: "live.md",
+        parentPath: "C:/notes",
+        markdown: "# Live Doc V1",
+      };
+    }
+    if (cmd === "read_mdlog_state") {
+      return {
+        lastWriteAt: Date.now(),
+        heartbeatAt: Date.now(),
+        expiresAt: Date.now() + 120_000,
+      };
+    }
+    return undefined;
+  });
+
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/live.md");
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Live Doc V1" })).toBeInTheDocument());
+
+  // 触发 file-changed 热重载
+  backendInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === "load_document") {
+      return {
+        path: "C:/notes/live.md",
+        fileName: "live.md",
+        parentPath: "C:/notes",
+        markdown: "# Live Doc V2",
+      };
+    }
+    if (cmd === "read_mdlog_state") {
+      return {
+        lastWriteAt: Date.now(),
+        heartbeatAt: Date.now(),
+        expiresAt: Date.now() + 120_000,
+      };
+    }
+    return undefined;
+  });
+
+  const fileChangedCall = vi.mocked(listen).mock.calls.find(
+    ([event]) => event === "file-changed"
+  );
+  await act(async () => {
+    (fileChangedCall![1] as (payload: unknown) => void)({ payload: {} });
+  });
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Live Doc V2" })).toBeInTheDocument());
+
+  // 印章组件不得挂载
+  expect(screen.queryByText("墨迹未干")).not.toBeInTheDocument();
+  // .document-content 上不得添加 fresh-ink 类名
+  const docContent = document.querySelector(".document-content");
+  expect(docContent).not.toHaveClass("fresh-ink");
+});
+
+test("pauses debounced scrollMemory saving during active mdlog and flushes once upon disconnection", async () => {
+  const saveSpy = vi.fn();
+  storeSet.mockImplementation(saveSpy);
+  const { Store } = await import("@tauri-apps/plugin-store");
+  vi.mocked(Store.load).mockResolvedValue({
+    get: vi.fn(() => Promise.resolve(undefined)),
+    set: storeSet,
+    save: vi.fn(() => Promise.resolve()),
+  } as unknown as Awaited<ReturnType<typeof Store.load>>);
+
+  let activeState: { lastWriteAt: number; heartbeatAt: number; expiresAt: number } | null = {
+    lastWriteAt: Date.now(),
+    heartbeatAt: Date.now(),
+    expiresAt: Date.now() + 120_000,
+  };
+
+  backendInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === "load_document") {
+      return {
+        path: "C:/notes/scroll-live.md",
+        fileName: "scroll-live.md",
+        parentPath: "C:/notes",
+        markdown: "# Scroll Live\n\nLong body content.",
+      };
+    }
+    if (cmd === "read_mdlog_state") {
+      return activeState;
+    }
+    return undefined;
+  });
+
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/scroll-live.md");
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Scroll Live" })).toBeInTheDocument());
+
+  const scrollContainer = document.querySelector(".document-scroll") as HTMLElement;
+  saveSpy.mockClear();
+
+  // 记录态下触发多次滚动事件（使用 fake timers 推进 400ms 验证 300ms 防抖被暂停）
+  vi.useFakeTimers();
+  fireEvent.scroll(scrollContainer);
+  act(() => {
+    vi.advanceTimersByTime(400);
+  });
+  // 必须被暂停，不写入 store
+  expect(saveSpy).not.toHaveBeenCalled();
+  vi.useRealTimers();
+
+  // 模拟 sidecar 断开（mdlog-state-changed 返回 null）
+  activeState = null;
+  const stateChangedCall = vi.mocked(listen).mock.calls.find(
+    ([event]) => event === "mdlog-state-changed"
+  );
+  await act(async () => {
+    if (stateChangedCall) {
+      (stateChangedCall[1] as (payload: unknown) => void)({ payload: {} });
+    }
+  });
+
+  // 断开时集中补写一次当前滚动位置
+  await waitFor(() => {
+    expect(saveSpy).toHaveBeenCalledWith("C:/notes/scroll-live.md", expect.any(Object));
+  });
 });
 
 describe("App outline integration", () => {

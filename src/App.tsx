@@ -17,6 +17,7 @@ import { loadScrollPosition, saveScrollPosition } from "./lib/scrollMemory";
 import { captureScrollPosition, restoreScrollPosition } from "./lib/scrollRestore";
 import { animateScrollTo, cancelScrollAnimation } from "./lib/smoothScroll";
 import { isContainerNearBottom } from "./lib/scrollStick";
+import type { MdlogState } from "./lib/mdlogState";
 import type { DocumentState, LoadedDocument, OutlineHeading } from "./types";
 
 // 代码分割：react-markdown + rehype/remark + 语法高亮是体积最大的依赖，
@@ -27,6 +28,11 @@ export default function App() {
   const [state, setState] = useState<DocumentState>({ status: "empty" });
   const [reloadTick, setReloadTick] = useState(0);
   const [showReloadNote, setShowReloadNote] = useState(false);
+  const [mdlogState, setMdlogState] = useState<MdlogState | null>(null);
+  const isMdlogActive = mdlogState !== null;
+  const isMdlogActiveRef = useRef(false);
+  isMdlogActiveRef.current = isMdlogActive;
+  const prevIsMdlogActiveRef = useRef(false);
   const shouldStickToBottomRef = useRef(false);
   const startupLoaded = useRef(false);
   const openRequestSeenRef = useRef(false);
@@ -123,6 +129,17 @@ export default function App() {
       currentPathRef.current = document.path;
       setState({ status: "ready", document });
       void saveLastOpened(document.path);
+
+      try {
+        const liveState = await invoke<MdlogState | null>("read_mdlog_state");
+        if (loadRequestRef.current === requestId) {
+          setMdlogState(liveState);
+        }
+      } catch {
+        if (loadRequestRef.current === requestId) {
+          setMdlogState(null);
+        }
+      }
     } catch (error) {
       if (loadRequestRef.current !== requestId) return;
       setState({ status: "error", message: String(error), path });
@@ -145,7 +162,9 @@ export default function App() {
       currentPathRef.current = document.path;
       setState({ status: "ready", document });
       setReloadTick((tick) => tick + 1);
-      setShowReloadNote(true);
+      if (!isMdlogActiveRef.current) {
+        setShowReloadNote(true);
+      }
     } catch {
       // 重载失败时保留旧内容，不打扰用户
     }
@@ -317,6 +336,7 @@ export default function App() {
     if (!container) return;
 
     const handleScroll = () => {
+      if (isMdlogActiveRef.current) return;
       if (scrollSaveTimerRef.current !== null) {
         clearTimeout(scrollSaveTimerRef.current);
       }
@@ -371,7 +391,7 @@ export default function App() {
 
   // 热重载提示：正文做一次由虚而实的"落墨"；宽窗口的页边批注在动画结束后卸载
   useEffect(() => {
-    if (reloadTick === 0) return;
+    if (reloadTick === 0 || isMdlogActiveRef.current) return;
     const el = documentContentRef.current;
     if (el) {
       el.classList.remove("fresh-ink");
@@ -381,6 +401,52 @@ export default function App() {
     const timer = setTimeout(() => setShowReloadNote(false), 2800);
     return () => clearTimeout(timer);
   }, [reloadTick]);
+
+  // mdlog 活跃记录态与状态监听
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    async function checkState() {
+      if (!currentPathRef.current) return;
+      try {
+        const liveState = await invoke<MdlogState | null>("read_mdlog_state");
+        if (!cancelled) {
+          setMdlogState(liveState);
+        }
+      } catch {
+        if (!cancelled) {
+          setMdlogState(null);
+        }
+      }
+    }
+
+    async function bindState() {
+      const unlistenFn = await listen("mdlog-state-changed", () => {
+        void checkState();
+      });
+      if (cancelled) {
+        unlistenFn();
+      } else {
+        unlisten = unlistenFn;
+      }
+    }
+
+    void bindState();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // 记录态断开时集中补写一次阅读位置
+  useEffect(() => {
+    if (prevIsMdlogActiveRef.current && !isMdlogActive) {
+      persistCurrentScroll();
+    }
+    prevIsMdlogActiveRef.current = isMdlogActive;
+  }, [isMdlogActive]);
 
   // 窄屏下按 Escape 关闭大纲面板
   useEffect(() => {
