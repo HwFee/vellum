@@ -1,12 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use notify::RecommendedWatcher;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use tauri::{Emitter, Manager};
 use vellum_lib::document::{self, LoadedDocument};
+use vellum_lib::state::AppState;
 use vellum_lib::watcher;
 
 #[cfg(windows)]
@@ -159,15 +159,6 @@ fn drain_pending_open_paths(state: tauri::State<PendingOpenPaths>) -> Result<Vec
     Ok(paths.drain(..).collect())
 }
 
-/// Canonicalized path of the currently loaded Markdown document. It is the
-/// only trusted anchor for resolving local asset paths, so the frontend can
-/// never steer file reads outside the open document's directory.
-#[derive(Debug, Default)]
-struct AppState {
-    current: Mutex<Option<PathBuf>>,
-    /// 当前文档的文件监听器。drop 时自动停止监听并结束事件循环线程。
-    watcher: Mutex<Option<RecommendedWatcher>>,
-}
 
 #[tauri::command]
 async fn load_document(
