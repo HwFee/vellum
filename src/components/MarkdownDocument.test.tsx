@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { invoke } from "@tauri-apps/api/core";
 import { MarkdownDocument } from "./MarkdownDocument";
 import { extractOutline } from "../lib/outline";
 import { useState } from "react";
@@ -9,8 +10,17 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
   openUrl: vi.fn(),
 }));
 
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+}));
+
 beforeEach(() => {
   vi.mocked(openUrl).mockClear();
+  vi.mocked(invoke).mockReset();
+  vi.mocked(invoke).mockResolvedValue({
+    id: "w-stable",
+    url: "http://vellum-widget.localhost/w-stable",
+  });
 });
 
 describe("MarkdownDocument", () => {
@@ -676,33 +686,71 @@ plain block
   });
 
   it("preserves components memo and iframe DOM instance across markdown appends", async () => {
+    vi.spyOn(globalThis, "IntersectionObserver").mockImplementation(function (
+      this: unknown,
+      callback: IntersectionObserverCallback
+    ) {
+      return {
+        observe: vi.fn(() => {
+          callback(
+            [{ isIntersecting: true } as IntersectionObserverEntry],
+            {} as IntersectionObserver
+          );
+        }),
+        unobserve: vi.fn(),
+        disconnect: vi.fn(),
+        takeRecords: vi.fn(() => []),
+        root: null,
+        rootMargin: "200px",
+        thresholds: [0],
+      } as unknown as IntersectionObserver;
+    });
+
     const initialMarkdown = [
       "<!-- mdlog:v1 s=123 -->",
+      "",
+      "# Section 1",
       "",
       "```vellum-widget",
       "<div>stable iframe</div>",
       "```",
     ].join("\n");
 
-    const { container, rerender } = render(<MarkdownDocument markdown={initialMarkdown} />);
+    // 生产接线：像 App.tsx:498 一样向 MarkdownDocument 传入根据 markdown 提取的大纲数组
+    const initialHeadings = extractOutline(initialMarkdown);
+
+    const { container, rerender } = render(
+      <MarkdownDocument markdown={initialMarkdown} headings={initialHeadings} />
+    );
     await act(async () => {});
 
     const initialWidget = container.querySelector(".mdlog-widget");
+    const initialIframe = container.querySelector("iframe");
     expect(initialWidget).toBeInTheDocument();
+    expect(initialIframe).toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledTimes(1);
 
-    // 模拟追加一条新消息（热重载更新 markdown）
+    // 模拟追加一条新消息（热重载更新 markdown 并产生新的 headings 引用）
     const appendedMarkdown = [
       initialMarkdown,
       "",
       "新消息追加内容",
     ].join("\n");
+    const appendedHeadings = extractOutline(appendedMarkdown);
 
-    rerender(<MarkdownDocument markdown={appendedMarkdown} />);
+    rerender(
+      <MarkdownDocument markdown={appendedMarkdown} headings={appendedHeadings} />
+    );
     await act(async () => {});
 
     const rerenderedWidget = container.querySelector(".mdlog-widget");
+    const rerenderedIframe = container.querySelector("iframe");
     expect(rerenderedWidget).toBeInTheDocument();
-    // A4: components memo 与引用稳定，追加内容前后已存在的 widget DOM 容器必须严格为同一实例
+    expect(rerenderedIframe).toBeInTheDocument();
+
+    // 生产接线级断言：追加内容前后已存在的 widget DOM 容器与 iframe 必须严格为同一实例，且 register_widget 仅调 1 次
     expect(rerenderedWidget).toBe(initialWidget);
+    expect(rerenderedIframe).toBe(initialIframe);
+    expect(invoke).toHaveBeenCalledTimes(1);
   });
 });

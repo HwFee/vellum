@@ -225,6 +225,8 @@ const RAW_HTML_RE = /<\/?[a-zA-Z!?]/;
 function useHeadingIdResolver(headings?: OutlineHeading[]) {
   const usedIds = useRef(new Set<string>());
   const fallbackCounter = useRef(0);
+  const headingsRef = useRef(headings);
+  headingsRef.current = headings;
 
   // Reset allocation on every render so document/headings changes do not carry over stale ids.
   usedIds.current = new Set<string>();
@@ -232,7 +234,7 @@ function useHeadingIdResolver(headings?: OutlineHeading[]) {
 
   return useCallback(
     (level: 1 | 2 | 3, text: string) => {
-      const candidates = headings?.filter((h) => h.level === level && h.text === text) ?? [];
+      const candidates = headingsRef.current?.filter((h) => h.level === level && h.text === text) ?? [];
       for (const candidate of candidates) {
         if (!usedIds.current.has(candidate.id)) {
           usedIds.current.add(candidate.id);
@@ -244,7 +246,7 @@ function useHeadingIdResolver(headings?: OutlineHeading[]) {
       // 且 KaTeX 输出含 MathML 隐藏副本）。渲染顺序与大纲顺序一致（同源文档），取同级
       // 第一个未使用且源文本含 $ 的标题按序分配。限定含 $ 是为了防止原始 HTML 标题
       //（不在大纲里）误占大纲 id。
-      const mathCandidate = headings?.find(
+      const mathCandidate = headingsRef.current?.find(
         (h) => h.level === level && h.text.includes("$") && !usedIds.current.has(h.id)
       );
       if (mathCandidate) {
@@ -268,7 +270,7 @@ function useHeadingIdResolver(headings?: OutlineHeading[]) {
       fallbackCounter.current = suffix;
       return id;
     },
-    [headings]
+    []
   );
 }
 
