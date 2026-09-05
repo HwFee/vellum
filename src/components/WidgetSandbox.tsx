@@ -153,7 +153,7 @@ export const WidgetSandbox = memo(function WidgetSandbox({
 
   // 错误降级渲染（A5: 内部渲染 CodeBlock，保证 MarkdownDocument memo 引用稳定性）
   if (hasError) {
-    return <CodeBlock code={html} language="" />;
+    return <CodeBlock code={html} language="xml" />;
   }
 
   // 休眠状态占位块

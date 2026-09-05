@@ -168,7 +168,9 @@ describe("WidgetSandbox", () => {
     });
 
     // A5: 降级由组件内部渲染 CodeBlock，不依赖父级 fallback prop 传参
-    expect(screen.getByText("<div>err</div>")).toBeInTheDocument();
+    // xml 高亮会把 HTML 拆成多个 token，故对 textContent 做整体断言
+    const code = document.querySelector(".code-block__body code");
+    expect(code?.textContent).toBe("<div>err</div>");
   });
 
   it("renders dormant placeholder and reactivates upon click", async () => {
