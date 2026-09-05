@@ -238,4 +238,29 @@ describe("WidgetSandbox", () => {
     unmount();
     expect(invoke).toHaveBeenCalledWith("unregister_widget", { id: "w-6" });
   });
+
+  it("P2: unregisters old id and resets authorization when html changes or autoMount flips to false", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      id: "w-old",
+      url: "http://vellum-widget.localhost/w-old",
+    });
+
+    // 1. 用户手动授权非受信组件
+    const { rerender } = render(<WidgetSandbox html="<div>old</div>" autoMount={false} />);
+    const placeholder = screen.getByText("交互内容 · 点击加载");
+    await act(async () => {
+      fireEvent.click(placeholder);
+    });
+
+    expect(invoke).toHaveBeenCalledWith("register_widget", { html: "<div>old</div>" });
+    expect(screen.getByTitle("交互演示")).toBeInTheDocument();
+
+    // 2. html prop 变化：实例必须释放旧 id，清空 URL，回到未授权占位状态
+    rerender(<WidgetSandbox html="<div>new</div>" autoMount={false} />);
+    await act(async () => {});
+
+    expect(invoke).toHaveBeenCalledWith("unregister_widget", { id: "w-old" });
+    expect(screen.getByText("交互内容 · 点击加载")).toBeInTheDocument();
+    expect(screen.queryByTitle("交互演示")).not.toBeInTheDocument();
+  });
 });

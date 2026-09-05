@@ -2,6 +2,7 @@ import {
   memo,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -36,6 +37,35 @@ export const WidgetSandbox = memo(function WidgetSandbox({
   const [isUserActivated, setIsUserActivated] = useState<boolean>(false);
   const [isInViewport, setIsInViewport] = useState<boolean>(false);
   const [hasError, setHasError] = useState<boolean>(false);
+
+  const prevHtmlRef = useRef(html);
+  const prevAutoMountRef = useRef(autoMount);
+
+  // 0. 内容/授权生命周期绑定（P2 防线）：
+  // html prop 变化 或 autoMount 翻为 false 时：
+  // 对已注册的旧 id unregister_widget、清空 widgetUrl、重置 isUserActivated、重置休眠态。
+  useLayoutEffect(() => {
+    const htmlChanged = prevHtmlRef.current !== html;
+    const autoMountFlippedFalse = prevAutoMountRef.current && !autoMount;
+
+    if (htmlChanged || autoMountFlippedFalse) {
+      prevHtmlRef.current = html;
+      prevAutoMountRef.current = autoMount;
+
+      if (idRef.current) {
+        const idToUnregister = idRef.current;
+        idRef.current = null;
+        void Promise.resolve(invoke("unregister_widget", { id: idToUnregister })).catch(() => {});
+      }
+      setWidgetUrl(null);
+      setIsDormant(false);
+      setIsUserActivated(false);
+      setHasError(false);
+    } else {
+      prevHtmlRef.current = html;
+      prevAutoMountRef.current = autoMount;
+    }
+  }, [html, autoMount]);
 
   // 1. 注册进入 widgetRegistry 单例并订阅休眠状态
   useEffect(() => {

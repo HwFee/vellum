@@ -753,4 +753,89 @@ plain block
     expect(rerenderedIframe).toBe(initialIframe);
     expect(invoke).toHaveBeenCalledTimes(1);
   });
+
+  it("P2 防线：非受信文档 X 点击授权后切非受信文档 Y，Y 必须显示占位块且 register 不新增", async () => {
+    vi.spyOn(globalThis, "IntersectionObserver").mockImplementation(function (
+      this: unknown,
+      callback: IntersectionObserverCallback
+    ) {
+      return {
+        observe: vi.fn(() => {
+          callback(
+            [{ isIntersecting: true } as IntersectionObserverEntry],
+            {} as IntersectionObserver
+          );
+        }),
+        unobserve: vi.fn(),
+        disconnect: vi.fn(),
+        takeRecords: vi.fn(() => []),
+        root: null,
+        rootMargin: "200px",
+        thresholds: [0],
+      } as unknown as IntersectionObserver;
+    });
+
+    vi.mocked(invoke).mockImplementation(async (cmd) => {
+      if (cmd === "register_widget") {
+        return {
+          id: "widget-x-id",
+          url: "http://vellum-widget.localhost/widget-x-id",
+        };
+      }
+      return null;
+    });
+
+    // 1. 非受信文档 X（无 <!-- mdlog:v1 --> 头）
+    const docX = [
+      "# Doc X",
+      "",
+      "```vellum-widget",
+      "<div>content of X</div>",
+      "```",
+    ].join("\n");
+    const headingsX = extractOutline(docX);
+
+    const { container, rerender } = render(
+      <MarkdownDocument markdown={docX} headings={headingsX} />
+    );
+    await act(async () => {});
+
+    // 初始必须为占位块，未发生 register
+    const placeholderX = screen.getByText("交互内容 · 点击加载");
+    expect(placeholderX).toBeInTheDocument();
+    expect(invoke).not.toHaveBeenCalledWith("register_widget", expect.anything());
+
+    // 用户主动点击授权挂载 X
+    await act(async () => {
+      fireEvent.click(placeholderX);
+    });
+    expect(invoke).toHaveBeenCalledWith("register_widget", { html: "<div>content of X</div>" });
+    expect(container.querySelector("iframe")).toBeInTheDocument();
+    const registerCallsBeforeSwitch = vi.mocked(invoke).mock.calls.filter(
+      (call) => call[0] === "register_widget"
+    ).length;
+    expect(registerCallsBeforeSwitch).toBe(1);
+
+    // 2. 切换到另一篇非受信文档 Y（同结构，不同 widget 内容）
+    const docY = [
+      "# Doc Y",
+      "",
+      "```vellum-widget",
+      "<div>content of Y</div>",
+      "```",
+    ].join("\n");
+    const headingsY = extractOutline(docY);
+
+    rerender(<MarkdownDocument markdown={docY} headings={headingsY} />);
+    await act(async () => {});
+
+    // P2 防线断言：Y 绝不能免点击自动挂载，必须显示占位块且 register 不新增
+    expect(screen.getByText("交互内容 · 点击加载")).toBeInTheDocument();
+    expect(container.querySelector("iframe")).not.toBeInTheDocument();
+    const registerCallsAfterSwitch = vi.mocked(invoke).mock.calls.filter(
+      (call) => call[0] === "register_widget"
+    ).length;
+    expect(registerCallsAfterSwitch).toBe(1);
+    expect(invoke).toHaveBeenCalledWith("unregister_widget", { id: "widget-x-id" });
+  });
 });
