@@ -610,4 +610,99 @@ plain block
     expect(container.querySelectorAll("mark.search-match")).toHaveLength(1);
     expect(container.querySelector("code mark")).not.toBeInTheDocument();
   });
+
+  it("extracts hyphenated language names like objective-c without truncation", async () => {
+    const markdown = [
+      "```objective-c",
+      'NSLog(@"Hello");',
+      "```",
+    ].join("\n");
+
+    render(<MarkdownDocument markdown={markdown} />);
+    await act(async () => {});
+
+    expect(screen.getByText("objective-c")).toBeInTheDocument();
+  });
+
+  it("renders vellum-widget with autoMount=true for trusted mdlog documents", async () => {
+    const markdown = [
+      "<!-- mdlog:v1 s=123 -->",
+      "",
+      "# Pi 对话记录",
+      "",
+      "```vellum-widget",
+      "<div>interactive content</div>",
+      "```",
+    ].join("\n");
+
+    const { container } = render(<MarkdownDocument markdown={markdown} />);
+    await act(async () => {});
+
+    expect(container.querySelector(".mdlog-widget")).toBeInTheDocument();
+    expect(screen.queryByText("交互内容 · 点击加载")).not.toBeInTheDocument();
+  });
+
+  it("renders vellum-widget with autoMount=false for untrusted documents", async () => {
+    const markdown = [
+      "# Regular Document",
+      "",
+      "```vellum-widget",
+      "<div>untrusted interactive</div>",
+      "```",
+    ].join("\n");
+
+    render(<MarkdownDocument markdown={markdown} />);
+    await act(async () => {});
+
+    expect(screen.getByText("交互内容 · 点击加载")).toBeInTheDocument();
+  });
+
+  it("intercepts vellum-widget exceeding 512KB and downgrades to CodeBlock", async () => {
+    const oversizedCode = "x".repeat(524289);
+    const markdown = [
+      "<!-- mdlog:v1 s=123 -->",
+      "",
+      "```vellum-widget",
+      oversizedCode,
+      "```",
+    ].join("\n");
+
+    const { container } = render(<MarkdownDocument markdown={markdown} />);
+    await act(async () => {});
+
+    // 超过 512KB 降级为普通 CodeBlock，不进入 WidgetSandbox
+    expect(container.querySelector(".mdlog-widget")).not.toBeInTheDocument();
+    expect(container.querySelector(".code-block")).toBeInTheDocument();
+  });
+
+  it("preserves components memo and iframe DOM instance across markdown appends", async () => {
+    const initialMarkdown = [
+      "<!-- mdlog:v1 s=123 -->",
+      "",
+      "```vellum-widget",
+      "<div>stable iframe</div>",
+      "```",
+    ].join("\n");
+
+    const { container, rerender } = render(<MarkdownDocument markdown={initialMarkdown} />);
+    await act(async () => {});
+
+    const initialWidget = container.querySelector(".mdlog-widget");
+    expect(initialWidget).toBeInTheDocument();
+
+    // 模拟追加一条新消息（热重载更新 markdown）
+    const appendedMarkdown = [
+      initialMarkdown,
+      "",
+      "新消息追加内容",
+    ].join("\n");
+
+    rerender(<MarkdownDocument markdown={appendedMarkdown} />);
+    await act(async () => {});
+
+    const rerenderedWidget = container.querySelector(".mdlog-widget");
+    expect(rerenderedWidget).toBeInTheDocument();
+    // A4: components memo 与引用稳定，追加内容前后已存在的 widget DOM 容器必须严格为同一实例
+    expect(rerenderedWidget).toBe(initialWidget);
+  });
 });

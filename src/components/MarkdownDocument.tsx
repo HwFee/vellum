@@ -11,6 +11,7 @@ import { MarkdownImage } from "./MarkdownImage";
 import { slugify } from "../lib/outline";
 import { animateScrollTo } from "../lib/smoothScroll";
 import { CodeBlock } from "./CodeBlock";
+import { WidgetSandbox } from "./WidgetSandbox";
 import type { OutlineHeading } from "../types";
 import type { PluggableList } from "unified";
 
@@ -295,6 +296,11 @@ type MarkdownBodyProps = {
 const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuery }: MarkdownBodyProps) {
   const resolveHeadingId = useHeadingIdResolver(headings);
 
+  const isTrustedMdlog = useMemo(
+    () => /^\uFEFF?\s*<!--\s*mdlog:v1/.test(markdown),
+    [markdown]
+  );
+
   // 文档不含原始 HTML 时跳过 rehype-raw（其内部会对整棵树再做一次 HTML 解析），
   // 输出完全一致；rehype-sanitize 始终保留作为安全保障
   const hasRawHtml = useMemo(() => RAW_HTML_RE.test(markdown), [markdown]);
@@ -375,9 +381,23 @@ const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuer
               node?: { tagName?: string };
             }>;
             const className = codeChild.props.className ?? "";
-            const match = /language-(\w+)/.exec(className);
+            const match = /language-([\w-]+)/.exec(className);
             const language = match?.[1] ?? "";
             const code = extractText(codeChild.props.children).replace(/\n$/, "");
+
+            if (language === "vellum-widget") {
+              const codeBytes = new TextEncoder().encode(code).length;
+              if (codeBytes > 524288) {
+                return <CodeBlock code={code} language="" />;
+              }
+              return (
+                <WidgetSandbox
+                  html={code}
+                  autoMount={isTrustedMdlog}
+                />
+              );
+            }
+
             return <CodeBlock code={code} language={language} />;
           }
         }
@@ -391,7 +411,7 @@ const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuer
         );
       },
     }),
-    [resolveHeadingId]
+    [resolveHeadingId, isTrustedMdlog]
   );
 
   return (
