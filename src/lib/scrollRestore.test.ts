@@ -169,12 +169,39 @@ describe("restoreScrollPosition", () => {
     expect(cancelScrollAnimationMock).toHaveBeenCalledWith(container);
   });
 
+  it("自定义滚动条拖拽（vellum:scrollbar-drag）同样结束守护并取消动画", () => {
+    const container = makeContainer(0, 3000, 500);
+    const content = document.createElement("div");
+    restoreScrollPosition(container, content, { ratio: 0.4 }, []);
+
+    // 拖 thumb 直接写 container.scrollTop，不产生 wheel/touch/keydown；
+    // 若守护不认这个信号，下一次内容 resize 会把用户拖走的位置又拉回锚点。
+    container.dispatchEvent(
+      new CustomEvent("vellum:scrollbar-drag", { bubbles: true })
+    );
+    expect(cancelScrollAnimationMock).toHaveBeenCalledTimes(1);
+    expect(cancelScrollAnimationMock).toHaveBeenCalledWith(container);
+
+    // 守护确已结束：后续用户事件不再重复触发（监听已撤）
+    container.dispatchEvent(new Event("wheel"));
+    expect(cancelScrollAnimationMock).toHaveBeenCalledTimes(1);
+  });
+
   it("返回的取消函数结束后，用户事件不再触发取消动画", () => {
     const container = makeContainer(0, 3000, 500);
     const content = document.createElement("div");
     const cancel = restoreScrollPosition(container, content, { ratio: 0.4 }, []);
     cancel();
     container.dispatchEvent(new Event("wheel"));
+    expect(cancelScrollAnimationMock).not.toHaveBeenCalled();
+  });
+
+  it("取消函数结束后 vellum:scrollbar-drag 也不再触发守护结束", () => {
+    const container = makeContainer(0, 3000, 500);
+    const content = document.createElement("div");
+    const cancel = restoreScrollPosition(container, content, { ratio: 0.4 }, []);
+    cancel();
+    container.dispatchEvent(new CustomEvent("vellum:scrollbar-drag", { bubbles: true }));
     expect(cancelScrollAnimationMock).not.toHaveBeenCalled();
   });
 });

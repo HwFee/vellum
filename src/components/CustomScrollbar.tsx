@@ -135,6 +135,12 @@ export function CustomScrollbar({ containerRef, contentRef }: CustomScrollbarPro
     const container = containerRef.current;
     dragStartScrollTopRef.current = container?.scrollTop ?? 0;
 
+    // 拖 thumb 是直接写 container.scrollTop，不会像滚轮/触摸/按键那样产生输入事件。
+    // 阅读位置恢复的「落位守护」与任何程序化滚动动画都需要在接管瞬间知道这件事，
+    // 否则下一次内容尺寸变化会把用户刚拖走的位置重新拉回锚点。事件在滚动容器上
+    // 派发并允许冒泡，使仅监听容器或仅监听 document 的消费方都能收到。
+    container?.dispatchEvent(new CustomEvent("vellum:scrollbar-drag", { bubbles: true }));
+
     function handleMouseMove(moveEvent: MouseEvent) {
       const container = containerRef.current;
       if (!container) return;

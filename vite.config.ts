@@ -1,5 +1,5 @@
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vitest/config";
+import { defineConfig, defaultExclude } from "vitest/config";
 import { visualizer } from "rollup-plugin-visualizer";
 import type { Plugin } from "vite";
 
@@ -72,5 +72,7 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/test/setup.ts",
+    // 审核探针/草稿测试（包括其他 Agent 暂时放在 outputs/ 的验证文件）不得被全量跑拾取
+    exclude: [...defaultExclude, "outputs/**", "dist/**"],
   },
 });

@@ -101,8 +101,9 @@ export function resolveAnchorElement(
  * scrollHeight、推动内容下移，目标点随之漂移。这里在初次恢复后用 ResizeObserver
  * 盯住内容尺寸，一旦变化就按锚点重新定位，直到布局稳定。
  *
- * 守护结束条件（先到为准）：用户滚轮/触摸/按键接管、超过 SETTLE_GUARD_MS、
- * 返回的取消函数被调用（切换文档/组件卸载）。
+ * 守护结束条件（先到为准）：用户滚轮/触摸/按键接管、自定义滚动条拖拽接管
+ *（容器上的 vellum:scrollbar-drag，拖 thumb 不产生任何原生输入事件）、
+ * 超过 SETTLE_GUARD_MS、返回的取消函数被调用（切换文档/组件卸载）。
  */
 export function restoreScrollPosition(
   container: HTMLElement,
@@ -134,6 +135,7 @@ export function restoreScrollPosition(
     observer.disconnect();
     container.removeEventListener("wheel", endByUser);
     container.removeEventListener("touchstart", endByUser);
+    container.removeEventListener("vellum:scrollbar-drag", endByUser);
     window.removeEventListener("keydown", endByUser);
     if (timer !== null) {
       clearTimeout(timer);
@@ -162,6 +164,9 @@ export function restoreScrollPosition(
   observer.observe(contentEl);
   container.addEventListener("wheel", endByUser, { passive: true });
   container.addEventListener("touchstart", endByUser, { passive: true });
+  // 自定义滚动条拖拽：视同用户接管（同容器上的 wheel/touchstart 一个层级，
+  // 由 CustomScrollbar 在拖拽开始时派发），否则守护会与拖拽抢位置
+  container.addEventListener("vellum:scrollbar-drag", endByUser);
   window.addEventListener("keydown", endByUser);
   timer = setTimeout(cleanup, SETTLE_GUARD_MS);
 

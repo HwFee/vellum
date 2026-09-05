@@ -5,6 +5,11 @@ export interface WidgetRegistry {
   requestMount(id: string): boolean;
   activate(id: string): void;
   subscribe(cb: (id: string, dormant: boolean) => void): () => void;
+  /**
+   * 终止化清理：撤掉挂在 window 上的捕获期 scroll 监听、清掉 pending flush 定时器、
+   * 清空订阅集与内部注册表。用于宿主卸载/测试隔离，避免 registry 实例泄漏全局监听。
+   */
+  dispose(): void;
   __clear?(): void;
   __getActiveCount?(): number;
 }
@@ -22,6 +27,7 @@ const SCROLL_QUIET_MS = 400;
 export function createWidgetRegistry(): WidgetRegistry & {
   __clear(): void;
   __getActiveCount(): number;
+  dispose(): void;
 } {
   const widgets = new Map<string, WidgetEntry>();
   const subscribers = new Set<(id: string, dormant: boolean) => void>();
@@ -143,6 +149,24 @@ export function createWidgetRegistry(): WidgetRegistry & {
     },
 
     __clear(): void {
+      if (scrollTimer !== null) {
+        clearTimeout(scrollTimer);
+        scrollTimer = null;
+      }
+      isScrolling = false;
+      widgets.clear();
+      subscribers.clear();
+    },
+
+    /**
+     * 与 __clear 的区别：__clear 仅重置状态供测试复用同一实例（全局监听保留，
+     * 因为单例仍需靠 scroll 驱动淘汰仲裁）；dispose 额外撤除全局监听，是实例生命
+     * 周期终点的彻底释放。可重复调用（removeEventListener / clearTimeout 幂等）。
+     */
+    dispose(): void {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("scroll", handleScroll, { capture: true });
+      }
       if (scrollTimer !== null) {
         clearTimeout(scrollTimer);
         scrollTimer = null;

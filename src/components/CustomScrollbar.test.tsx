@@ -120,4 +120,31 @@ describe("CustomScrollbar", () => {
     fireEvent.mouseMove(document, { clientY: 100 });
     expect(host.scrollTop).toBe(0);
   });
+
+  it("announces drag start on the scroll container with vellum:scrollbar-drag", () => {
+    render(<Harness />);
+    const { host, thumb, track } = getParts();
+    mockScrollMetrics(host, { clientHeight: 100, scrollHeight: 1000 });
+
+    // 落位守护与程序化动画都需要知道「用户接管了滚动」，而拖 thumb 不产生
+    // wheel / touch / keydown，所以下游唯一可依赖的信号就是这个自定义事件
+    const events: Event[] = [];
+    const onDrag = (event: Event) => events.push(event);
+    host.addEventListener("vellum:scrollbar-drag", onDrag);
+
+    fireEvent.mouseDown(thumb, { clientY: 50 });
+    expect(events).toHaveLength(1);
+    expect(events[0].bubbles).toBe(true);
+
+    // 拖拽中途的移动与 mouseup 不得重复广播（守护只需在接管瞬间让位一次）
+    fireEvent.mouseMove(document, { clientY: 120 });
+    fireEvent.mouseUp(document);
+    expect(events).toHaveLength(1);
+
+    // 轨道翻页点击不属于拖拽，不广播该事件
+    fireEvent.click(track, { clientY: 200 });
+    expect(events).toHaveLength(1);
+
+    host.removeEventListener("vellum:scrollbar-drag", onDrag);
+  });
 });
