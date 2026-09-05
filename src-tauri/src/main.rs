@@ -178,10 +178,15 @@ async fn load_document(
         let mut watcher_lock = state.watcher.lock().unwrap_or_else(|p| p.into_inner());
 
         let has_watcher = watcher_lock.is_some();
-        if should_rebind(current_lock.as_ref(), &canonical, has_watcher) {
-            let mut registry = widget_state.0.lock().unwrap_or_else(|p| p.into_inner());
-            apply_rebind(&mut registry, &mut current_lock, &canonical, has_watcher);
+        let path_changed = should_clear_registry(current_lock.as_ref(), &canonical);
+        let rebuild_watcher = needs_watcher_rebuild(current_lock.as_ref(), &canonical, has_watcher);
 
+        if path_changed {
+            let mut registry = widget_state.0.lock().unwrap_or_else(|p| p.into_inner());
+            apply_rebind(&mut registry, &mut current_lock, &canonical);
+        }
+
+        if rebuild_watcher {
             *watcher_lock = None;
             match watcher::watch_file(app_handle.clone(), canonical.clone()) {
                 Ok(w) => *watcher_lock = Some(w),
@@ -219,26 +224,35 @@ fn first_markdown_from_args(args: &[String]) -> Option<String> {
         .cloned()
 }
 
-/// 纯函数：判定是否需要重建 watcher 并清空 widget 注册表（A2/S7）。
-/// 判据：首次加载（current 为 None）或路径切换，或同路径下 watcher 丢失（S7 异常自愈）。
-fn should_rebind(current: Option<&PathBuf>, next: &Path, has_watcher: bool) -> bool {
+/// 纯函数：判定是否需要清空 widget 注册表（路径切换或首次加载，P8）。
+/// 同路径下即便 watcher 缺失触发自愈，也绝不清空注册表，保留存活 iframe 的 URL。
+fn should_clear_registry(current: Option<&PathBuf>, next: &Path) -> bool {
     match current {
-        Some(cur) => cur != next || !has_watcher,
+        Some(cur) => cur != next,
         None => true,
     }
 }
 
-/// 纯函数：执行重新绑定状态转移（S6）。
-/// 当满足 should_rebind 条件时，清空 widget 注册表并将 current 更新为 next；
-/// 若无需 rebind（同路径且 watcher 存活），则保持 registry 与 current 不变。
-/// 返回 true 表示触发了 rebind。
+/// 纯函数：判定是否需要重建 watcher（路径切换、首次加载或 watcher 缺失自愈，P8）。
+fn needs_watcher_rebuild(current: Option<&PathBuf>, next: &Path, has_watcher: bool) -> bool {
+    should_clear_registry(current, next) || !has_watcher
+}
+
+/// 纯函数：判定是否需要重新绑定文档（向后兼容同名包装）。
+fn should_rebind(current: Option<&PathBuf>, next: &Path) -> bool {
+    should_clear_registry(current, next)
+}
+
+/// 纯函数：执行重新绑定状态转移（S6/P8）。
+/// 当路径改变或首次加载时，清空 widget 注册表并将 current 更新为 next；
+/// 若路径不变（同路径重载或 watcher 异常恢复），则严格保留 registry 内容。
+/// 返回 true 表示触发了注册表清空与路径重置。
 fn apply_rebind(
     registry: &mut WidgetRegistry,
     current: &mut Option<PathBuf>,
     next: &Path,
-    has_watcher: bool,
 ) -> bool {
-    if should_rebind(current.as_ref(), next, has_watcher) {
+    if should_clear_registry(current.as_ref(), next) {
         registry.clear();
         *current = Some(next.to_path_buf());
         true
@@ -249,7 +263,10 @@ fn apply_rebind(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_rebind, first_markdown_from_args, should_rebind};
+    use super::{
+        apply_rebind, first_markdown_from_args, needs_watcher_rebuild, should_clear_registry,
+        should_rebind,
+    };
 
     #[test]
     fn tauri_conf_csp_contains_frame_src_for_widget() {
@@ -277,7 +294,7 @@ mod tests {
         let mut current = Some(std::path::PathBuf::from("C:/notes/doc1.md"));
         let next = std::path::Path::new("C:/notes/doc2.md");
 
-        let rebinded = apply_rebind(&mut registry, &mut current, next, true);
+        let rebinded = apply_rebind(&mut registry, &mut current, next);
         assert!(rebinded);
         assert_eq!(registry.len(), 0);
         assert_eq!(current, Some(std::path::PathBuf::from("C:/notes/doc2.md")));
@@ -294,25 +311,55 @@ mod tests {
         let p1 = std::path::PathBuf::from("C:/notes/doc1.md");
         let mut current = Some(p1.clone());
 
-        let rebinded = apply_rebind(&mut registry, &mut current, &p1, true);
+        let rebinded = apply_rebind(&mut registry, &mut current, &p1);
         assert!(!rebinded);
         assert_eq!(registry.len(), 1);
         assert_eq!(current, Some(p1));
     }
 
     #[test]
-    fn should_rebind_matrix_evaluation() {
+    fn apply_rebind_preserves_registry_when_watcher_missing_for_healing() {
+        let mut registry = vellum_lib::widget::WidgetRegistry::default();
+        registry
+            .insert("w1".to_string(), "<div>1</div>".to_string())
+            .unwrap();
+        assert_eq!(registry.len(), 1);
+
+        let p1 = std::path::PathBuf::from("C:/notes/doc1.md");
+        let mut current = Some(p1.clone());
+
+        // P8: 同路径下 watcher 缺失时仅重建 watcher，apply_rebind 绝不清空注册表
+        let rebinded = apply_rebind(&mut registry, &mut current, &p1);
+        assert!(!rebinded);
+        assert_eq!(registry.len(), 1);
+        assert_eq!(current, Some(p1));
+    }
+
+    #[test]
+    fn should_rebind_and_watcher_matrix_evaluation() {
         let p1 = std::path::PathBuf::from("C:/notes/live.md");
         let p2 = std::path::PathBuf::from("C:/notes/other.md");
-        // 首次加载（current 为 None）：必须 rebind
-        assert!(should_rebind(None, &p1, false));
-        assert!(should_rebind(None, &p1, true));
-        // 路径不同（切换文档）：必须 rebind
-        assert!(should_rebind(Some(&p1), &p2, true));
-        // 相同路径但 watcher 缺失（S7：异常恢复）：必须 rebind
-        assert!(should_rebind(Some(&p1), &p1, false));
-        // 相同路径且 watcher 正常（同路径热重载）：禁止 rebind（保留 registry 与 watcher）
-        assert!(!should_rebind(Some(&p1), &p1, true));
+        // 首次加载（current 为 None）：清空注册表 + 重建 watcher
+        assert!(should_clear_registry(None, &p1));
+        assert!(should_rebind(None, &p1));
+        assert!(needs_watcher_rebuild(None, &p1, false));
+        assert!(needs_watcher_rebuild(None, &p1, true));
+
+        // 路径不同（切换文档）：清空注册表 + 重建 watcher
+        assert!(should_clear_registry(Some(&p1), &p2));
+        assert!(should_rebind(Some(&p1), &p2));
+        assert!(needs_watcher_rebuild(Some(&p1), &p2, true));
+
+        // P8 核心测试：相同路径但 watcher 缺失（异常恢复）：
+        // 必须重建 watcher，但绝不清空注册表！
+        assert!(!should_clear_registry(Some(&p1), &p1));
+        assert!(!should_rebind(Some(&p1), &p1));
+        assert!(needs_watcher_rebuild(Some(&p1), &p1, false));
+
+        // 相同路径且 watcher 正常（同路径热重载）：两者均不触发
+        assert!(!should_clear_registry(Some(&p1), &p1));
+        assert!(!should_rebind(Some(&p1), &p1));
+        assert!(!needs_watcher_rebuild(Some(&p1), &p1, true));
     }
 
     #[test]
