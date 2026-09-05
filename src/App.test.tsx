@@ -1145,6 +1145,24 @@ test("end-to-end: live mdlog lifecycle from bottom stickiness to disconnection r
   await waitFor(() => expect(screen.getByText("Manual edit by user.")).toBeInTheDocument());
   expect(screen.getByText("墨迹未干")).toBeInTheDocument();
 
+  // P5: 若印章正在显示时文件变为活跃 mdlog 并触发新 reloadTick，早退前必须立即隐藏印章，防止常驻
+  await act(async () => {
+    liveState = {
+      lastWriteAt: 1_000_000,
+      heartbeatAt: 1_000_000,
+      expiresAt: 1_120_000,
+    };
+    if (stateChangedCall) {
+      (stateChangedCall[1] as (payload: unknown) => void)({ payload: {} });
+    }
+  });
+
+  await act(async () => {
+    (fileChangedCall![1] as (payload: unknown) => void)({ payload: {} });
+  });
+
+  expect(screen.queryByText("墨迹未干")).not.toBeInTheDocument();
+
   vi.useRealTimers();
 });
 

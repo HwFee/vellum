@@ -435,7 +435,11 @@ export default function App() {
 
   // 热重载提示：正文做一次由虚而实的"落墨"；宽窗口的页边批注在动画结束后卸载
   useEffect(() => {
-    if (reloadTick === 0 || isMdlogActiveRef.current) return;
+    if (reloadTick === 0) return;
+    if (isMdlogActiveRef.current) {
+      setShowReloadNote(false);
+      return;
+    }
     const el = documentContentRef.current;
     if (el) {
       el.classList.remove("fresh-ink");
