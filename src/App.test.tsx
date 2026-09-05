@@ -999,6 +999,88 @@ test("cleans up active scroll restore settle guard when App unmounts", async () 
   restoreSpy.mockRestore();
 });
 
+test("P6: handleContentRendered skips async scroll position restore if bottom arbitration has already occurred", async () => {
+  let resolveStoreGet!: (value: unknown) => void;
+  const storeGetPromise = new Promise((resolve) => {
+    resolveStoreGet = resolve;
+  });
+
+  storeGet.mockImplementation((key: string) => {
+    if (key === "C:/logs/p6-test.md") {
+      return storeGetPromise;
+    }
+    return Promise.resolve(undefined);
+  });
+
+  let currentDocMarkdown = "# Log Doc\n\nLine 1";
+  backendInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === "load_document") {
+      return {
+        path: "C:/logs/p6-test.md",
+        fileName: "p6-test.md",
+        parentPath: "C:/logs",
+        markdown: currentDocMarkdown,
+      };
+    }
+    if (cmd === "read_mdlog_state") {
+      return {
+        lastWriteAt: 1_000_000,
+        heartbeatAt: 1_000_000,
+        expiresAt: 1_120_000,
+      };
+    }
+    return undefined;
+  });
+
+  const scrollRestoreModule = await import("./lib/scrollRestore");
+  const restoreSpy = vi.spyOn(scrollRestoreModule, "restoreScrollPosition");
+
+  vi.mocked(open).mockResolvedValueOnce("C:/logs/p6-test.md");
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Log Doc" })).toBeInTheDocument());
+
+  const scrollContainer = document.querySelector(".document-scroll") as HTMLElement;
+  let scrollTop = 600;
+  Object.defineProperty(scrollContainer, "scrollHeight", { value: 1000, configurable: true });
+  Object.defineProperty(scrollContainer, "clientHeight", { value: 400, configurable: true });
+  Object.defineProperty(scrollContainer, "scrollTop", {
+    configurable: true,
+    get: () => scrollTop,
+    set: (v: number) => {
+      scrollTop = v;
+    },
+  });
+
+  // 模拟在异步 loadScrollPosition 尚未 resolve 时，快速到达一次热重载追加并触发贴底仲裁
+  currentDocMarkdown = "# Log Doc\n\nLine 1\n\nNew line appended";
+  const fileChangedCall = vi.mocked(listen).mock.calls.find(
+    ([event]) => event === "file-changed"
+  );
+  await act(async () => {
+    (fileChangedCall![1] as (payload: unknown) => void)({ payload: {} });
+  });
+
+  // 此时已发生贴底仲裁，restoreSpy 被调用且参数为 { ratio: 1 }
+  expect(restoreSpy).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.anything(),
+    { ratio: 1 },
+    expect.anything()
+  );
+  const callsBeforeResolve = restoreSpy.mock.calls.length;
+
+  // 此时异步 loadScrollPosition 完成，返回历史记忆位置 { ratio: 0.3 }
+  await act(async () => {
+    resolveStoreGet({ ratio: 0.3 });
+  });
+
+  // P6 断言：由于已发生贴底仲裁，.then 回调必须跳过历史记忆恢复，restoreScrollPosition 不被再次调用
+  expect(restoreSpy.mock.calls.length).toBe(callsBeforeResolve);
+  restoreSpy.mockRestore();
+});
+
 test("layout effect arbitrates scroll on hot reload even when markdown content is unchanged (via reloadTick)", async () => {
   backendInvoke.mockImplementation(async (cmd: string) => {
     if (cmd === "load_document") {

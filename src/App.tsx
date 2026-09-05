@@ -36,6 +36,7 @@ export default function App() {
   const activeMdlogPathRef = useRef<string | null>(null);
   const recheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shouldStickToBottomRef = useRef(false);
+  const hasStuckToBottomRef = useRef(false);
   const startupLoaded = useRef(false);
   const openRequestSeenRef = useRef(false);
   const drainChainRef = useRef(Promise.resolve());
@@ -155,6 +156,7 @@ export default function App() {
     }
     setMdlogState(null);
     shouldStickToBottomRef.current = false;
+    hasStuckToBottomRef.current = false;
     // 连续打开文件时只有最新一次请求允许写回状态，避免慢响应覆盖新文档
     const requestId = ++loadRequestRef.current;
     setShowReloadNote(false);
@@ -346,6 +348,8 @@ export default function App() {
       if (record === null) return;
       // 异步期间可能已切换到别的文档，作废本次恢复
       if (currentPathRef.current !== path) return;
+      // P6: 异步恢复前检查是否已发生贴底仲裁（已贴底则跳过记忆恢复），消除「先掉底再弹回」抖动
+      if (hasStuckToBottomRef.current || shouldStickToBottomRef.current) return;
       const content = contentRef.current;
       if (!content) return;
       restoreCancelRef.current?.();
@@ -411,6 +415,7 @@ export default function App() {
 
     if (shouldStickToBottomRef.current) {
       shouldStickToBottomRef.current = false;
+      hasStuckToBottomRef.current = true;
       pendingScrollRef.current = null;
       container.scrollTop = container.scrollHeight;
 
