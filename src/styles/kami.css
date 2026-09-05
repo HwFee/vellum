@@ -1211,6 +1211,12 @@ mark.search-match--current {
   outline-offset: -2px;
 }
 
+/* 抵消 .markdown-body button:active 的 1px 下沉穿透（占位块不是凸起按钮） */
+.markdown-body .mdlog-widget__placeholder:active {
+  transform: none;
+  background: var(--ivory);
+}
+
 .mdlog-live {
   display: flex;
   align-items: center;

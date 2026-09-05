@@ -61,6 +61,9 @@ export const WidgetSandbox = memo(function WidgetSandbox({
       setIsDormant(false);
       setIsUserActivated(false);
       setHasError(false);
+      // 实例复用时同步复位展示态，避免上一文档的标题/高度残留
+      setTitle("交互演示");
+      setHeight(240);
     } else {
       prevHtmlRef.current = html;
       prevAutoMountRef.current = autoMount;
