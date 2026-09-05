@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CustomScrollbar } from "./components/CustomScrollbar";
 import { EmptyState } from "./components/EmptyState";
 import { ErrorState } from "./components/ErrorState";
@@ -16,6 +16,7 @@ import { loadLastOpened, saveLastOpened } from "./lib/lastOpened";
 import { loadScrollPosition, saveScrollPosition } from "./lib/scrollMemory";
 import { captureScrollPosition, restoreScrollPosition } from "./lib/scrollRestore";
 import { animateScrollTo, cancelScrollAnimation } from "./lib/smoothScroll";
+import { isContainerNearBottom } from "./lib/scrollStick";
 import type { DocumentState, LoadedDocument, OutlineHeading } from "./types";
 
 // 代码分割：react-markdown + rehype/remark + 语法高亮是体积最大的依赖，
@@ -26,6 +27,7 @@ export default function App() {
   const [state, setState] = useState<DocumentState>({ status: "empty" });
   const [reloadTick, setReloadTick] = useState(0);
   const [showReloadNote, setShowReloadNote] = useState(false);
+  const shouldStickToBottomRef = useRef(false);
   const startupLoaded = useRef(false);
   const openRequestSeenRef = useRef(false);
   const drainChainRef = useRef(Promise.resolve());
@@ -101,6 +103,7 @@ export default function App() {
   }
 
   async function loadPath(path: string) {
+    shouldStickToBottomRef.current = false;
     // 切换文档前先保存上一篇的阅读位置
     persistCurrentScroll();
     // 终止上一篇文档可能仍在进行的恢复落位守护
@@ -135,6 +138,9 @@ export default function App() {
       const document = await invoke<LoadedDocument>("load_document", { path });
       if (loadRequestRef.current !== requestId) return;
       const container = scrollRef.current;
+      shouldStickToBottomRef.current = container
+        ? isContainerNearBottom(container, 80)
+        : false;
       pendingScrollRef.current = container ? container.scrollTop : 0;
       currentPathRef.current = document.path;
       setState({ status: "ready", document });
@@ -334,13 +340,31 @@ export default function App() {
     };
   }, []);
 
-  // 热重载时保留滚动位置（同路径、内容变化）
-  useEffect(() => {
-    if (pendingScrollRef.current !== null) {
-      const container = scrollRef.current;
-      if (container) {
-        container.scrollTop = pendingScrollRef.current;
+  // 热重载滚动仲裁：贴底跟随优先，非贴底保留原有滚动位置
+  useLayoutEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+
+    if (shouldStickToBottomRef.current) {
+      shouldStickToBottomRef.current = false;
+      pendingScrollRef.current = null;
+      container.scrollTop = container.scrollHeight;
+
+      const content = contentRef.current;
+      if (content) {
+        restoreCancelRef.current?.();
+        restoreCancelRef.current = restoreScrollPosition(
+          container,
+          content,
+          { ratio: 1 },
+          headingsRef.current
+        );
       }
+      return;
+    }
+
+    if (pendingScrollRef.current !== null) {
+      container.scrollTop = pendingScrollRef.current;
       pendingScrollRef.current = null;
     }
   }, [activeDocument?.markdown]);

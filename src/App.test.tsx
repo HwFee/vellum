@@ -311,6 +311,8 @@ test("preserves scroll position across a hot reload", async () => {
 
   const scrollContainer = document.querySelector(".document-scroll") as HTMLElement;
   let scrollTop = 240;
+  Object.defineProperty(scrollContainer, "scrollHeight", { value: 1000, configurable: true });
+  Object.defineProperty(scrollContainer, "clientHeight", { value: 400, configurable: true });
   Object.defineProperty(scrollContainer, "scrollTop", {
     configurable: true,
     get: () => scrollTop,
@@ -339,6 +341,58 @@ test("preserves scroll position across a hot reload", async () => {
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "ScrollDoc Updated" })).toBeInTheDocument());
   expect(scrollContainer.scrollTop).toBe(240);
+});
+
+test("sticks to bottom and launches settle guard when hot reload occurs near bottom", async () => {
+  vi.mocked(listen).mockClear();
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/stick.md");
+  backendInvoke.mockResolvedValueOnce({
+    path: "C:/notes/stick.md",
+    fileName: "stick.md",
+    parentPath: "C:/notes",
+    markdown: "# Stick Doc V1",
+  });
+
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Stick Doc V1" })).toBeInTheDocument(), { timeout: 5000 });
+
+  const scrollContainer = document.querySelector(".document-scroll") as HTMLElement;
+  let scrollTop = 560;
+  Object.defineProperty(scrollContainer, "scrollHeight", { value: 1000, configurable: true });
+  Object.defineProperty(scrollContainer, "clientHeight", { value: 400, configurable: true });
+  Object.defineProperty(scrollContainer, "scrollTop", {
+    configurable: true,
+    get: () => scrollTop,
+    set: (value: number) => {
+      scrollTop = value;
+    },
+  });
+
+  // 1000 - 560 - 400 = 40 <= 80，判定为贴底
+  await waitFor(() => {
+    expect(vi.mocked(listen).mock.calls.some(([event]) => event === "file-changed")).toBe(true);
+  });
+
+  backendInvoke.mockResolvedValueOnce({
+    path: "C:/notes/stick.md",
+    fileName: "stick.md",
+    parentPath: "C:/notes",
+    markdown: "# Stick Doc V2\n\nAppended new lines.",
+  });
+
+  const fileChangedCall = vi.mocked(listen).mock.calls.find(
+    ([event]) => event === "file-changed"
+  );
+  await act(async () => {
+    (fileChangedCall![1] as (payload: unknown) => void)({ payload: {} });
+  });
+
+  await waitFor(() => expect(screen.getByText("Appended new lines.")).toBeInTheDocument());
+  // 新内容渲染后 scrollTop 必须被设为最新的 scrollHeight (落底)
+  expect(scrollContainer.scrollTop).toBe(scrollContainer.scrollHeight);
 });
 
 describe("App outline integration", () => {
