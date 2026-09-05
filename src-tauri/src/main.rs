@@ -8,6 +8,12 @@ use tauri::{Emitter, Manager};
 use vellum_lib::document::{self, LoadedDocument};
 use vellum_lib::state::AppState;
 use vellum_lib::watcher;
+use vellum_lib::widget::{
+    build_widget_response, register_widget, unregister_widget, read_mdlog_state,
+    __cmd__register_widget, __cmd__unregister_widget, __cmd__read_mdlog_state,
+    __tauri_command_name_register_widget, __tauri_command_name_unregister_widget, __tauri_command_name_read_mdlog_state,
+    WidgetState,
+};
 
 #[cfg(windows)]
 mod early_single_instance {
@@ -164,30 +170,52 @@ fn drain_pending_open_paths(state: tauri::State<PendingOpenPaths>) -> Result<Vec
 async fn load_document(
     path: String,
     state: tauri::State<'_, AppState>,
+    widget_state: tauri::State<'_, WidgetState>,
     app_handle: tauri::AppHandle,
 ) -> Result<LoadedDocument, String> {
     let doc = document::load_markdown_file(Path::new(&path))?;
     let canonical = PathBuf::from(&doc.path);
 
-    // 切换文档时重建监听器：先 drop 旧的（停止其线程），再为新路径创建。
-    // 监听失败不应阻断文档加载（例如网络盘不支持 notify），仅记录错误。
-    {
-        let mut watcher_lock = state
+    let needs_rebind = {
+        let current = state
+            .current
+            .lock()
+            .map_err(|_| "Document state lock poisoned".to_string())?;
+        let watcher = state
             .watcher
             .lock()
             .map_err(|_| "Watcher lock poisoned".to_string())?;
-        *watcher_lock = None;
-        match watcher::watch_file(app_handle.clone(), canonical.clone()) {
-            Ok(w) => *watcher_lock = Some(w),
-            Err(e) => eprintln!("file watcher disabled: {e}"),
+        should_rebind(current.as_ref(), &canonical, watcher.is_some())
+    };
+
+    if needs_rebind {
+        // G1: 仅当 canonical 绝对路径改变（切换文档）或 watcher 异常缺失时，才清空 widget 注册表并重建 watcher。
+        // 同一文档的热重载保持 watcher 与 registry 存活，彻底杜绝 sidecar deadline 被扼杀与 iframe 失效。
+        {
+            let mut registry = widget_state
+                .0
+                .lock()
+                .map_err(|_| "Widget registry lock poisoned".to_string())?;
+            registry.clear();
         }
+        {
+            let mut watcher_lock = state
+                .watcher
+                .lock()
+                .map_err(|_| "Watcher lock poisoned".to_string())?;
+            *watcher_lock = None;
+            match watcher::watch_file(app_handle.clone(), canonical.clone()) {
+                Ok(w) => *watcher_lock = Some(w),
+                Err(e) => eprintln!("file watcher disabled: {e}"),
+            }
+        }
+        let mut current = state
+            .current
+            .lock()
+            .map_err(|_| "Document state lock poisoned".to_string())?;
+        *current = Some(canonical);
     }
 
-    let mut current = state
-        .current
-        .lock()
-        .map_err(|_| "Document state lock poisoned".to_string())?;
-    *current = Some(canonical);
     Ok(doc)
 }
 
@@ -219,9 +247,47 @@ fn first_markdown_from_args(args: &[String]) -> Option<String> {
         .cloned()
 }
 
+/// 纯函数：判定是否需要重建 watcher 并清空 widget 注册表（A2/S7）。
+/// 判据：首次加载（current 为 None）或路径切换，或同路径下 watcher 丢失（S7 异常自愈）。
+fn should_rebind(current: Option<&PathBuf>, next: &Path, has_watcher: bool) -> bool {
+    match current {
+        Some(cur) => cur != next || !has_watcher,
+        None => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::first_markdown_from_args;
+    use super::{first_markdown_from_args, should_rebind};
+
+    #[test]
+    fn tauri_conf_csp_contains_frame_src_for_widget() {
+        let conf_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json");
+        let content = std::fs::read_to_string(&conf_path).expect("read tauri.conf.json");
+        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse tauri.conf.json");
+
+        let csp = parsed["app"]["security"]["csp"]
+            .as_str()
+            .expect("security.csp must be a string");
+
+        let expected_csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self' data:; frame-src http://vellum-widget.localhost";
+        assert_eq!(csp, expected_csp);
+    }
+
+    #[test]
+    fn should_rebind_matrix_evaluation() {
+        let p1 = std::path::PathBuf::from("C:/notes/live.md");
+        let p2 = std::path::PathBuf::from("C:/notes/other.md");
+        // 首次加载（current 为 None）：必须 rebind
+        assert!(should_rebind(None, &p1, false));
+        assert!(should_rebind(None, &p1, true));
+        // 路径不同（切换文档）：必须 rebind
+        assert!(should_rebind(Some(&p1), &p2, true));
+        // 相同路径但 watcher 缺失（S7：异常恢复）：必须 rebind
+        assert!(should_rebind(Some(&p1), &p1, false));
+        // 相同路径且 watcher 正常（同路径热重载）：禁止 rebind（保留 registry 与 watcher）
+        assert!(!should_rebind(Some(&p1), &p1, true));
+    }
 
     #[test]
     fn extracts_first_markdown_path_case_insensitively() {
@@ -259,6 +325,15 @@ fn main() {
     }
 
     tauri::Builder::default()
+        .register_uri_scheme_protocol("vellum-widget", |ctx, request| {
+            let widget_state = ctx.app_handle().state::<WidgetState>();
+            let mut registry = widget_state.0.lock().unwrap_or_else(|p| p.into_inner());
+            build_widget_response(
+                request.method().as_str(),
+                &request.uri().to_string(),
+                &mut registry,
+            )
+        })
         // 官方单实例插件必须最先注册，接收 early_single_instance 转发的 WM_COPYDATA。
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if let Some(path) = first_markdown_from_args(&args) {
@@ -279,10 +354,14 @@ fn main() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .manage(pending_open_paths)
         .manage(AppState::default())
+        .manage(WidgetState::default())
         .invoke_handler(tauri::generate_handler![
             load_document,
             resolve_asset,
-            drain_pending_open_paths
+            drain_pending_open_paths,
+            register_widget,
+            unregister_widget,
+            read_mdlog_state,
         ])
         .setup(|app| {
             // 兜底：3 秒后强制显示窗口，防止前端 JS 加载失败导致窗口永久隐藏。
