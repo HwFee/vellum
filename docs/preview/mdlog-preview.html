@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>素笺 · Pi 对话记录渲染预览</title>
+<!-- 直接引用应用真实样式表，保证预览与实现一致 -->
+<link rel="stylesheet" href="../../src/styles/kami.css" />
+<style>
+  /* kami.css 内字体为 /fonts 绝对路径（由 Vite 提供），file:// 预览时
+     用相对路径重新声明同名字族，后声明的规则生效 */
+  @font-face { font-family: "TsangerJinKai02"; src: url("../../public/fonts/TsangerJinKai02-W04.woff2") format("woff2"); font-weight: 400; font-display: block; }
+  @font-face { font-family: "TsangerJinKai02"; src: url("../../public/fonts/TsangerJinKai02-W05.woff2") format("woff2"); font-weight: 500; font-display: block; }
+  @font-face { font-family: "JetBrains Mono"; src: url("../../public/fonts/JetBrainsMono.woff2") format("woff2"); font-weight: 400 500; font-display: block; }
+
+  /* ===== 预览壳（仅预览用，不属于设计提案） ===== */
+  html, body { margin: 0; background: var(--parchment); }
+  .preview-topbar {
+    height: 46px; display: flex; align-items: center; justify-content: center;
+    border-bottom: 1px solid var(--hairline);
+    color: var(--stone); font-size: 12px; letter-spacing: 2px;
+    user-select: none;
+  }
+  .preview-scroll { height: calc(100vh - 46px); overflow-y: auto; }
+  .preview-note {
+    max-width: min(800px, 100%); margin: 0 auto; padding: 0 32px 26px;
+    color: var(--stone); font: 10px/1.7 "JetBrains Mono", monospace; letter-spacing: 1px;
+  }
+
+  /* ===== 设计提案 A：交互块沙箱容器（新增 CSS） ===== */
+  .mdlog-widget {
+    margin: 17px 0;
+    background: var(--ivory);
+    box-shadow: inset 0 0 0 1px var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .mdlog-widget__bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 14px;
+    font: 10px/1.5 "JetBrains Mono", monospace;
+    letter-spacing: 1.2px; text-transform: uppercase; color: var(--stone);
+  }
+  .mdlog-widget__bar .state { letter-spacing: 0.5px; text-transform: none; }
+  .mdlog-widget__frame {
+    display: block; width: 100%; min-height: 120px;
+    border: 0; border-top: 1px solid var(--hairline);
+    background: var(--parchment);
+  }
+
+  /* ===== 设计提案 B：记录中徽章（应用 chrome，非文档内容） ===== */
+  .mdlog-live {
+    display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+    margin: 30px 0 0;
+    color: var(--stone); font: 10px/1 "JetBrains Mono", monospace; letter-spacing: 2px;
+    user-select: none;
+  }
+  .mdlog-live::before {
+    content: ""; width: 5px; height: 5px; border-radius: 1px;
+    background: var(--brand); animation: mdlog-pulse 1.6s ease infinite;
+  }
+  @keyframes mdlog-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.9; } }
+  @media (prefers-reduced-motion: reduce) { .mdlog-live::before { animation: none; } }
+</style>
+</head>
+<body>
+
+<div class="preview-topbar">PI 对话记录 · 素笺</div>
+<div class="preview-scroll">
+  <div class="document-scroll__content">
+    <div class="document-content">
+      <article class="markdown-body">
+
+        <h1>Pi 对话记录</h1>
+
+        <!-- ========== 第一回合：含交互块 ========== -->
+        <blockquote>
+          <p><strong>你</strong> · 14:32</p>
+          <p>傅里叶变换到底在做什么？给我讲讲直觉，最好能有一张可以动手调的图。</p>
+        </blockquote>
+
+        <p><strong>Pi</strong> · 14:32</p>
+        <p>可以把它想成「称配料」：任何一段周期信号，都能拆成一堆不同频率的正弦波——傅里叶变换做的事，就是告诉你每种频率该放多少。反过来，把这些正弦波按份量加回去，就能重新拼出原信号。</p>
+        <p>下面这张图可以动手验证：拖动「叠加项数」，看正弦波一项项叠起来，如何一步步逼近一个方波。</p>
+
+        <div class="mdlog-widget">
+          <div class="mdlog-widget__bar">
+            <span>交互 · vellum-widget</span>
+            <span class="state">沙箱中运行</span>
+          </div>
+          <iframe class="mdlog-widget__frame" data-widget="fourier" sandbox="allow-scripts" title="傅里叶级数叠加交互演示"></iframe>
+        </div>
+
+        <p>项数越少，波纹越圆滑；项数越多，边缘越陡、拐角越利——但拐角处始终有一圈压不下去的「过冲」，那就是吉布斯现象。</p>
+
+        <hr />
+
+        <!-- ========== 第二回合：含生成图片 ========== -->
+        <blockquote>
+          <p><strong>你</strong> · 14:35</p>
+          <p>懂了。再给我画一张纸墨风格的示意图，我想存下来。</p>
+        </blockquote>
+
+        <p><strong>Pi</strong> · 14:35</p>
+        <p>画好了，存在 <code>mdlog-assets/fourier-ink.png</code>：</p>
+        <p><img src="./fourier-ink.png" alt="纸墨风格的傅里叶级数叠加示意图" /></p>
+        <p><em>正弦波逐项叠加，趋近方波。</em></p>
+
+        <!-- ========== 记录中徽章（应用 chrome，随连接状态显隐） ========== -->
+        <div class="mdlog-live">记录中 · PI</div>
+
+      </article>
+      <div class="preview-note">
+        设计预览 · 数据为虚构 · 对话部分为零新增样式的纯 Markdown 渲染；新增组件仅「交互块容器」与「记录中徽章」
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== 预览：交互块内容（实现时由 Agent 写入 ```vellum-widget 围栏块） =====
+// 沙箱契约：自包含 HTML；禁止网络；用 postMessage 上报高度（见下方契约脚本）。
+var WIDGET_HTML =
+'<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>' +
+'html,body{margin:0;background:#f5f4ed;}' +
+'.wrap{padding:14px 16px 12px;font-family:"TsangerJinKai02","Source Han Serif SC","Noto Serif CJK SC",serif;}' +
+'canvas{display:block;width:100%;height:190px;}' +
+'.ctrl{display:flex;align-items:center;gap:10px;margin-top:10px;}' +
+'label{font:11px/1 "JetBrains Mono",monospace;color:#6b6a64;letter-spacing:1px;}' +
+'output{font:11px/1 "JetBrains Mono",monospace;color:#1B365D;min-width:2em;text-align:right;}' +
+'input[type=range]{flex:1;accent-color:#1B365D;height:18px;background:transparent;margin:0;}' +
+'</style></head><body>' +
+'<div class="wrap">' +
+'<canvas id="c" role="img" aria-label="傅里叶级数叠加示意图"></canvas>' +
+'<div class="ctrl"><label for="r">叠加项数 N</label><input id="r" type="range" min="1" max="15" step="1" value="3" /><output id="o">3</output></div>' +
+'</div>' +
+'<scr' + 'ipt>' +
+'(function(){' +
+'var c=document.getElementById("c"),ctx=c.getContext("2d"),r=document.getElementById("r"),o=document.getElementById("o");' +
+'var reduced=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;' +
+'var t=0;' +
+'function size(){var d=window.devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;' +
+'c.width=Math.round(w*d);c.height=Math.round(h*d);ctx.setTransform(d,0,0,d,0,0);}' +
+'function draw(){var w=c.clientWidth,h=c.clientHeight,n=+r.value;' +
+'ctx.clearRect(0,0,w,h);' +
+'var midY=h/2,amp=h*0.34,x0=8,x1=w-8,span=x1-x0,periods=2;' +
+'ctx.strokeStyle="#dddacc";ctx.lineWidth=1;' +
+'ctx.beginPath();ctx.moveTo(x0,midY);ctx.lineTo(x1,midY);ctx.stroke();' +
+'for(var g=1;g<periods*2;g++){var gx=x0+span*g/(periods*2);' +
+'ctx.beginPath();ctx.moveTo(gx,6);ctx.lineTo(gx,h-6);ctx.stroke();}' +
+'function yOf(x,k){return Math.sin(k*(x+t))/k;}' +
+'var ks=[];for(var i=0;i<n;i++)ks.push(2*i+1);' +
+'ctx.lineWidth=1;' +
+'ks.forEach(function(k){ctx.strokeStyle="rgba(107,106,100,0.30)";ctx.beginPath();' +
+'for(var px=0;px<=span;px+=2){var x=px/span*Math.PI*2*periods;' +
+'var y=midY-amp*yOf(x,k);' +
+'if(px===0)ctx.moveTo(x0+px,y);else ctx.lineTo(x0+px,y);}ctx.stroke();});' +
+'ctx.strokeStyle="#1B365D";ctx.lineWidth=2;ctx.beginPath();' +
+'for(var px2=0;px2<=span;px2+=1.5){var x2=px2/span*Math.PI*2*periods,sum=0;' +
+'for(var j=0;j<ks.length;j++)sum+=yOf(x2,ks[j]);' +
+'sum*=4/Math.PI;' +
+'var y2=midY-amp*sum;' +
+'if(px2===0)ctx.moveTo(x0+px2,y2);else ctx.lineTo(x0+px2,y2);}ctx.stroke();}' +
+'function loop(){t+=0.008;draw();if(!reduced)requestAnimationFrame(loop);}' +
+'r.addEventListener("input",function(){o.textContent=r.value;if(reduced)draw();});' +
+'window.addEventListener("resize",function(){size();draw();});' +
+'size();loop();' +
+'function report(){parent.postMessage({type:"vellum-widget:resize",height:document.documentElement.scrollHeight},"*");}' +
+'if(window.ResizeObserver)new ResizeObserver(report).observe(document.body);' +
+'window.addEventListener("load",report);report();' +
+'})();' +
+'</scr' + 'ipt></body></html>';
+
+var frame = document.querySelector('iframe[data-widget="fourier"]');
+frame.srcdoc = WIDGET_HTML;
+
+// ===== 预览：高度上报契约（实现时由 WidgetSandbox 组件承担） =====
+window.addEventListener("message", function (event) {
+  var data = event.data;
+  if (!data || data.type !== "vellum-widget:resize") return;
+  document.querySelectorAll(".mdlog-widget__frame").forEach(function (f) {
+    if (f.contentWindow === event.source && data.height > 0) {
+      f.style.height = data.height + "px";
+    }
+  });
+});
+</script>
+</body>
+</html>
