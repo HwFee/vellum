@@ -1,7 +1,10 @@
 import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
+import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema, type Options as RehypeSanitizeOptions } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import "katex/dist/katex.min.css";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { isValidElement, memo, useCallback, useLayoutEffect, useMemo, useRef, type ReactElement, type ReactNode } from "react";
 import { MarkdownImage } from "./MarkdownImage";
@@ -32,6 +35,61 @@ type HastElement = {
   children: HastNode[];
 };
 type HastNode = HastText | HastElement | { type: string; children?: HastNode[] };
+
+// mdast 节点的最小结构（只声明本文件用到的字段）
+type MdastNode = {
+  type: string;
+  value?: string;
+  position?: { start: { offset?: number }; end: { offset?: number } };
+  children?: MdastNode[];
+};
+
+// micromark-extension-math 的语法没有 Pandoc 的货币保护规则，会把
+// 「价格在 $5 和 $10 之间」里的 $5 和 $ 误判为行内公式。
+// 这里按节点位置回查原文，套用 Pandoc 的判定规则：
+// 开 $ 后紧跟空格、闭 $ 前是空格、或闭 $ 紧跟 ASCII 数字 → 不是公式，还原为文本。
+function remarkMathCurrencyGuard() {
+  return (tree: MdastNode, file: { value?: unknown }) => {
+    const source = typeof file.value === "string" ? file.value : "";
+    if (!source) return;
+
+    function visit(node: MdastNode) {
+      if (!node.children) return;
+      for (let index = 0; index < node.children.length; index++) {
+        const child = node.children[index];
+        if (child.type === "inlineMath") {
+          const start = child.position?.start.offset;
+          const end = child.position?.end.offset;
+          if (start !== undefined && end !== undefined && end > start + 1) {
+            let openLength = 0;
+            while (source[start + openLength] === "$") openLength += 1;
+            let closeLength = 0;
+            while (source[end - 1 - closeLength] === "$") closeLength += 1;
+
+            const afterOpen = source[start + openLength];
+            const beforeClose = source[end - closeLength - 1];
+            const afterClose = source[end];
+
+            const looksLikeCurrency =
+              afterOpen === " " ||
+              afterOpen === "\t" ||
+              beforeClose === " " ||
+              beforeClose === "\t" ||
+              (afterClose !== undefined && afterClose >= "0" && afterClose <= "9");
+
+            if (looksLikeCurrency) {
+              node.children[index] = { type: "text", value: source.slice(start, end) };
+              continue;
+            }
+          }
+        }
+        visit(child);
+      }
+    }
+
+    visit(tree);
+  };
+}
 
 const SEARCH_SKIP_TAGS = new Set(["mark", "script", "style", "pre", "code"]);
 
@@ -154,7 +212,11 @@ function urlTransform(url: string) {
 }
 
 // remark 插件列表与文档无关，提升为模块常量，避免每次渲染产生新引用
-const REMARK_PLUGINS: PluggableList = [remarkGfm];
+const REMARK_PLUGINS: PluggableList = [remarkGfm, remarkMath, remarkMathCurrencyGuard];
+
+// strict: "ignore"：容忍公式里的 CJK/Unicode 文本（如 $\text{向量}$），不在控制台刷警告。
+// 解析失败时 rehype-katex 内部会降级为红色源码兜底渲染，不会中断整篇文档。
+const KATEX_OPTIONS = { strict: "ignore" } as const;
 
 // 文档中是否可能出现原始 HTML（误判为 true 无害，只是不省 rehype-raw 的开销）
 const RAW_HTML_RE = /<\/?[a-zA-Z!?]/;
@@ -175,6 +237,18 @@ function useHeadingIdResolver(headings?: OutlineHeading[]) {
           usedIds.current.add(candidate.id);
           return candidate.id;
         }
+      }
+
+      // 精确匹配失败多半是公式标题：渲染文本与源文本不一致（「$O(n)$」渲染成「O(n)」，
+      // 且 KaTeX 输出含 MathML 隐藏副本）。渲染顺序与大纲顺序一致（同源文档），取同级
+      // 第一个未使用且源文本含 $ 的标题按序分配。限定含 $ 是为了防止原始 HTML 标题
+      //（不在大纲里）误占大纲 id。
+      const mathCandidate = headings?.find(
+        (h) => h.level === level && h.text.includes("$") && !usedIds.current.has(h.id)
+      );
+      if (mathCandidate) {
+        usedIds.current.add(mathCandidate.id);
+        return mathCandidate.id;
       }
 
       let baseId = slugify(text) || "heading";
@@ -229,7 +303,13 @@ const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuer
     () => [
       ...(hasRawHtml ? [rehypeRaw] : []),
       [rehypeSanitize, kamiSchema],
+      // 搜索高亮必须在 katex 之前：此刻公式仍是 <code class="math-*"> 纯文本
+      //（被 SEARCH_SKIP_TAGS 跳过），katex 渲染产物（MathML + 大量定位 span）
+      // 不会被高亮逻辑拆开破坏
       [rehypeSearchHighlights, { query: searchQuery ?? "" }],
+      // katex 放管线末尾：其输出含大量 class、MathML 属性与内联样式，必须绕过
+      // sanitize；rehype-katex 默认 trust:false（\href 等禁用），产物安全
+      [rehypeKatex, KATEX_OPTIONS],
     ],
     [hasRawHtml, searchQuery]
   );

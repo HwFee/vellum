@@ -64,6 +64,86 @@ describe("MarkdownDocument", () => {
     expect(screen.getByText("cell")).toBeInTheDocument();
   });
 
+  it("renders inline and display math with KaTeX", () => {
+    const markdown = [
+      "输入向量 $\\mathbf{z}=(z_1,\\dots,z_n)$ 后解码。",
+      "",
+      "$$",
+      "\\int_0^1 x^2 \\, dx = \\frac{1}{3}",
+      "$$",
+    ].join("\n");
+
+    const { container } = render(<MarkdownDocument markdown={markdown} />);
+
+    // 行内公式渲染为 .katex，$ 定界符不残留在文本里
+    const inline = container.querySelector("p .katex");
+    expect(inline).toBeInTheDocument();
+    expect(inline).toHaveTextContent("z");
+    expect(container.querySelector("p")).not.toHaveTextContent("$");
+    // 块级公式
+    expect(container.querySelector(".katex-display")).toBeInTheDocument();
+  });
+
+  it("renders ```math fenced blocks as display math", () => {
+    const markdown = ["```math", "E = mc^2", "```"].join("\n");
+
+    const { container } = render(<MarkdownDocument markdown={markdown} />);
+
+    expect(container.querySelector(".katex-display")).toBeInTheDocument();
+    expect(container.querySelector(".code-block")).not.toBeInTheDocument();
+  });
+
+  it("does not treat currency-style dollar signs as math", () => {
+    const { container } = render(
+      <MarkdownDocument markdown="价格在 $5 和 $10 之间" />,
+    );
+
+    expect(container.querySelector(".katex")).not.toBeInTheDocument();
+    expect(screen.getByText(/价格在/)).toHaveTextContent("价格在 $5 和 $10 之间");
+  });
+
+  it("renders invalid math as an inline error without failing the document", () => {
+    const { container } = render(
+      <MarkdownDocument markdown={"$\\notacommand$ 后面的内容"} />,
+    );
+
+    // KaTeX 把未定义命令以红色源码内联展示（不抛错），其余内容正常渲染
+    expect(container.querySelector(".katex")).toBeInTheDocument();
+    expect(container.querySelector("p")).toHaveTextContent("\\notacommand");
+    expect(screen.getByText(/后面的内容/)).toBeInTheDocument();
+  });
+
+  it("assigns outline ids to headings containing math", () => {
+    // 大纲文本来自源文档（含 $ 定界符），渲染文本是公式字形，两者必然不匹配，
+    // 走「同级含 $ 未使用标题按序分配」兑底
+    const { container } = render(
+      <MarkdownDocument
+        markdown={["## 前置", "", "## $O(n)$ 复杂度", "", "## 后续"].join("\n")}
+        headings={[
+          { id: "qianzhi", level: 2, text: "前置" },
+          { id: "on-fuzadu", level: 2, text: "$O(n)$ 复杂度" },
+          { id: "houxu", level: 2, text: "后续" },
+        ]}
+      />
+    );
+
+    // 直接比对 id 序列（KaTeX 内联样式会让 jsdom 的 accessible-name 计算崩溃，不用 getByRole name）
+    const rendered = Array.from(container.querySelectorAll("h2"));
+    expect(rendered.map((h) => h.id)).toEqual(["qianzhi", "on-fuzadu", "houxu"]);
+    expect(rendered[1].querySelector(".katex")).toBeInTheDocument();
+  });
+
+  it("keeps real math while leaving currency text literal", () => {
+    const markdown = "设 $x$ 为价格，区间 $5 到 $10 之间。";
+
+    const { container } = render(<MarkdownDocument markdown={markdown} />);
+
+    const katexNodes = container.querySelectorAll(".katex");
+    expect(katexNodes).toHaveLength(1);
+    expect(katexNodes[0]).toHaveTextContent("x");
+    expect(container.querySelector("p")).toHaveTextContent("$5 到 $10");
+  });
+
   it("renders heading ids from the outline", () => {
     render(
       <MarkdownDocument

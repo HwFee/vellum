@@ -1138,3 +1138,11 @@ mark.search-match--current {
     transition: none;
   }
 }
+
+/* KaTeX 数学公式 */
+.markdown-body .katex-display {
+  margin: 1em 0;
+  padding: 2px 0; /* 超高字形（积分、叠放上下标）不被 overflow 裁掉 */
+  overflow-x: auto; /* 超长公式允许横向滚动，不撑破正文栏宽 */
+  overflow-y: hidden;
+}
