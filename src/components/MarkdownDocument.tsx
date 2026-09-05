@@ -232,6 +232,11 @@ function useHeadingIdResolver(headings?: OutlineHeading[]) {
   usedIds.current = new Set<string>();
   fallbackCounter.current = 0;
 
+  // 【不变量约束（React 19 并发渲染合规，C5）】：
+  // resolveHeadingId 必须且仅允许在渲染期被组件（components.h1/h2/h3）同步调用。
+  // headingsRef 在每次渲染函数体中赋值，usedIds/fallbackCounter 也在同一次渲染中重置。
+  // 严禁将其放入事件处理器、useEffect/useLayoutEffect 或 setTimeout 等异步回调中调用，
+  // 否则在 React 19 并发中断/重放渲染时，读取到的将是未提交帧或已被废弃 pass 的 stale headings。
   return useCallback(
     (level: 1 | 2 | 3, text: string) => {
       const candidates = headingsRef.current?.filter((h) => h.level === level && h.text === text) ?? [];
@@ -395,7 +400,9 @@ const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuer
                 code.length > 524288 ||
                 (code.length > 131072 && new TextEncoder().encode(code).length > 524288);
               if (isOversized) {
-                return <CodeBlock code={code} language="" />;
+                // F12: 降级语言统一为 markup——CodeBlock 已注册的 Prism 语言，
+                // 且 widget 内容本就是完整 HTML 文档；空串会被当成 text 丢掉高亮
+                return <CodeBlock code={code} language="markup" />;
               }
               return (
                 <WidgetSandbox

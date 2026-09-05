@@ -1196,23 +1196,26 @@ mark.search-match--current {
   color: var(--stone);
   font-family: var(--serif);
   font-size: 13px;
-  cursor: pointer;
   user-select: none;
 }
 
-.markdown-body .mdlog-widget__placeholder:hover {
+.markdown-body button.mdlog-widget__placeholder {
+  cursor: pointer;
+}
+
+.markdown-body button.mdlog-widget__placeholder:hover {
   background: var(--ivory);
   color: var(--brand);
   box-shadow: none;
 }
 
-.markdown-body .mdlog-widget__placeholder:focus-visible {
+.markdown-body button.mdlog-widget__placeholder:focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: -2px;
 }
 
 /* 抵消 .markdown-body button:active 的 1px 下沉穿透（占位块不是凸起按钮） */
-.markdown-body .mdlog-widget__placeholder:active {
+.markdown-body button.mdlog-widget__placeholder:active {
   transform: none;
   background: var(--ivory);
 }

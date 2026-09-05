@@ -181,14 +181,22 @@ describe("kami.css mdlog widget and live indicator tokens", () => {
     expect(placeholderRule).toMatch(/box-shadow:\s*none/);
     expect(placeholderRule).toMatch(/border-radius:\s*0/);
 
-    const placeholderHoverRule = css.match(/\.markdown-body\s+\.mdlog-widget__placeholder:hover\s*\{[^}]*\}/s)?.[0] ?? "";
+    const buttonPlaceholderRule = css.match(/\.markdown-body\s+button\.mdlog-widget__placeholder\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(buttonPlaceholderRule).toMatch(/cursor:\s*pointer/);
+    expect(placeholderRule).not.toMatch(/cursor:\s*pointer/);
+
+    const placeholderHoverRule = css.match(/\.markdown-body\s+button\.mdlog-widget__placeholder:hover\s*\{[^}]*\}/s)?.[0] ?? "";
     expect(placeholderHoverRule).toMatch(/background:\s*var\(--ivory\)/);
     expect(placeholderHoverRule).toMatch(/color:\s*var\(--brand\)/);
 
     // P12: 占位块/休眠块补 :focus-visible 2px --brand 描边
-    const placeholderFocusRule = css.match(/\.markdown-body\s+\.mdlog-widget__placeholder:focus-visible\s*\{[^}]*\}/s)?.[0] ?? "";
+    const placeholderFocusRule = css.match(/\.markdown-body\s+button\.mdlog-widget__placeholder:focus-visible\s*\{[^}]*\}/s)?.[0] ?? "";
     expect(placeholderFocusRule).toMatch(/outline:\s*2px solid var\(--brand\)/);
     expect(placeholderFocusRule).toMatch(/outline-offset:\s*-2px/);
+
+    // 3ae47d1 / A3: :active 防下沉规则
+    const placeholderActiveRule = css.match(/\.markdown-body\s+button\.mdlog-widget__placeholder:active\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(placeholderActiveRule).toMatch(/transform:\s*none/);
   });
 
   it("P3/P12: ensures placeholder specificity (.markdown-body .mdlog-widget__placeholder) overrides .markdown-body button", () => {
@@ -202,8 +210,53 @@ describe("kami.css mdlog widget and live indicator tokens", () => {
 
     // 显式断言占位块选择器包含 .markdown-body 前缀（特异性 0,2,0 > 0,1,1）
     expect(css).toMatch(/\.markdown-body\s+\.mdlog-widget__placeholder\s*\{/);
-    expect(css).toMatch(/\.markdown-body\s+\.mdlog-widget__placeholder:hover\s*\{/);
-    expect(css).toMatch(/\.markdown-body\s+\.mdlog-widget__placeholder:focus-visible\s*\{/);
+    expect(css).toMatch(/\.markdown-body\s+button\.mdlog-widget__placeholder:hover\s*\{/);
+    expect(css).toMatch(/\.markdown-body\s+button\.mdlog-widget__placeholder:focus-visible\s*\{/);
+    expect(css).toMatch(/\.markdown-body\s+button\.mdlog-widget__placeholder:active\s*\{/);
+  });
+
+  it("P3/C3: verifies true cascade in jsdom computed style for placeholder elements", () => {
+    const styleEl = document.createElement("style");
+    styleEl.textContent = css;
+    document.head.appendChild(styleEl);
+
+    const container = document.createElement("div");
+    container.className = "markdown-body";
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "mdlog-widget__placeholder";
+    button.textContent = "交互内容 · 点击加载";
+    container.appendChild(button);
+
+    const loadingDiv = document.createElement("div");
+    loadingDiv.className = "mdlog-widget__placeholder";
+    loadingDiv.textContent = "交互准备中…";
+    container.appendChild(loadingDiv);
+
+    document.body.appendChild(container);
+
+    const buttonComputed = window.getComputedStyle(button);
+    expect(buttonComputed.minHeight).toBe("120px");
+    expect(buttonComputed.borderRadius).toBe("0px");
+    expect(buttonComputed.boxShadow).toBe("none");
+    expect(buttonComputed.fontWeight).toBe("500");
+    expect(buttonComputed.width).toBe("100%");
+    expect(buttonComputed.padding).toBe("24px");
+    expect(buttonComputed.display).toBe("flex");
+    expect(buttonComputed.cursor).toBe("pointer");
+
+    const divComputed = window.getComputedStyle(loadingDiv);
+    expect(divComputed.minHeight).toBe("120px");
+    expect(divComputed.borderRadius).toBe("0px");
+    expect(divComputed.boxShadow).toBe("none");
+    expect(divComputed.width).toBe("100%");
+    expect(divComputed.padding).toBe("24px");
+    expect(divComputed.display).toBe("flex");
+    expect(divComputed.cursor).not.toBe("pointer");
+
+    document.body.removeChild(container);
+    document.head.removeChild(styleEl);
   });
 
   it("declares live indicator rules with 5x5px square dot and breathing animation", () => {

@@ -183,7 +183,7 @@ async fn load_document(
 
         if path_changed {
             let mut registry = widget_state.0.lock().unwrap_or_else(|p| p.into_inner());
-            apply_rebind(&mut registry, &mut current_lock, &canonical);
+            apply_rebind(&mut registry, &mut current_lock, &canonical, path_changed);
         }
 
         if rebuild_watcher {
@@ -238,21 +238,17 @@ fn needs_watcher_rebuild(current: Option<&PathBuf>, next: &Path, has_watcher: bo
     should_clear_registry(current, next) || !has_watcher
 }
 
-/// 纯函数：判定是否需要重新绑定文档（向后兼容同名包装）。
-fn should_rebind(current: Option<&PathBuf>, next: &Path) -> bool {
-    should_clear_registry(current, next)
-}
-
-/// 纯函数：执行重新绑定状态转移（S6/P8）。
-/// 当路径改变或首次加载时，清空 widget 注册表并将 current 更新为 next；
+/// 纯函数：执行重新绑定状态转移（S6/P8/C8）。
+/// 当路径改变或首次加载（path_changed 为 true）时，清空 widget 注册表并将 current 更新为 next；
 /// 若路径不变（同路径重载或 watcher 异常恢复），则严格保留 registry 内容。
 /// 返回 true 表示触发了注册表清空与路径重置。
 fn apply_rebind(
     registry: &mut WidgetRegistry,
     current: &mut Option<PathBuf>,
     next: &Path,
+    path_changed: bool,
 ) -> bool {
-    if should_clear_registry(current.as_ref(), next) {
+    if path_changed {
         registry.clear();
         *current = Some(next.to_path_buf());
         true
@@ -265,7 +261,6 @@ fn apply_rebind(
 mod tests {
     use super::{
         apply_rebind, first_markdown_from_args, needs_watcher_rebuild, should_clear_registry,
-        should_rebind,
     };
 
     #[test]
@@ -294,7 +289,8 @@ mod tests {
         let mut current = Some(std::path::PathBuf::from("C:/notes/doc1.md"));
         let next = std::path::Path::new("C:/notes/doc2.md");
 
-        let rebinded = apply_rebind(&mut registry, &mut current, next);
+        let path_changed = should_clear_registry(current.as_ref(), next);
+        let rebinded = apply_rebind(&mut registry, &mut current, next, path_changed);
         assert!(rebinded);
         assert_eq!(registry.len(), 0);
         assert_eq!(current, Some(std::path::PathBuf::from("C:/notes/doc2.md")));
@@ -311,7 +307,8 @@ mod tests {
         let p1 = std::path::PathBuf::from("C:/notes/doc1.md");
         let mut current = Some(p1.clone());
 
-        let rebinded = apply_rebind(&mut registry, &mut current, &p1);
+        let path_changed = should_clear_registry(current.as_ref(), &p1);
+        let rebinded = apply_rebind(&mut registry, &mut current, &p1, path_changed);
         assert!(!rebinded);
         assert_eq!(registry.len(), 1);
         assert_eq!(current, Some(p1));
@@ -329,36 +326,33 @@ mod tests {
         let mut current = Some(p1.clone());
 
         // P8: 同路径下 watcher 缺失时仅重建 watcher，apply_rebind 绝不清空注册表
-        let rebinded = apply_rebind(&mut registry, &mut current, &p1);
+        let path_changed = should_clear_registry(current.as_ref(), &p1);
+        let rebinded = apply_rebind(&mut registry, &mut current, &p1, path_changed);
         assert!(!rebinded);
         assert_eq!(registry.len(), 1);
         assert_eq!(current, Some(p1));
     }
 
     #[test]
-    fn should_rebind_and_watcher_matrix_evaluation() {
+    fn rebind_and_watcher_matrix_evaluation() {
         let p1 = std::path::PathBuf::from("C:/notes/live.md");
         let p2 = std::path::PathBuf::from("C:/notes/other.md");
         // 首次加载（current 为 None）：清空注册表 + 重建 watcher
         assert!(should_clear_registry(None, &p1));
-        assert!(should_rebind(None, &p1));
         assert!(needs_watcher_rebuild(None, &p1, false));
         assert!(needs_watcher_rebuild(None, &p1, true));
 
         // 路径不同（切换文档）：清空注册表 + 重建 watcher
         assert!(should_clear_registry(Some(&p1), &p2));
-        assert!(should_rebind(Some(&p1), &p2));
         assert!(needs_watcher_rebuild(Some(&p1), &p2, true));
 
         // P8 核心测试：相同路径但 watcher 缺失（异常恢复）：
         // 必须重建 watcher，但绝不清空注册表！
         assert!(!should_clear_registry(Some(&p1), &p1));
-        assert!(!should_rebind(Some(&p1), &p1));
         assert!(needs_watcher_rebuild(Some(&p1), &p1, false));
 
         // 相同路径且 watcher 正常（同路径热重载）：两者均不触发
         assert!(!should_clear_registry(Some(&p1), &p1));
-        assert!(!should_rebind(Some(&p1), &p1));
         assert!(!needs_watcher_rebuild(Some(&p1), &p1, true));
     }
 

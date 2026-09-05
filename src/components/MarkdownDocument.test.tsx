@@ -684,6 +684,9 @@ plain block
     // 超过 512KB 降级为普通 CodeBlock，不进入 WidgetSandbox
     expect(container.querySelector(".mdlog-widget")).not.toBeInTheDocument();
     expect(container.querySelector(".code-block")).toBeInTheDocument();
+    // F12: 降级语言统一为 Prism 已注册的 markup（widget 内容是完整 HTML 文档），
+    // 不得再用空串降级（会当成 text 丢高亮）
+    expect(container.querySelector(".code-block__lang")?.textContent).toBe("markup");
   });
 
   it("P9: short-circuits 512KB pre-check without TextEncoder when length > 524288 or safe range", async () => {
