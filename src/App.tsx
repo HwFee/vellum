@@ -33,6 +33,7 @@ export default function App() {
   const isMdlogActiveRef = useRef(false);
   isMdlogActiveRef.current = isMdlogActive;
   const prevIsMdlogActiveRef = useRef(false);
+  const activeMdlogPathRef = useRef<string | null>(null);
   const recheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shouldStickToBottomRef = useRef(false);
   const startupLoaded = useRef(false);
@@ -54,6 +55,9 @@ export default function App() {
   const headingsRef = useRef<OutlineHeading[]>([]);
   const [isOutlineOpen, toggleOutline, setIsOutlineOpen] = useOutlineOpen(true);
   const isNarrow = useIsNarrow();
+
+  // 组件卸载时注销尚未完成的落位守护
+  useEffect(() => () => restoreCancelRef.current?.(), []);
 
   // ===== 搜索状态 =====
   const [searchQuery, setSearchQuery] = useState("");
@@ -112,11 +116,17 @@ export default function App() {
     recheckTimerRef.current = setTimeout(async () => {
       recheckTimerRef.current = null;
       if (!currentPathRef.current) return;
+      const expectedPath = currentPathRef.current;
       try {
         const latestState = await invoke<MdlogState | null>("read_mdlog_state");
+        if (currentPathRef.current !== expectedPath) return;
         setMdlogState(latestState);
+        if (latestState !== null) {
+          activeMdlogPathRef.current = expectedPath;
+        }
         scheduleRecheck(latestState);
       } catch {
+        if (currentPathRef.current !== expectedPath) return;
         setMdlogState(null);
       }
     }, delay);
@@ -133,6 +143,9 @@ export default function App() {
   async function loadPath(path: string) {
     // 切换文档前先保存上一篇的阅读位置
     persistCurrentScroll();
+    // 切换文档时重置 mdlog 活跃路径与前置标志，避免切换过渡时误触发断开补写
+    prevIsMdlogActiveRef.current = false;
+    activeMdlogPathRef.current = null;
     // 终止上一篇文档可能仍在进行的恢复落位守护
     restoreCancelRef.current?.();
     restoreCancelRef.current = null;
@@ -161,6 +174,9 @@ export default function App() {
         const liveState = await invoke<MdlogState | null>("read_mdlog_state");
         if (loadRequestRef.current === requestId) {
           setMdlogState(liveState);
+          if (liveState !== null) {
+            activeMdlogPathRef.current = document.path;
+          }
           scheduleRecheck(liveState);
         }
       } catch {
@@ -415,7 +431,7 @@ export default function App() {
       container.scrollTop = pendingScrollRef.current;
       pendingScrollRef.current = null;
     }
-  }, [activeDocument?.markdown]);
+  }, [activeDocument?.markdown, reloadTick]);
 
   // 热重载提示：正文做一次由虚而实的"落墨"；宽窗口的页边批注在动画结束后卸载
   useEffect(() => {
@@ -437,16 +453,18 @@ export default function App() {
 
     async function checkState() {
       if (!currentPathRef.current) return;
+      const expectedPath = currentPathRef.current;
       try {
         const liveState = await invoke<MdlogState | null>("read_mdlog_state");
-        if (!cancelled) {
-          setMdlogState(liveState);
-          scheduleRecheck(liveState);
+        if (cancelled || currentPathRef.current !== expectedPath) return;
+        setMdlogState(liveState);
+        if (liveState !== null) {
+          activeMdlogPathRef.current = expectedPath;
         }
+        scheduleRecheck(liveState);
       } catch {
-        if (!cancelled) {
-          setMdlogState(null);
-        }
+        if (cancelled || currentPathRef.current !== expectedPath) return;
+        setMdlogState(null);
       }
     }
 
@@ -476,7 +494,10 @@ export default function App() {
   // 记录态断开时集中补写一次阅读位置
   useEffect(() => {
     if (prevIsMdlogActiveRef.current && !isMdlogActive) {
-      persistCurrentScroll();
+      if (activeMdlogPathRef.current && activeMdlogPathRef.current === currentPathRef.current) {
+        persistCurrentScroll();
+      }
+      activeMdlogPathRef.current = null;
     }
     prevIsMdlogActiveRef.current = isMdlogActive;
   }, [isMdlogActive]);

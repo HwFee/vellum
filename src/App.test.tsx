@@ -32,7 +32,7 @@ vi.mock("@tauri-apps/api/window", () => ({
 }));
 
 const lastOpenedGet = vi.fn(() => Promise.resolve<string | undefined>(undefined));
-const storeGet = vi.fn((key: string) =>
+const storeGet = vi.fn((key: string): Promise<unknown> =>
   key === "lastOpenedPath" ? lastOpenedGet() : Promise.resolve(undefined)
 );
 const storeSet = vi.fn(() => Promise.resolve());
@@ -76,6 +76,9 @@ beforeEach(() => {
   drainInvoke.mockReset();
   drainInvoke.mockResolvedValue([]);
   storeGet.mockClear();
+  storeGet.mockImplementation((key: string): Promise<unknown> =>
+    key === "lastOpenedPath" ? lastOpenedGet() : Promise.resolve(undefined)
+  );
   storeSet.mockClear();
   storeSet.mockImplementation(() => Promise.resolve());
   lastOpenedGet.mockReset();
@@ -722,6 +725,315 @@ test("clears timer and unmounts badge when switching to a regular document", asy
   await waitFor(() => expect(screen.getByRole("heading", { name: "Plain" })).toBeInTheDocument());
   expect(screen.queryByText("记录中 · PI")).not.toBeInTheDocument();
 });
+
+test("switching from active mdlog doc A to regular doc B never overwrites A with ratio: 0 and only persists A once via loadPath", async () => {
+  const saveSpy = vi.fn();
+  storeSet.mockImplementation(saveSpy);
+  const { Store } = await import("@tauri-apps/plugin-store");
+  vi.mocked(Store.load).mockResolvedValue({
+    get: vi.fn(() => Promise.resolve(undefined)),
+    set: saveSpy,
+    save: vi.fn(() => Promise.resolve()),
+  } as unknown as Awaited<ReturnType<typeof Store.load>>);
+
+  backendInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
+    if (cmd === "load_document") {
+      const p = (args as { path: string }).path;
+      return {
+        path: p,
+        fileName: p.endsWith("live.md") ? "live.md" : "plain.md",
+        parentPath: "C:/notes",
+        markdown: p.endsWith("live.md") ? "# Live Heading\n\nLive content" : "# Plain Heading\n\nPlain content",
+      };
+    }
+    if (cmd === "read_mdlog_state") {
+      return {
+        lastWriteAt: Date.now(),
+        heartbeatAt: Date.now(),
+        expiresAt: Date.now() + 120_000,
+      };
+    }
+    return undefined;
+  });
+
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/live.md");
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Live Heading" })).toBeInTheDocument());
+  expect(await screen.findByText("记录中 · PI")).toBeInTheDocument();
+
+  // 模拟文档 A 已有阅读位置（如 scrollTop > 0，有真实比例与高度）
+  const scrollContainer = document.querySelector(".document-scroll") as HTMLElement;
+  Object.defineProperty(scrollContainer, "scrollTop", { value: 300, writable: true, configurable: true });
+  Object.defineProperty(scrollContainer, "scrollHeight", { value: 1000, writable: true, configurable: true });
+  Object.defineProperty(scrollContainer, "clientHeight", { value: 500, writable: true, configurable: true });
+
+  saveSpy.mockClear();
+
+  // 切换到文档 B（模拟真实的异步加载延时）
+  let resolveLoadDoc!: (value: unknown) => void;
+  const loadDocPromise = new Promise((resolve) => {
+    resolveLoadDoc = resolve;
+  });
+
+  backendInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
+    if (cmd === "load_document") {
+      const p = (args as { path: string }).path;
+      if (p.endsWith("plain.md")) {
+        await loadDocPromise;
+      }
+      return {
+        path: p,
+        fileName: "plain.md",
+        parentPath: "C:/notes",
+        markdown: "# Plain Heading\n\nPlain content",
+      };
+    }
+    if (cmd === "read_mdlog_state") {
+      return null;
+    }
+    return undefined;
+  });
+
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/plain.md");
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  // 等待切换过渡态渲染（此时处于 loading 态）
+  await waitFor(() => expect(screen.getByText("加载中...")).toBeInTheDocument());
+
+  // 此时完成异步加载
+  resolveLoadDoc(undefined);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Plain Heading" })).toBeInTheDocument());
+
+  // 提取针对文档 A ("C:/notes/live.md") 的所有保存调用
+  const docASaveCalls = saveSpy.mock.calls.filter(([path]) => path === "C:/notes/live.md");
+
+  // 断言：A 的位置只被 loadPath 的正常保存写入一次
+  expect(docASaveCalls).toHaveLength(1);
+
+  // 断言：绝不能写入 { ratio: 0 }
+  for (const [, position] of docASaveCalls) {
+    expect(position).not.toEqual({ ratio: 0 });
+    expect((position as { ratio: number }).ratio).toBeGreaterThan(0);
+  }
+});
+
+test("scheduleRecheck ignores late-resolving response if document path changed during await", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+
+  let resolveLateRecheck!: (val: unknown) => void;
+  const lateRecheckPromise = new Promise((resolve) => {
+    resolveLateRecheck = resolve;
+  });
+
+  let recheckCount = 0;
+
+  backendInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
+    if (cmd === "load_document") {
+      const p = (args as { path: string }).path;
+      return {
+        path: p,
+        fileName: p.endsWith("docA.md") ? "docA.md" : "docB.md",
+        parentPath: "C:/notes",
+        markdown: p.endsWith("docA.md") ? "# Doc A" : "# Doc B",
+      };
+    }
+    if (cmd === "read_mdlog_state") {
+      recheckCount++;
+      if (recheckCount === 1) {
+        // docA 初次加载返回活跃态
+        return {
+          lastWriteAt: Date.now(),
+          heartbeatAt: Date.now(),
+          expiresAt: Date.now() + 500,
+        };
+      }
+      if (recheckCount === 2) {
+        // 第一次 scheduleRecheck 触发的 read_mdlog_state，挂起等待
+        return lateRecheckPromise;
+      }
+      return null;
+    }
+    return undefined;
+  });
+
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/docA.md");
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Doc A" })).toBeInTheDocument());
+  expect(await screen.findByText("记录中 · PI")).toBeInTheDocument();
+
+  // 前进定时器触发 scheduleRecheck
+  act(() => {
+    vi.advanceTimersByTime(600);
+  });
+
+  // 在挂起期间切换到 docB
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/docB.md");
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Doc B" })).toBeInTheDocument());
+  expect(screen.queryByText("记录中 · PI")).not.toBeInTheDocument();
+
+  // 此时让 docA 的迟到 recheck 完成并返回活跃态
+  await act(async () => {
+    resolveLateRecheck({
+      lastWriteAt: Date.now(),
+      heartbeatAt: Date.now(),
+      expiresAt: Date.now() + 120_000,
+    });
+  });
+
+  // docB 绝不能被污染挂载徽章
+  expect(screen.queryByText("记录中 · PI")).not.toBeInTheDocument();
+
+  vi.useRealTimers();
+});
+
+test("checkState event handler ignores late-resolving response if document path changed during await", async () => {
+  let resolveLateEventCheck!: (val: unknown) => void;
+  const lateEventCheckPromise = new Promise((resolve) => {
+    resolveLateEventCheck = resolve;
+  });
+
+  let readCount = 0;
+  backendInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
+    if (cmd === "load_document") {
+      const p = (args as { path: string }).path;
+      return {
+        path: p,
+        fileName: p.endsWith("docA.md") ? "docA.md" : "docB.md",
+        parentPath: "C:/notes",
+        markdown: p.endsWith("docA.md") ? "# Doc A" : "# Doc B",
+      };
+    }
+    if (cmd === "read_mdlog_state") {
+      readCount++;
+      if (readCount === 1) {
+        // docA 初始为常规文档
+        return null;
+      }
+      if (readCount === 2) {
+        // 事件触发的查询被挂起
+        return lateEventCheckPromise;
+      }
+      return null;
+    }
+    return undefined;
+  });
+
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/docA.md");
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Doc A" })).toBeInTheDocument());
+
+  // 触发 mdlog-state-changed 事件
+  const stateChangedCall = vi.mocked(listen).mock.calls.find(
+    ([event]) => event === "mdlog-state-changed"
+  );
+  expect(stateChangedCall).toBeDefined();
+  act(() => {
+    (stateChangedCall![1] as (payload: unknown) => void)({ payload: {} });
+  });
+
+  // 在查询挂起期间切换到 docB
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/docB.md");
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Doc B" })).toBeInTheDocument());
+
+  // 此时事件查询迟到返回 docA 的活跃态
+  await act(async () => {
+    resolveLateEventCheck({
+      lastWriteAt: Date.now(),
+      heartbeatAt: Date.now(),
+      expiresAt: Date.now() + 120_000,
+    });
+  });
+
+  // docB 绝不能被污染挂载徽章
+  expect(screen.queryByText("记录中 · PI")).not.toBeInTheDocument();
+});
+
+test("cleans up active scroll restore settle guard when App unmounts", async () => {
+  const scrollRestoreModule = await import("./lib/scrollRestore");
+  const originalRestore = scrollRestoreModule.restoreScrollPosition;
+  const cleanupSpy = vi.fn();
+  const restoreSpy = vi.spyOn(scrollRestoreModule, "restoreScrollPosition").mockImplementation((...args) => {
+    const realCleanup = originalRestore(...args);
+    return () => {
+      cleanupSpy();
+      realCleanup();
+    };
+  });
+
+  storeGet.mockImplementation((key: string) => {
+    if (key === "C:/notes/unmount-test.md") {
+      return Promise.resolve({ ratio: 0.5 });
+    }
+    return Promise.resolve(undefined);
+  });
+
+  backendInvoke.mockResolvedValueOnce({
+    path: "C:/notes/unmount-test.md",
+    fileName: "unmount-test.md",
+    parentPath: "C:/notes",
+    markdown: "# Unmount Test",
+  });
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/unmount-test.md");
+
+  const { unmount } = render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Unmount Test" })).toBeInTheDocument());
+  expect(restoreSpy).toHaveBeenCalled();
+  expect(cleanupSpy).not.toHaveBeenCalled();
+
+  unmount();
+
+  expect(cleanupSpy).toHaveBeenCalledTimes(1);
+  restoreSpy.mockRestore();
+});
+
+test("layout effect arbitrates scroll on hot reload even when markdown content is unchanged (via reloadTick)", async () => {
+  backendInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === "load_document") {
+      return {
+        path: "C:/notes/same.md",
+        fileName: "same.md",
+        parentPath: "C:/notes",
+        markdown: "# Unchanged Content\n\nLine 1\nLine 2",
+      };
+    }
+    return undefined;
+  });
+
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/same.md");
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Unchanged Content" })).toBeInTheDocument());
+
+  const container = document.querySelector(".document-scroll") as HTMLElement;
+  Object.defineProperty(container, "scrollTop", { value: 200, writable: true, configurable: true });
+  Object.defineProperty(container, "scrollHeight", { value: 1000, writable: true, configurable: true });
+  Object.defineProperty(container, "clientHeight", { value: 600, writable: true, configurable: true });
+
+  const reloadCall = vi.mocked(listen).mock.calls.find(([event]) => event === "file-changed");
+  expect(reloadCall).toBeDefined();
+
+  container.scrollTop = 250;
+  await act(async () => {
+    (reloadCall![1] as (payload: unknown) => void)({ payload: {} });
+  });
+
+  expect(container.scrollTop).toBe(250);
+});
+
 
 test("end-to-end: live mdlog lifecycle from bottom stickiness to disconnection recovery", async () => {
   vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
