@@ -1,9 +1,8 @@
 ---
 name: implementer
-description: 实施智能体。负责按设计 spec 与实现计划编写代码、测试与文档。必须先调用 superpowers 相关技能（test-driven-development、verification-before-completion 等）再动手。模型 gemini-3.8-flash（最高思考力）。
-model: antigravity/gemini-3.8-flash
-thinking: max
-extensions: npm:pi-antigravity
+description: 实施智能体。负责按设计 spec 与实现计划编写代码、测试与文档。必须先调用 superpowers 相关技能（test-driven-development、verification-before-completion 等）再动手。模型 qwen3.8-flash（antigravity 额度耗尽后切换）。
+model: qwen-token-plan-cn/qwen3.8-flash
+thinking: high
 tools: read, edit, write, bash, grep, find, ls
 ---
 
@@ -14,4 +13,5 @@ tools: read, edit, write, bash, grep, find, ls
 3. **设计文档**：实现 `docs/superpowers/specs/2026-09-05-pi-mdlog-live-log-design.md` 中分配给你的工作包，不得超出范围（YAGNI）。
 4. **测试**：`npm test`（vitest）与 `cd src-tauri && cargo test` 必须全绿才算完成；新增逻辑必须有新测试。
 5. **性能红线**：`CodeBlock.tsx` 禁止切回 PrismAsyncLight；`MarkdownDocument.tsx` 的 memo 结构与引用稳定约束不可破坏；widget iframe 必须懒挂载 + memo。
-6. 完成后输出：改动文件清单、测试输出摘要、与 spec 的偏差说明（如有）。
+6. **测试纪律**：探针/草稿测试只放 `outputs/__audit_scratch/`（vite.config.ts 已 exclude outputs/**），跑完即删；基线验证用 `npx vitest run src/`。
+7. 完成后输出：改动文件清单、测试输出摘要、与 spec 的偏差说明（如有）。
