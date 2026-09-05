@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -6,14 +6,112 @@ use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use tauri::{AppHandle, Emitter};
 
 /// 防抖静默期：连续文件变更事件在此期间合并为一次重载。
-const DEBOUNCE: Duration = Duration::from_millis(400);
+pub const DEBOUNCE: Duration = Duration::from_millis(400);
 
-/// 启动一个针对单文件变更的监听器，返回的 `RecommendedWatcher` drop 时停止监听
-/// 并结束内部事件循环线程。
-///
-/// 监听父目录而非文件本身，以兼容编辑器的"写临时文件再 rename 覆盖"原子保存
-/// （直接 watch 单个文件在 rename 后会丢失监听）。仅当事件路径匹配目标文件时
-/// 才触发，避免同目录其他文件变动产生误重载。
+/// 依据目标 Markdown 文件路径推导同级 `<目标>.mdlog` sidecar 文件路径。
+pub fn sidecar_path_for(file_path: &Path) -> PathBuf {
+    let mut name = file_path
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
+    name.push(".mdlog");
+    file_path.with_file_name(name)
+}
+
+/// 标识单次超时检测需要触发的 Tauri 事件。
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct DebounceEmits {
+    pub file_changed: bool,
+    pub mdlog_state_changed: bool,
+}
+
+/// 双路独立防抖状态机：
+/// target 变更 -> 400ms log_deadline -> emit "file-changed"
+/// sidecar 变更 -> 400ms sidecar_deadline -> emit "mdlog-state-changed"
+/// 两路计时独立维护，互不顶替、互不合并。
+pub struct DoubleDebounceTracker {
+    pub target: PathBuf,
+    pub sidecar_target: PathBuf,
+    pub log_deadline: Option<Instant>,
+    pub sidecar_deadline: Option<Instant>,
+    pub debounce: Duration,
+}
+
+impl DoubleDebounceTracker {
+    pub fn new(target: PathBuf, debounce: Duration) -> Self {
+        let sidecar_target = sidecar_path_for(&target);
+        Self {
+            target,
+            sidecar_target,
+            log_deadline: None,
+            sidecar_deadline: None,
+            debounce,
+        }
+    }
+
+    /// 根据接收到的事件路径，分别刷新对应管线的 deadline。
+    pub fn handle_event_paths(&mut self, paths: &[PathBuf], now: Instant) {
+        if paths.iter().any(|p| p == &self.target) {
+            self.log_deadline = Some(now + self.debounce);
+        }
+        if paths.iter().any(|p| p == &self.sidecar_target) {
+            self.sidecar_deadline = Some(now + self.debounce);
+        }
+    }
+
+    /// 计算下一次 `recv_timeout` 的等待时长（取两路 deadline 的较早者）。
+    pub fn compute_timeout(&self, now: Instant, idle_wait: Duration) -> Duration {
+        match (self.log_deadline, self.sidecar_deadline) {
+            (Some(ld), Some(sd)) => {
+                let earliest = ld.min(sd);
+                if earliest <= now {
+                    Duration::ZERO
+                } else {
+                    earliest - now
+                }
+            }
+            (Some(ld), None) => {
+                if ld <= now {
+                    Duration::ZERO
+                } else {
+                    ld - now
+                }
+            }
+            (None, Some(sd)) => {
+                if sd <= now {
+                    Duration::ZERO
+                } else {
+                    sd - now
+                }
+            }
+            (None, None) => idle_wait,
+        }
+    }
+
+    /// 提取已到期的事件并清除对应 deadline。
+    pub fn poll_expired(&mut self, now: Instant) -> DebounceEmits {
+        let mut emits = DebounceEmits::default();
+
+        if let Some(ld) = self.log_deadline {
+            if ld <= now {
+                emits.file_changed = true;
+                self.log_deadline = None;
+            }
+        }
+
+        if let Some(sd) = self.sidecar_deadline {
+            if sd <= now {
+                emits.mdlog_state_changed = true;
+                self.sidecar_deadline = None;
+            }
+        }
+
+        emits
+    }
+}
+
+/// 启动针对目标文件及其同级 sidecar 的双路监听器。
+/// 返回的 `RecommendedWatcher` drop 时自动停止监听并结束内部事件循环线程。
 pub fn watch_file(app: AppHandle, file_path: PathBuf) -> Result<RecommendedWatcher, String> {
     let parent = file_path
         .parent()
@@ -31,40 +129,28 @@ pub fn watch_file(app: AppHandle, file_path: PathBuf) -> Result<RecommendedWatch
     let target = file_path.clone();
     let app_handle = app.clone();
     std::thread::spawn(move || {
-        // deadline = 最近一次匹配事件 + DEBOUNCE；到期时 emit 一次。
-        // 无事件时阻塞在 recv 上（超时设为一个较长值以降低空转）。
         let idle_wait = Duration::from_secs(3600);
-        let mut deadline: Option<Instant> = None;
+        let mut tracker = DoubleDebounceTracker::new(target, DEBOUNCE);
 
         loop {
-            let timeout = match deadline {
-                Some(d) => {
-                    let now = Instant::now();
-                    if d <= now {
-                        Duration::ZERO
-                    } else {
-                        d - now
-                    }
-                }
-                None => idle_wait,
-            };
+            let now = Instant::now();
+            let timeout = tracker.compute_timeout(now, idle_wait);
 
             match rx.recv_timeout(timeout) {
                 Ok(Ok(event)) => {
-                    if event.paths.iter().any(|p| p == &target) {
-                        deadline = Some(Instant::now() + DEBOUNCE);
-                    }
+                    tracker.handle_event_paths(&event.paths, Instant::now());
                 }
                 Ok(Err(_)) => continue,
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    if let Some(d) = deadline {
-                        if d <= Instant::now() {
-                            let _ = app_handle.emit("file-changed", ());
-                            deadline = None;
-                        }
-                    }
-                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+
+            let emits = tracker.poll_expired(Instant::now());
+            if emits.file_changed {
+                let _ = app_handle.emit("file-changed", ());
+            }
+            if emits.mdlog_state_changed {
+                let _ = app_handle.emit("mdlog-state-changed", ());
             }
         }
     });
