@@ -150,3 +150,84 @@ describe("kami.css top bar", () => {
     expect(rule).toMatch(/box-shadow:\s*inset 0 0 0 1px var\(--hairline\)/);
   });
 });
+
+describe("kami.css mdlog widget and live indicator tokens", () => {
+  it("declares widget container rules with exact preview metrics", () => {
+    const widgetRule = css.match(/\.mdlog-widget\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(widgetRule).toMatch(/margin:\s*17px 0/);
+    expect(widgetRule).toMatch(/background:\s*var\(--ivory\)/);
+    expect(widgetRule).toMatch(/box-shadow:\s*inset 0 0 0 1px var\(--border\)/);
+    expect(widgetRule).toMatch(/border-radius:\s*6px/);
+    expect(widgetRule).toMatch(/overflow:\s*hidden/);
+
+    const barRule = css.match(/\.mdlog-widget__bar\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(barRule).toMatch(/padding:\s*7px 14px/);
+    expect(barRule).toMatch(/font:\s*10px\/1\.5 var\(--mono\)/);
+    expect(barRule).toMatch(/letter-spacing:\s*1\.2px/);
+    expect(barRule).toMatch(/text-transform:\s*uppercase/);
+    expect(barRule).toMatch(/color:\s*var\(--stone\)/);
+
+    const frameRule = css.match(/\.mdlog-widget__frame\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(frameRule).toMatch(/min-height:\s*120px/);
+    expect(frameRule).toMatch(/border:\s*0/);
+    expect(frameRule).toMatch(/border-top:\s*1px solid var\(--hairline\)/);
+    expect(frameRule).toMatch(/background:\s*var\(--parchment\)/);
+
+    const placeholderRule = css.match(/\.mdlog-widget__placeholder\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(placeholderRule).toMatch(/min-height:\s*120px/);
+    expect(placeholderRule).toMatch(/border-top:\s*1px solid var\(--hairline\)/);
+    expect(placeholderRule).toMatch(/background:\s*var\(--parchment\)/);
+    expect(placeholderRule).toMatch(/color:\s*var\(--stone\)/);
+  });
+
+  it("declares live indicator rules with 5x5px square dot and breathing animation", () => {
+    const liveRule = css.match(/\.mdlog-live\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(liveRule).toMatch(/margin:\s*30px 0 0/);
+    expect(liveRule).toMatch(/color:\s*var\(--stone\)/);
+    expect(liveRule).toMatch(/font:\s*10px\/1 var\(--mono\)/);
+    expect(liveRule).toMatch(/letter-spacing:\s*2px/);
+
+    const dotRule = css.match(/\.mdlog-live::before\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(dotRule).toMatch(/width:\s*5px/);
+    expect(dotRule).toMatch(/height:\s*5px/);
+    expect(dotRule).toMatch(/border-radius:\s*1px/);
+    expect(dotRule).toMatch(/background:\s*var\(--brand\)/);
+    expect(dotRule).toMatch(/animation:\s*mdlog-pulse 1\.6s ease infinite/);
+
+    const motionRule = css.match(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[^}]*\.mdlog-live::before\s*\{[^}]*animation:\s*none/s)?.[0] ?? "";
+    expect(motionRule).toBeTruthy();
+  });
+
+  it("strictly obeys kami design constraints for mdlog rules: allowed radii, max weight 500, no raw colors", () => {
+    const startIndex = css.indexOf(".mdlog-widget");
+    expect(startIndex).toBeGreaterThan(0);
+    const mdlogSection = css.slice(startIndex);
+
+    // 1. 圆角仅允许 ∈ {0, 1px, 2px, 3px, 4px, 6px}
+    const radiiMatches = Array.from(mdlogSection.matchAll(/border-radius:\s*([^;]+);/g));
+    const allowedRadii = new Set(["0", "1px", "2px", "3px", "4px", "6px"]);
+    for (const match of radiiMatches) {
+      const val = match[1].trim();
+      expect(allowedRadii.has(val), `Disallowed border-radius in mdlog section: ${val}`).toBe(true);
+    }
+
+    // 2. font-weight 严格 ≤ 500
+    const weightMatches = Array.from(mdlogSection.matchAll(/font-weight:\s*([^;]+);/g));
+    for (const match of weightMatches) {
+      const w = parseInt(match[1].trim(), 10);
+      if (!Number.isNaN(w)) {
+        expect(w).toBeLessThanOrEqual(500);
+      }
+    }
+
+    // 3. 颜色仅允许使用 var(--*)、transparent 或 currentColor，严禁未声明的原始十六进制或 rgb
+    const colorDeclarations = Array.from(
+      mdlogSection.matchAll(/(?:color|background|border(?:-[a-z]+)?|box-shadow):\s*([^;]+);/g)
+    );
+    for (const match of colorDeclarations) {
+      const decl = match[1];
+      expect(decl).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+      expect(decl).not.toMatch(/rgba?\(/);
+    }
+  });
+});
