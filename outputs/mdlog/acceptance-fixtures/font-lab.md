@@ -23,7 +23,7 @@
   .name i { font-style:normal; color:#A63A2B; }
   .sample { font-size:17px; line-height:1.75; color:#141413; }
   .sample b { font-weight:500; color:#1B365D; }
-  .f1 { font-family:"HarmonyOS Sans","PingFang SC","苹方-简","TsangerJinKai02","Source Han Serif SC",serif; }
+  .f1 { font-family:"TsangerJinKai02","Source Han Serif SC","Songti SC",serif; }
   .f2 { font-family:"KaiTi","STKaiti",serif; }
   .f3 { font-family:"STKaiti","KaiTi",serif; }
   .f4 { font-family:"FangSong","STFangsong",serif; }
@@ -33,7 +33,7 @@
 </style>
 </head>
 <body>
-  <div class="row"><div class="name"><span>1 · 鸿蒙西文 + 苹方中文</span><i>当前默认</i></div><div class="sample f1">方波可由无穷条<b>正弦谐波</b>叠加合成——Fourier series, N=5, ωt ∈ [0, 2π)。</div></div>
+  <div class="row"><div class="name"><span>1 · 今楷（本机已装系统字体）</span><i>当前默认</i></div><div class="sample f1">方波可由无穷条<b>正弦谐波</b>叠加合成——Fourier series, N=5, ωt ∈ [0, 2π)。</div></div>
   <div class="row"><div class="name"><span>2 · 楷体 KaiTi</span><i>书本正文感</i></div><div class="sample f2">方波可由无穷条<b>正弦谐波</b>叠加合成——Fourier series, N=5, ωt ∈ [0, 2π)。</div></div>
   <div class="row"><div class="name"><span>3 · 华文楷体 STKaiti</span><i>更饱满的楷</i></div><div class="sample f3">方波可由无穷条<b>正弦谐波</b>叠加合成——Fourier series, N=5, ωt ∈ [0, 2π)。</div></div>
   <div class="row"><div class="name"><span>4 · 仿宋 FangSong</span><i>细劲印刷感</i></div><div class="sample f4">方波可由无穷条<b>正弦谐波</b>叠加合成——Fourier series, N=5, ωt ∈ [0, 2π)。</div></div>

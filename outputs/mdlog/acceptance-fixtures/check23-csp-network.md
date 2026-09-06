@@ -12,7 +12,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head><meta charset="UTF-8"><title>CSP 隔离核验</title>
-<style>body{margin:0;padding:14px;background:#f5f4ed;color:#3d3d3a;font-family:"HarmonyOS Sans","PingFang SC","苹方-简","TsangerJinKai02","Source Han Serif SC",serif;font-size:15px;line-height:1.6;}div{background:#faf9f5;border:1px solid #dddacc;border-radius:4px;padding:14px 16px;}</style>
+<style>body{margin:0;padding:14px;background:#f5f4ed;color:#3d3d3a;font-family:"TsangerJinKai02","Source Han Serif SC","Songti SC",serif;font-size:15px;line-height:1.6;}div{background:#faf9f5;border:1px solid #dddacc;border-radius:4px;padding:14px 16px;}</style>
 </head>
 <body>
   <div>正在尝试 fetch / XHR / 远程图片（预期全部被 CSP 拦截，按 F12 看 Console 红字）…</div>

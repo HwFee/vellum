@@ -12,7 +12,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head><meta charset="UTF-8"><title>导航隔离核验</title>
-<style>body{margin:0;padding:14px;background:#f5f4ed;color:#3d3d3a;font-family:"HarmonyOS Sans","PingFang SC","苹方-简","TsangerJinKai02","Source Han Serif SC",serif;font-size:15px;line-height:1.6;}div{background:#faf9f5;border:1px solid #dddacc;border-radius:4px;padding:14px 16px;}button{font:inherit;font-size:12.5px;padding:6px 14px;border:1px solid #dddacc;border-radius:2px;background:#faf9f5;color:#3d3d3a;cursor:pointer;margin-right:8px;}</style>
+<style>body{margin:0;padding:14px;background:#f5f4ed;color:#3d3d3a;font-family:"TsangerJinKai02","Source Han Serif SC","Songti SC",serif;font-size:15px;line-height:1.6;}div{background:#faf9f5;border:1px solid #dddacc;border-radius:4px;padding:14px 16px;}button{font:inherit;font-size:12.5px;padding:6px 14px;border:1px solid #dddacc;border-radius:2px;background:#faf9f5;color:#3d3d3a;cursor:pointer;margin-right:8px;}</style>
 </head>
 <body>
   <div>

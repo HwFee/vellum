@@ -19,7 +19,7 @@
   body { margin:0; padding:16px; background:#faf9f5; }
   .frame { padding:0; }
   svg { width:100%; height:auto; display:block; }
-  text { font-family:"HarmonyOS Sans","PingFang SC","苹方-简","TsangerJinKai02","Source Han Serif SC",serif; }
+  text { font-family:"TsangerJinKai02","Source Han Serif SC","Songti SC",serif; }
   .t1 { font-size:15px; fill:#141413; font-weight:500; }
   .t2 { font-size:13px; fill:#3d3d3a; }
   .t3 { font-size:12.5px; fill:#6b6a64; }
@@ -71,7 +71,7 @@
   body { margin:0; padding:16px; background:#faf9f5; }
   .frame { padding:0; }
   svg { width:100%; height:auto; display:block; }
-  text { font-family:"HarmonyOS Sans","PingFang SC","苹方-简","TsangerJinKai02","Source Han Serif SC",serif; }
+  text { font-family:"TsangerJinKai02","Source Han Serif SC","Songti SC",serif; }
   .n { font-size:13.5px; fill:#141413; }
   .e { font-size:12.5px; fill:#6b6a64; }
   .cap { font-size:12.5px; color:#6b6a64; text-align:center; padding:8px 0 6px; border-top:1px solid #dddacc; margin-top:10px; }
@@ -133,7 +133,7 @@
 <head>
 <meta charset="UTF-8"><title>图 3 · 方波谐波合成（可交互）</title>
 <style>
-  body { margin:0; padding:16px; background:#faf9f5; color:#3d3d3a; font-family:"HarmonyOS Sans","PingFang SC","苹方-简","TsangerJinKai02","Source Han Serif SC",serif; font-size:15px; }
+  body { margin:0; padding:16px; background:#faf9f5; color:#3d3d3a; font-family:"TsangerJinKai02","Source Han Serif SC","Songti SC",serif; font-size:15px; }
   .frame { padding:0; }
   .row { display:flex; align-items:center; gap:12px; margin-bottom:10px; font-size:13.5px; }
   .row b { font-weight:500; color:#141413; min-width:88px; }
