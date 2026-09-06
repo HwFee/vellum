@@ -440,8 +440,7 @@ const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuer
   );
 });
 
-export const MarkdownDocument = memo(function MarkdownDocument({ markdown, headings, onRendered, searchQuery, searchQueryPending, activeMatchIndex, onMatchCountChange }: MarkdownDocumentProps) {
-  const articleRef = useRef<HTMLElement>(null);
+export const MarkdownDocument = memo(function MarkdownDocument({ markdown, headings, onRendered, searchQuery, searchQueryPending, activeMatchIndex, onMatchCountChange }: MarkdownDocumentProps) {  const articleRef = useRef<HTMLElement>(null);
   const prevQueryRef = useRef("");
   const deleteScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -521,8 +520,13 @@ export const MarkdownDocument = memo(function MarkdownDocument({ markdown, headi
     };
   }, [searchQuery, searchQueryPending, activeMatchIndex, markdown, onMatchCountChange]);
 
+  const isTrustedMdlogDoc = useMemo(
+    () => /^\uFEFF?\s*<!--\s*mdlog:v1/.test(markdown),
+    [markdown]
+  );
+
   return (
-    <article className="markdown-body" ref={articleRef}>
+    <article className={isTrustedMdlogDoc ? "markdown-body markdown-body--mdlog" : "markdown-body"} ref={articleRef}>
       <MarkdownBody markdown={markdown} headings={headings} searchQuery={searchQuery} />
     </article>
   );

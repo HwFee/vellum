@@ -1148,12 +1148,83 @@ mark.search-match--current {
 }
 
 /* ===== Pi 对话记录与沙箱交互块 ===== */
+
+/* --- mdlog 对话回合版式（D · 书札卷轴）：仅受信 mdlog 文档（mdlog:v1 指纹）挂载 --- */
+/* 回合分隔线视觉隐藏——书札版式以留白节奏分回合 */
+.markdown-body--mdlog hr {
+  display: none;
+}
+
+/* 说话人标签行：章点起首（你 = 朱红章，Pi = 靛青章） */
+.markdown-body--mdlog blockquote > p:first-child,
+.markdown-body--mdlog p.mdlog-who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--stone);
+}
+
+.markdown-body--mdlog blockquote > p:first-child::before,
+.markdown-body--mdlog p.mdlog-who::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  flex: none;
+  background: var(--brand);
+}
+
+.markdown-body--mdlog blockquote > p:first-child::before {
+  background: #a63a2b; /* 朱红章点——内容层强调色，区别于 UI 层 danger */
+}
+
+.markdown-body--mdlog blockquote > p:first-child strong,
+.markdown-body--mdlog p.mdlog-who strong {
+  font-weight: 500;
+  font-size: 15px;
+  color: var(--near-black);
+}
+
+/* 用户回合：朱红章点标签 + 通栏正文，回合以顶部发丝线开篇（无卡片无底） */
+.markdown-body--mdlog blockquote {
+  margin: 0 0 44px;
+  padding: 12px 0 0;
+  border-left: none;
+  border-top: 1px solid var(--hairline);
+  color: var(--dark-warm);
+}
+
+.markdown-body--mdlog blockquote > p:first-child {
+  margin-top: 4px;
+}
+
+.markdown-body--mdlog blockquote > p:last-child {
+  margin-bottom: 0;
+}
+
+/* Pi 回合：标签行与上一回合拉开间距 */
+.markdown-body--mdlog p.mdlog-who {
+  margin-top: 44px;
+}
+
 .mdlog-widget {
   margin: 17px 0;
   background: var(--ivory);
   box-shadow: inset 0 0 0 1px var(--border);
   border-radius: 6px;
   overflow: hidden;
+}
+
+/* mdlog 作用域下的 widget：去 chrome 题头栏，改书札双细线框（内框 + 偏移外框）。
+   注意必须置于基础 .mdlog-widget 规则之后——kami.css.test.ts 以首个 `.mdlog-widget {` 匹配块断言基准指标 */
+.markdown-body--mdlog .mdlog-widget {
+  background: var(--ivory);
+  box-shadow: none;
+  border: 1px solid var(--hairline);
+  outline: 1px solid var(--hairline);
+  outline-offset: 3px;
+  border-radius: 2px;
 }
 
 .mdlog-widget__bar {
@@ -1170,6 +1241,11 @@ mark.search-match--current {
 .mdlog-widget__bar .state {
   letter-spacing: 0.5px;
   text-transform: none;
+}
+
+/* mdlog 作用域下去 chrome 题头栏（须置于基础 __bar 规则之后，测试以首个匹配块断言基准指标） */
+.markdown-body--mdlog .mdlog-widget__bar {
+  display: none;
 }
 
 .mdlog-widget__frame {

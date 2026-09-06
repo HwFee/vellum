@@ -984,4 +984,16 @@ plain block
       vi.useRealTimers();
     }
   });
+
+  it("trusted mdlog 指纹文档挂载 markdown-body--mdlog 书札版式作用域", () => {
+    const trusted = render(
+      <MarkdownDocument markdown={"<!-- mdlog:v1 s=abc123 -->\n\n> **你** · 21:30\n>\n> 你好\n"} />
+    );
+    expect(trusted.container.querySelector("article")).toHaveClass("markdown-body", "markdown-body--mdlog");
+    trusted.unmount();
+
+    const plain = render(<MarkdownDocument markdown={"# 普通文档\n\n> 普通引用块\n"} />);
+    expect(plain.container.querySelector("article")).toHaveClass("markdown-body");
+    expect(plain.container.querySelector("article")).not.toHaveClass("markdown-body--mdlog");
+  });
 });
