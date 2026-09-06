@@ -6,7 +6,8 @@
 - **运行环境**：Windows 10/11 x64；WebView2 Runtime `152.0.4191.62`
 - **验收治具**：`outputs/mdlog/acceptance-fixtures/`（check1 / check23 / check45 / check67 共 4 个 `.md` 文件，均含受信指纹头 `<!-- mdlog:v1 s=... -->`，widget 自动挂载）
 - **验收人**：用户（主 Agent 引导逐项操作）
-- **总体结论**：（待填：通过 / 附条件通过 / 不通过）
+- **总体结论**：通过（8/8）
+- **补记（同日午后）**：核验 1 dev 侧补齐 PASS；另修复 katex 版本错配导致的公式上下标重合（根 0.18.5 vs rehype-katex 嵌套 0.16.47，类名改名致 sizing 规则失配；根包降至 0.16.47 对齐，CDP 实测指数 16.94px→11.86px 复归 0.7em），dev 实例用户确认公式正常；release 重打包随之更新
 
 ---
 
@@ -16,9 +17,9 @@
 
 - **操作**：分别用 `npm run dev` 与 release 版 `vellum.exe` 打开 `check1-trusted-widget.md`
 - **预期**：widget 自动挂载（受信免点击）；iframe 内靛青波形正常绘制；顶栏标题显示「验收·傅里叶方波」；高度自适应无坍缩；中文衬线渲染不乱码
-- **dev 实测**：（待补：tauri dev 对照构建进行中）
+- **dev 实测**：widget 自动挂载、波形绘制正常、标题正确、高度自适应、中文今楷渲染无乱码；test.md 真实会话对照确认公式渲染修复（用户确认）
 - **release 实测**：widget 自动挂载、波形绘制正常、标题正确、中文衬线无乱码（用户确认；版式迭代为 D 书札卷轴后再次确认）
-- **判定**：PASS（dev 侧待补）
+- **判定**：PASS
 
 ### 核验 2：网络断开隔离
 
