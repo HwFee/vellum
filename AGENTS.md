@@ -17,7 +17,7 @@ Tauri 2 + React 19 桌面 Markdown 阅读器，Windows 10/11 x64。
 ```bash
 npm run dev          # Vite 开发服务器（端口 1420）
 npm run build        # tsc + vite build
-npm test             # vitest run（22 测试文件，236 用例）
+npm test             # vitest run（22 测试文件，237 用例）
 npm run tauri        # Tauri CLI
 ```
 
