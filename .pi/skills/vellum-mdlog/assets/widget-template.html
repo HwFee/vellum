@@ -23,7 +23,7 @@
       --ochre: #8C5B2E;   /* 赭石：如存储/持久层模块 */
 
       /* 纸墨字体栈 */
-      --font-serif: "TsangerJinKai02", "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", Charter, Georgia, Palatino, serif;
+      --font-serif: "HarmonyOS Sans", "PingFang SC", "苹方-简", "TsangerJinKai02", "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", Charter, Georgia, Palatino, serif;
       --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", Consolas, Monaco, "TsangerJinKai02", "Source Han Serif SC", monospace;
     }
 
@@ -34,22 +34,20 @@
     }
 
     body {
-      background-color: var(--parchment);
+      /* 宿主已提供双细线外框，内容区不再自画卡片框与底色：象牙通铺，padding 即内容边距 */
+      background-color: var(--ivory);
       color: var(--dark-warm);
       font-family: var(--font-serif);
       font-size: 15px;
       line-height: 1.6;
-      padding: 14px;
+      padding: 16px;
       overflow-x: hidden;
       -webkit-font-smoothing: antialiased;
     }
 
-    /* 纸墨卡片容器 */
+    /* 内容容器：不画边框不铺底色（边界由宿主框负责），只负责排版间距 */
     .widget-card {
-      background: var(--ivory);
-      border: 1px solid var(--hairline);
-      border-radius: 4px;
-      padding: 16px;
+      padding: 0;
       display: flex;
       flex-direction: column;
       gap: 12px;
@@ -62,6 +60,7 @@
       align-items: baseline;
       border-bottom: 1px solid var(--hairline);
       padding-bottom: 8px;
+      margin-top: 0;
     }
 
     .widget-title {

@@ -72,7 +72,8 @@ description: Use when writing 对话记录 to a Vellum (vellum) mdlog live log f
 
 - **配色放宽**：背景、正文、边框、发丝线始终用 kami token；但**图示内容允许语义化配色**——例如画英伟达内存架构时可用黛绿 `#2F5D50` 表计算单元、赭石 `#8C5B2E` 表显存、靛青表控制链路。要求：饱和度低、与纸墨底协调、同一语义全图一致。
 - **字号下限**：正文与图内标注 `font-size` ≥ 15px，图注/辅助说明 ≥ 12.5px——沙箱内文字不随宿主缩放，过小会看不清。
-- 衬线栈：`font-family: "TsangerJinKai02", "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", Charter, Georgia, Palatino, serif;`（沙箱读不到宿主字体文件，中文优雅回退系统衬线）
+- **内容不自带外框**：宿主已为每个交互块画了双细线书札框，widget 的 `<body>` 用 `background: var(--ivory)` 通铺、`padding: 12–16px` 作内容边距即可；**禁止**再包一层带边框/底色的卡片 div——会出现「灰夹白」三层框。
+- 衬线栈（双字体搭配，西文落鸿蒙、汉字落苹方，缺失再回退）：`font-family: "HarmonyOS Sans", "PingFang SC", "苹方-简", "TsangerJinKai02", "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", Charter, Georgia, Palatino, serif;`（沙箱读不到宿主字体文件，中文优雅回退系统衬线）
 - 等宽栈：`font-family: "JetBrains Mono", "SF Mono", "Fira Code", Consolas, Monaco, "TsangerJinKai02", "Source Han Serif SC", monospace;`
 - 图标用发丝线原生 SVG 或精炼文本符号，不用 emoji；圆角 2–6px（卡片 4px）；`font-weight` ≤ 500；
 - 必含 `@media (prefers-reduced-motion: reduce)` 规则关停动画与过渡。

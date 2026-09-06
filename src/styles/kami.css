@@ -38,7 +38,8 @@
   --content-max-width: min(800px, 100%);
   --outline-gutter: 20px;
   --outline-shift: calc(var(--outline-width) + var(--outline-gutter));
-  --serif: "TsangerJinKai02", "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", Charter, Georgia, Palatino, serif;
+  /* 双字体搭配：西文/数字落鸿蒙，汉字落苹方（按字形回退），缺失时回退仓耳今楷等衬线栈 */
+  --serif: "HarmonyOS Sans", "PingFang SC", "苹方-简", "TsangerJinKai02", "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", Charter, Georgia, Palatino, serif;
   --mono: "JetBrains Mono", "SF Mono", "Fira Code", Consolas, Monaco, "TsangerJinKai02", "Source Han Serif SC", monospace;
 }
 

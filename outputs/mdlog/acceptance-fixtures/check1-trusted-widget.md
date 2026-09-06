@@ -16,7 +16,7 @@
   <title>验收·傅里叶方波</title>
   <style>
     :root { --parchment:#f5f4ed; --ivory:#faf9f5; --near-black:#141413; --dark-warm:#3d3d3a; --stone:#6b6a64; --brand:#1B365D; --hairline:#dddacc; }
-    body { margin:0; padding:14px; background:var(--parchment); color:var(--dark-warm); font-family:"TsangerJinKai02","Source Han Serif SC","Songti SC",serif; font-size:15px; line-height:1.6; }
+    body { margin:0; padding:14px; background:var(--parchment); color:var(--dark-warm); font-family:"HarmonyOS Sans","PingFang SC","苹方-简","TsangerJinKai02","Source Han Serif SC",serif; font-size:15px; line-height:1.6; }
     .box { background:var(--ivory); border:1px solid var(--hairline); border-radius:4px; padding:16px; }
     .head { font-size:16px; font-weight:500; color:var(--near-black); border-bottom:1px solid var(--hairline); padding-bottom:8px; margin-bottom:10px; }
     canvas { display:block; width:100%; height:120px; }

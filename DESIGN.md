@@ -18,7 +18,7 @@ colors:
   danger-active: "#a12014"
 typography:
   body:
-    fontFamily: TsangerJinKai02, Source Han Serif SC, Noto Serif CJK SC, Songti SC, STSong, Charter, Georgia, Palatino, serif
+    fontFamily: HarmonyOS Sans, PingFang SC, 苹方-简, TsangerJinKai02, Source Han Serif SC, Noto Serif CJK SC, Songti SC, STSong, Charter, Georgia, Palatino, serif
     fontSize: 14px
     fontWeight: 400
     lineHeight: 1.55
@@ -139,14 +139,14 @@ components:
 
 ## Typography
 
-双字体体系：**仓耳今楷（TsangerJinKai02）** 承载一切阅读文字，**JetBrains Mono** 承载一切代码与计数。
+双字体搭配：**鸿蒙（HarmonyOS Sans）** 承载西文/数字/符号，**苹方（PingFang SC）** 承载汉字——按字形回退自然分工；两者缺失时回退 **仓耳今楷（TsangerJinKai02）** 及衬线栈。**JetBrains Mono** 承载一切代码与计数。（2026-09-05 修订：原「今楷承载一切阅读文字」调整为鸿蒙+苹方搭配，今楷退为第三顺位回退。）
 
 - 正文 14px / 1.55 行高，letter-spacing 0.4px（CSS 源码中为 0.3pt）——中文排印的舒展感来自字距而非字号。
 - 标题只用 font-weight 500（今楷 W05），不用粗黑；层级靠字号递减：h1 30px（窄屏 25px）→ h2 21px → h3 17px。h1 左侧带 3px 靛青题签，如书签。
 - `strong` 同样只用 500，与标题字重一致，拒绝粗重的块状强调。
 - 等宽字用于代码（12px）、行号与计数（10–12px）、kbd 快捷键标记（9px 大写感）。
 - 特殊排印：目录 header 与印章提示使用 4–5px 的超宽字距（letter-spacing），模仿篆刻与题跋的仪式感。
-- 字体栈回退到思源宋体 / Noto Serif CJK / 宋体，保证无字体文件时仍是衬线中文。
+- 字体栈继续回退到思源宋体 / Noto Serif CJK / 宋体，保证无字体文件时仍是衬线中文。
 
 ## Layout
 
