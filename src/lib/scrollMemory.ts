@@ -10,12 +10,19 @@ const STORE_PATH = "scroll-positions.json";
  *   做到「位置被删了也能定位到附近」。
  * - offset：保存时「视口顶 − 锚点标题顶」的像素差（锚点在视口上方为正），
  *   恢复时让锚点回到同样的相对位置。
+ * - blockIndex / blockOffset：视口顶部首个可见顶层块在 .markdown-body 中的序号
+ *   及同样的相对偏移。mdlog 日志这类无标题文档里标题锚点缺失，纯比例兜底在
+ *   末尾追加（流式记录写入）后必然错位——比例是相对「新总高」算的，旧位置对应
+ *   的比例已被稀释；顶层块序号对末尾追加天然稳定（追加只增加尾部块，不动前面
+ *   的序号），且落位守护以固定元素为目标，widget 异步撑高时目标不再随总高漂移。
  */
 export type ScrollPositionRecord = {
   ratio: number;
   anchorId?: string;
   anchorIndex?: number;
   offset?: number;
+  blockIndex?: number;
+  blockOffset?: number;
 };
 
 let storePromise: Promise<Store> | null = null;
@@ -55,6 +62,12 @@ function normalizeRecord(value: unknown): ScrollPositionRecord | null {
   }
   if (typeof raw.offset === "number" && Number.isFinite(raw.offset)) {
     record.offset = raw.offset;
+  }
+  if (typeof raw.blockIndex === "number" && raw.blockIndex >= 0) {
+    record.blockIndex = Math.round(raw.blockIndex);
+  }
+  if (typeof raw.blockOffset === "number" && Number.isFinite(raw.blockOffset)) {
+    record.blockOffset = raw.blockOffset;
   }
   return record;
 }

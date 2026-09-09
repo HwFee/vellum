@@ -6,16 +6,19 @@ import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useLayoutEffe
 import { CustomScrollbar } from "./components/CustomScrollbar";
 import { EmptyState } from "./components/EmptyState";
 import { ErrorState } from "./components/ErrorState";
+import { JumpToBottom } from "./components/JumpToBottom";
 import { OutlinePanel } from "./components/OutlinePanel";
 import { TopBar } from "./components/TopBar";
 import { useIsNarrow } from "./hooks/useIsNarrow";
 import { useOutlineOpen } from "./hooks/useOutlineOpen";
 import { useOutlineSync } from "./hooks/useOutlineSync";
+import { OUTLINE_WIDTH_DEFAULT, useOutlineWidth } from "./hooks/useOutlineWidth";
 import { extractOutline } from "./lib/outline";
 import { isSamePath } from "./lib/path";
 import { loadLastOpened, saveLastOpened } from "./lib/lastOpened";
 import { loadScrollPosition, saveScrollPosition } from "./lib/scrollMemory";
 import { captureScrollPosition, restoreScrollPosition } from "./lib/scrollRestore";
+import { captureViewportAnchor, restoreViewportAnchor, type ViewportAnchor } from "./lib/viewportAnchor";
 import { animateScrollTo, cancelScrollAnimation } from "./lib/smoothScroll";
 import { isContainerNearBottom } from "./lib/scrollStick";
 import { computeRecheckDelay, type MdlogState } from "./lib/mdlogState";
@@ -47,6 +50,9 @@ export default function App() {
   const documentContentRef = useRef<HTMLDivElement>(null);
   const currentPathRef = useRef<string | null>(null);
   const pendingScrollRef = useRef<number | null>(null);
+  // 热重载视口锚点：重载前记录的视口首个可见块元素及其相对偏移，
+  // 渲染提交后按元素新位置补偿 scrollTop（内容不动），元素丢失时退回 pendingScrollRef 像素兜底
+  const pendingAnchorRef = useRef<ViewportAnchor | null>(null);
   // 大纲点击跳转的目标标题 id（动画期间锁定，见 handleSelectHeading）
   const outlineNavTargetRef = useRef<string | null>(null);
   const scrollSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -57,6 +63,37 @@ export default function App() {
   const headingsRef = useRef<OutlineHeading[]>([]);
   const [isOutlineOpen, toggleOutline, setIsOutlineOpen] = useOutlineOpen(true);
   const isNarrow = useIsNarrow();
+  const [outlineWidth, setOutlineWidth] = useOutlineWidth();
+  const outlineWidthRef = useRef(outlineWidth);
+  outlineWidthRef.current = outlineWidth;
+  // 布局过渡窗：侧边栏开关动画 / 拖宽期间，所有 widget iframe 随容器宽度集体重排，
+  // 若恰逢 mdlog 追加触发的热重载（整篇重解析），主线程被「过渡重排 + 解析提交」
+  // 双重工作饱和——页面完全卡死、过一会儿自愈（mdlog 连接中开关侧边栏卡死的根因）。
+  // 窗内：热重载延迟合并提交、程序化滚动恢复让位原生 scroll anchoring、iframe 高度
+  // 过渡关闭（消除 200ms 过渡的重排级联与子帧可滚动余量）。
+  const layoutShiftUntilRef = useRef(0);
+  const layoutShiftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reloadDeferTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isLayoutShifting, setIsLayoutShifting] = useState(false);
+  const [isSidebarResizing, setIsSidebarResizing] = useState(false);
+  // 最近一次用户滚动输入（滚轮/触摸/按键/滚动条拖拽）时间戳：热重载恢复据此避让
+  const lastUserScrollAtRef = useRef(0);
+
+  /** 进入/延长布局过渡窗；windowMs 后自动退出（连续调用续窗） */
+  const noteLayoutShift = useCallback((windowMs = 450) => {
+    const until = performance.now() + windowMs;
+    if (until > layoutShiftUntilRef.current) {
+      layoutShiftUntilRef.current = until;
+    }
+    setIsLayoutShifting(true);
+    if (layoutShiftTimerRef.current !== null) {
+      clearTimeout(layoutShiftTimerRef.current);
+    }
+    layoutShiftTimerRef.current = setTimeout(() => {
+      layoutShiftTimerRef.current = null;
+      setIsLayoutShifting(false);
+    }, layoutShiftUntilRef.current - performance.now());
+  }, []);
 
   // 组件卸载时注销尚未完成的落位守护
   useEffect(() => () => restoreCancelRef.current?.(), []);
@@ -122,11 +159,14 @@ export default function App() {
       try {
         const latestState = await invoke<MdlogState | null>("read_mdlog_state");
         if (currentPathRef.current !== expectedPath) return;
-        setMdlogState(latestState);
-        if (latestState !== null) {
+        // 防御：后端异常/反序列化抖动可能给出 undefined，?? 归一为 null——
+        // undefined !== null 会被 isMdlogActive 误判为记录中，静默禁用吸底、
+        // 热重载印章与阅读位置记忆
+        setMdlogState(latestState ?? null);
+        if (latestState != null) {
           activeMdlogPathRef.current = expectedPath;
         }
-        scheduleRecheck(latestState);
+        scheduleRecheck(latestState ?? null);
       } catch {
         if (currentPathRef.current !== expectedPath) return;
         setMdlogState(null);
@@ -139,7 +179,10 @@ export default function App() {
     const path = currentPathRef.current;
     const container = scrollRef.current;
     if (!path || !container) return;
-    void saveScrollPosition(path, captureScrollPosition(container, headingsRef.current));
+    void saveScrollPosition(
+      path,
+      captureScrollPosition(container, headingsRef.current, contentRef.current ?? undefined)
+    );
   }
 
   async function loadPath(path: string) {
@@ -163,9 +206,15 @@ export default function App() {
       clearTimeout(recheckTimerRef.current);
       recheckTimerRef.current = null;
     }
+    // 挂起的延迟热重载随文档切换作废（切走后应重读的是新文档，由下方加载负责）
+    if (reloadDeferTimerRef.current !== null) {
+      clearTimeout(reloadDeferTimerRef.current);
+      reloadDeferTimerRef.current = null;
+    }
     setMdlogState(null);
     shouldStickToBottomRef.current = false;
     hasStuckToBottomRef.current = false;
+    pendingAnchorRef.current = null;
     // 连续打开文件时只有最新一次请求允许写回状态，避免慢响应覆盖新文档
     const requestId = ++loadRequestRef.current;
     setShowReloadNote(false);
@@ -184,11 +233,11 @@ export default function App() {
       try {
         const liveState = await invoke<MdlogState | null>("read_mdlog_state");
         if (loadRequestRef.current === requestId) {
-          setMdlogState(liveState);
-          if (liveState !== null) {
+          setMdlogState(liveState ?? null);
+          if (liveState != null) {
             activeMdlogPathRef.current = document.path;
           }
-          scheduleRecheck(liveState);
+          scheduleRecheck(liveState ?? null);
         }
       } catch {
         if (loadRequestRef.current === requestId) {
@@ -205,15 +254,33 @@ export default function App() {
   async function reloadCurrent() {
     const path = currentPathRef.current;
     if (!path) return;
+    // 布局过渡窗内延迟合并提交：窗内多次追加只保留最后一次重载，
+    // 避免整篇重解析与侧边栏过渡/widget 集体重排争抢主线程
+    const shiftRemaining = layoutShiftUntilRef.current - performance.now();
+    if (shiftRemaining > 0) {
+      if (reloadDeferTimerRef.current !== null) return;
+      reloadDeferTimerRef.current = setTimeout(() => {
+        reloadDeferTimerRef.current = null;
+        void reloadCurrent();
+      }, shiftRemaining);
+      return;
+    }
     const requestId = ++loadRequestRef.current;
     try {
       const document = await invoke<LoadedDocument>("load_document", { path });
       if (loadRequestRef.current !== requestId) return;
       const container = scrollRef.current;
-      shouldStickToBottomRef.current = container
-        ? isContainerNearBottom(container, 80)
-        : false;
+      // mdlog 记录期间模型每次追加都会触发热重载：禁止吸底跟随，
+      // 用户停在哪儿就保持在哪儿（追加只在文档末尾，不影响当前阅读位置）
+      shouldStickToBottomRef.current =
+        !isMdlogActiveRef.current && container
+          ? isContainerNearBottom(container, 80)
+          : false;
       pendingScrollRef.current = container ? container.scrollTop : 0;
+      pendingAnchorRef.current =
+        container && contentRef.current
+          ? captureViewportAnchor(container, contentRef.current)
+          : null;
       currentPathRef.current = document.path;
       setState({ status: "ready", document });
       setReloadTick((tick) => tick + 1);
@@ -371,29 +438,37 @@ export default function App() {
     });
   }, []);
 
-  // 程序化滚动动画（恢复位置/大纲跳转/搜索跳转）期间用户主动滚动/按键，
-  // 立即取消动画让出控制权
+  // 程序化滚动动画（恢复位置/大纲跳转/搜索跳转/跳底）期间用户主动滚动/按键，
+  // 立即取消动画让出控制权；同时记下输入时间戳，热重载恢复据此避让 300ms——
+  // 否则重载提交瞬间会把用户刚滚出去的距离当作「漂移」拽回（卡死/回弹观感）
   useEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
-    const cancelRestore = () => cancelScrollAnimation(container);
-    container.addEventListener("wheel", cancelRestore, { passive: true });
-    container.addEventListener("touchstart", cancelRestore, { passive: true });
-    window.addEventListener("keydown", cancelRestore);
+    const onUserScrollInput = () => {
+      lastUserScrollAtRef.current = performance.now();
+      cancelScrollAnimation(container);
+    };
+    container.addEventListener("wheel", onUserScrollInput, { passive: true });
+    container.addEventListener("touchstart", onUserScrollInput, { passive: true });
+    // 拖 thumb 直写 scrollTop 不产生原生输入事件，由 CustomScrollbar 派发此事件
+    container.addEventListener("vellum:scrollbar-drag", onUserScrollInput);
+    window.addEventListener("keydown", onUserScrollInput);
     return () => {
-      container.removeEventListener("wheel", cancelRestore);
-      container.removeEventListener("touchstart", cancelRestore);
-      window.removeEventListener("keydown", cancelRestore);
+      container.removeEventListener("wheel", onUserScrollInput);
+      container.removeEventListener("touchstart", onUserScrollInput);
+      container.removeEventListener("vellum:scrollbar-drag", onUserScrollInput);
+      window.removeEventListener("keydown", onUserScrollInput);
     };
   }, []);
 
-  // 滚动时防抖记录阅读位置，窗口关闭前再兜底保存一次
+  // 滚动时防抖记录阅读位置，窗口关闭前再兜底保存一次。
+  // mdlog 记录期间同样持续保存：块索引锚点对末尾追加稳定，持续保存使
+  // 「pi 被强杀 + Vellum 被强关（无 beforeunload）」后仍能恢复到 300ms 内的位置
   useEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
 
     const handleScroll = () => {
-      if (isMdlogActiveRef.current) return;
       if (scrollSaveTimerRef.current !== null) {
         clearTimeout(scrollSaveTimerRef.current);
       }
@@ -422,6 +497,18 @@ export default function App() {
     const container = scrollRef.current;
     if (!container) return;
 
+    // 用户刚输入过滚动（300ms 内）或仍处布局过渡窗：位置交给用户与原生
+    // scroll anchoring。此时程序化恢复会把窗内/输入产生的滚动增量当作漂移拽回，
+    // 叠加过渡期的连续重排便是「mdlog 连接中开关侧边栏后页面卡死」的观感来源
+    const userScrollActive = performance.now() - lastUserScrollAtRef.current < 300;
+    const layoutShifting = performance.now() < layoutShiftUntilRef.current;
+    if (userScrollActive || layoutShifting) {
+      shouldStickToBottomRef.current = false;
+      pendingScrollRef.current = null;
+      pendingAnchorRef.current = null;
+      return;
+    }
+
     if (shouldStickToBottomRef.current) {
       shouldStickToBottomRef.current = false;
       hasStuckToBottomRef.current = true;
@@ -438,6 +525,17 @@ export default function App() {
           headingsRef.current
         );
       }
+      return;
+    }
+
+    // 锚点优先：视口上方内容在重载中发生同步高度变化（流式代码块收合成
+    // widget、图片声明尺寸等）时按锚点元素恢复「内容不动」，而非恢复旧像素值——
+    // 旧像素在新布局下对应另一处内容，且程序化像素覆盖会顶掉 Chromium 原生
+    // 滚动锚定对异步高度变化（iframe 加载后上报真实高度等）的补偿。
+    const anchor = pendingAnchorRef.current;
+    pendingAnchorRef.current = null;
+    if (anchor && restoreViewportAnchor(container, anchor)) {
+      pendingScrollRef.current = null;
       return;
     }
 
@@ -475,11 +573,11 @@ export default function App() {
       try {
         const liveState = await invoke<MdlogState | null>("read_mdlog_state");
         if (cancelled || currentPathRef.current !== expectedPath) return;
-        setMdlogState(liveState);
-        if (liveState !== null) {
+        setMdlogState(liveState ?? null);
+        if (liveState != null) {
           activeMdlogPathRef.current = expectedPath;
         }
-        scheduleRecheck(liveState);
+        scheduleRecheck(liveState ?? null);
       } catch {
         if (cancelled || currentPathRef.current !== expectedPath) return;
         setMdlogState(null);
@@ -509,8 +607,13 @@ export default function App() {
     };
   }, [scheduleRecheck]);
 
-  // 记录态断开时集中补写一次阅读位置
+  // mdlog 连接状态迁移的集中处理：
+  // 连接建立瞬间立即记录当前阅读位置——此后即使 pi 进程被强杀、Vellum 被强关
+  //（beforeunload 来不及跑），下次打开也能回到连接前的位置；断开时再集中补写一次
   useEffect(() => {
+    if (isMdlogActive && !prevIsMdlogActiveRef.current) {
+      persistCurrentScroll();
+    }
     if (prevIsMdlogActiveRef.current && !isMdlogActive) {
       if (activeMdlogPathRef.current && activeMdlogPathRef.current === currentPathRef.current) {
         persistCurrentScroll();
@@ -541,6 +644,29 @@ export default function App() {
   headingsRef.current = headings;
   const activeHeadingId = useOutlineSync(scrollRef, headings, outlineNavTargetRef);
 
+  // 侧边栏拖宽：右缘手柄按下后全局跟踪指针，即时覆写宽度并持续续布局过渡窗；
+  // 拖拽期间正文 margin 与 widget 高度过渡均关闭（app-shell--sidebar-resizing），
+  // 避免 margin 动画滞后于指针、iframe 过渡级联重排
+  const handleSidebarResizeStart = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = outlineWidthRef.current;
+    setIsSidebarResizing(true);
+    noteLayoutShift(300);
+
+    const onMove = (moveEvent: PointerEvent) => {
+      setOutlineWidth(startWidth + (moveEvent.clientX - startX));
+      noteLayoutShift(300);
+    };
+    const onUp = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      setIsSidebarResizing(false);
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+  };
+
   const handleSelectHeading = (id: string) => {
     const element = document.getElementById(id);
     const container = scrollRef.current;
@@ -567,7 +693,13 @@ export default function App() {
   };
 
   return (
-    <main className="app-shell">
+    <main
+      className={
+        "app-shell" +
+        (isLayoutShifting ? " app-shell--layout-shifting" : "") +
+        (isSidebarResizing ? " app-shell--sidebar-resizing" : "")
+      }
+    >
       <TopBar
         fileName={activeDocument?.fileName}
         parentPath={activeDocument?.parentPath}
@@ -596,6 +728,19 @@ export default function App() {
             searchInputRef={searchInputRef}
           />
         </aside>
+        {/* 侧边栏宽度手柄：骑跨侧栏右缘边线（aside overflow:hidden，须作兄弟节点外置），
+            拖拽调宽 200–320px，双击复位默认宽度 */}
+        {isOutlineOpen && (
+          <div
+            className="outline-resize-handle"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="调节侧边栏宽度"
+            title="拖动调节宽度 · 双击复位"
+            onPointerDown={handleSidebarResizeStart}
+            onDoubleClick={() => setOutlineWidth(OUTLINE_WIDTH_DEFAULT)}
+          />
+        )}
         <div ref={scrollRef} className="document-scroll" tabIndex={0}>
           <div ref={contentRef} className="document-scroll__content">
             <div ref={documentContentRef} className="document-content">
@@ -629,6 +774,7 @@ export default function App() {
         </div>
       </div>
       <CustomScrollbar containerRef={scrollRef} contentRef={contentRef} />
+      {state.status === "ready" && <JumpToBottom containerRef={scrollRef} />}
       {isOutlineOpen && isNarrow && (
         <div className="outline-scrim" role="presentation" onClick={() => setIsOutlineOpen(false)} />
       )}

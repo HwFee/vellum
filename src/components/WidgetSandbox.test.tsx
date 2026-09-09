@@ -10,6 +10,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 describe("WidgetSandbox", () => {
   let observerCallback: IntersectionObserverCallback | null = null;
+  let observerOptions: IntersectionObserverInit | undefined;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -19,19 +20,90 @@ describe("WidgetSandbox", () => {
 
     vi.spyOn(globalThis, "IntersectionObserver").mockImplementation(function (
       this: unknown,
-      callback: IntersectionObserverCallback
+      callback: IntersectionObserverCallback,
+      options?: IntersectionObserverInit
     ) {
       observerCallback = callback;
+      observerOptions = options;
       return {
         observe: vi.fn(),
         unobserve: vi.fn(),
         disconnect: vi.fn(),
         takeRecords: vi.fn(() => []),
         root: null,
-        rootMargin: "200px",
+        rootMargin: options?.rootMargin ?? "0px",
         thresholds: [0],
       } as unknown as IntersectionObserver;
     });
+  });
+
+  it("preloads the iframe well before it enters the viewport (top 400px / bottom 1200px)", () => {
+    render(<WidgetSandbox html="<div>preload</div>" autoMount={true} />);
+    // 预载视距：阅读方向预留约一屏多的提前量，滑到 widget 时 iframe 已渲染完毕
+    expect(observerOptions?.rootMargin).toBe("400px 0px 1200px 0px");
+  });
+
+  it("keeps the iframe transparent until the first resize report, then fades in", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      id: "w-fade",
+      url: "http://vellum-widget.localhost/w-fade",
+    });
+
+    render(<WidgetSandbox html="<div>fade</div>" autoMount={true} />);
+    await act(async () => {
+      observerCallback?.(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver
+      );
+    });
+
+    const iframe = screen.getByTitle("交互演示") as HTMLIFrameElement;
+    // 未收到上报前：透明占位（无 --ready 类；--static 是滚动锁存修复，与此断言无关）
+    expect(iframe.className).toContain("mdlog-widget__frame");
+    expect(iframe.className).not.toContain("--ready");
+
+    const mockContentWindow = {} as Window;
+    Object.defineProperty(iframe, "contentWindow", { value: mockContentWindow });
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "vellum-widget:resize", height: 300 },
+          source: mockContentWindow,
+        })
+      );
+    });
+
+    expect(iframe.className).toContain("mdlog-widget__frame--ready");
+  });
+
+  it("reveals the iframe 500ms after load as fallback when no resize report arrives", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(invoke).mockResolvedValueOnce({
+        id: "w-fallback",
+        url: "http://vellum-widget.localhost/w-fallback",
+      });
+
+      render(<WidgetSandbox html="<div>no-iife</div>" autoMount={true} />);
+      await act(async () => {
+        observerCallback?.(
+          [{ isIntersecting: true } as IntersectionObserverEntry],
+          {} as IntersectionObserver
+        );
+      });
+
+      const iframe = screen.getByTitle("交互演示") as HTMLIFrameElement;
+      expect(iframe.className).not.toContain("--ready");
+
+      fireEvent.load(iframe);
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(iframe.className).toContain("mdlog-widget__frame--ready");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("renders untrusted placeholder when autoMount is false and mounts only on click", async () => {
@@ -398,5 +470,46 @@ describe("WidgetSandbox", () => {
     expect(registeredHtmls).toEqual(["<div>x1</div>"]);
     expect(invoke).toHaveBeenCalledWith("unregister_widget", { id: "w-x1" });
     expect(screen.getByText("交互内容 · 点击加载")).toBeInTheDocument();
+  });
+  it("disables pointer events on static figures (scroll-latch fix) but keeps them on interactive widgets", async () => {
+    // 静态图（仅通信 IIFE）：iframe 必须带 --static（pointer-events: none），
+    // 否则滚轮手势会被 scroll-latch 锁进跨源子帧，表现为「图上滚动卡住」
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "register_widget") {
+        return { id: "w-static", url: "http://vellum-widget.localhost/w-static" };
+      }
+      return undefined;
+    });
+    const staticHtml = `<!DOCTYPE html><html><body><svg viewBox="0 0 10 10"><rect width="10" height="10"/></svg>
+      <script>(function(){ window.parent.postMessage({ type: "vellum-widget:resize", height: 10, title: document.title }, "*"); })();</script>
+      </body></html>`;
+    const { unmount } = render(<WidgetSandbox html={staticHtml} autoMount={true} />);
+    await act(async () => {
+      observerCallback?.(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver
+      );
+    });
+    const staticFrame = screen.getByTitle("交互演示") as HTMLIFrameElement;
+    expect(staticFrame.className).toContain("mdlog-widget__frame--static");
+    unmount();
+
+    // 交互 widget（含按钮）：不得加 --static，指针事件保持放行
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "register_widget") {
+        return { id: "w-interactive", url: "http://vellum-widget.localhost/w-interactive" };
+      }
+      return undefined;
+    });
+    render(<WidgetSandbox html={'<div><button type="button">go</button></div>'} autoMount={true} />);
+    await act(async () => {
+      observerCallback?.(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver
+      );
+    });
+    const interactiveFrame = screen.getByTitle("交互演示") as HTMLIFrameElement;
+    expect(interactiveFrame.className).not.toContain("mdlog-widget__frame--static");
+    expect(interactiveFrame.className).toContain("mdlog-widget__frame");
   });
 });

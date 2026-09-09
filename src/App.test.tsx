@@ -402,6 +402,81 @@ test("sticks to bottom and launches settle guard when hot reload occurs near bot
   expect(scrollContainer.scrollTop).toBe(scrollContainer.scrollHeight);
 });
 
+test("does not stick to bottom on hot reload while mdlog is active, preserving the reading position", async () => {
+  vi.mocked(listen).mockClear();
+
+  backendInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === "load_document") {
+      return {
+        path: "C:/notes/nostick.md",
+        fileName: "nostick.md",
+        parentPath: "C:/notes",
+        markdown: "# NoStick V1",
+      };
+    }
+    if (cmd === "read_mdlog_state") {
+      return {
+        lastWriteAt: Date.now(),
+        heartbeatAt: Date.now(),
+        expiresAt: Date.now() + 120_000,
+      };
+    }
+    return undefined;
+  });
+
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/nostick.md");
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "NoStick V1" })).toBeInTheDocument());
+
+  const scrollContainer = document.querySelector(".document-scroll") as HTMLElement;
+  let scrollTop = 560;
+  Object.defineProperty(scrollContainer, "scrollHeight", { value: 1000, configurable: true });
+  Object.defineProperty(scrollContainer, "clientHeight", { value: 400, configurable: true });
+  Object.defineProperty(scrollContainer, "scrollTop", {
+    configurable: true,
+    get: () => scrollTop,
+    set: (value: number) => {
+      scrollTop = value;
+    },
+  });
+
+  await waitFor(() => {
+    expect(vi.mocked(listen).mock.calls.some(([event]) => event === "file-changed")).toBe(true);
+  });
+
+  backendInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === "load_document") {
+      return {
+        path: "C:/notes/nostick.md",
+        fileName: "nostick.md",
+        parentPath: "C:/notes",
+        markdown: "# NoStick V2\n\nModel appended a line.",
+      };
+    }
+    if (cmd === "read_mdlog_state") {
+      return {
+        lastWriteAt: Date.now(),
+        heartbeatAt: Date.now(),
+        expiresAt: Date.now() + 120_000,
+      };
+    }
+    return undefined;
+  });
+
+  const fileChangedCall = vi.mocked(listen).mock.calls.find(
+    ([event]) => event === "file-changed"
+  );
+  await act(async () => {
+    (fileChangedCall![1] as (payload: unknown) => void)({ payload: {} });
+  });
+
+  await waitFor(() => expect(screen.getByText("Model appended a line.")).toBeInTheDocument());
+  // 距底 1000-560-400=40px（<=80，非记录态会吸底），但 mdlog 记录期间模型追加
+  // 不得拽动窗口：滚动位置保持 560 不变
+  expect(scrollContainer.scrollTop).toBe(560);
+});
+
 test("suppresses reload note and fresh-ink animation during hot reload when mdlog is active", async () => {
   vi.mocked(listen).mockClear();
 
@@ -467,7 +542,7 @@ test("suppresses reload note and fresh-ink animation during hot reload when mdlo
   expect(docContent).not.toHaveClass("fresh-ink");
 });
 
-test("pauses debounced scrollMemory saving during active mdlog and flushes once upon disconnection", async () => {
+test("keeps debounced scrollMemory saving during active mdlog and flushes upon disconnection", async () => {
   const saveSpy = vi.fn();
   storeSet.mockImplementation(saveSpy);
   const { Store } = await import("@tauri-apps/plugin-store");
@@ -505,17 +580,28 @@ test("pauses debounced scrollMemory saving during active mdlog and flushes once 
   await waitFor(() => expect(screen.getByRole("heading", { name: "Scroll Live" })).toBeInTheDocument());
 
   const scrollContainer = document.querySelector(".document-scroll") as HTMLElement;
+
+  // 连接建立瞬间应基线保存一次当前位置（强杀容错的第一道防线）
+  await waitFor(() => {
+    expect(saveSpy).toHaveBeenCalledWith("C:/notes/scroll-live.md", expect.any(Object));
+  });
   saveSpy.mockClear();
 
-  // 记录态下触发多次滚动事件（使用 fake timers 推进 400ms 验证 300ms 防抖被暂停）
+  // 记录态下滚动仍会防抖保存（块索引锚点对末尾追加稳定，持续保存使强杀可恢复）
   vi.useFakeTimers();
-  fireEvent.scroll(scrollContainer);
-  act(() => {
-    vi.advanceTimersByTime(400);
-  });
-  // 必须被暂停，不写入 store
-  expect(saveSpy).not.toHaveBeenCalled();
-  vi.useRealTimers();
+  try {
+    fireEvent.scroll(scrollContainer);
+    // async act 同时推进防抖定时器并冲洗 saveScrollPosition 的 promise 链
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(saveSpy).toHaveBeenCalledWith("C:/notes/scroll-live.md", expect.any(Object));
+  } finally {
+    // 断言失败也必须交还真实定时器，否则后续用例的 waitFor 永远不推进
+    vi.useRealTimers();
+  }
+
+  saveSpy.mockClear();
 
   // 模拟 sidecar 断开（mdlog-state-changed 返回 null）
   activeState = null;
@@ -1023,11 +1109,9 @@ test("P6: handleContentRendered skips async scroll position restore if bottom ar
       };
     }
     if (cmd === "read_mdlog_state") {
-      return {
-        lastWriteAt: 1_000_000,
-        heartbeatAt: 1_000_000,
-        expiresAt: 1_120_000,
-      };
+      // P6 场景（贴底仲裁抢在异步记忆恢复前完成）以非记录态为前提：
+      // mdlog 记录期间热重载本就不吸底，谈不上「仲裁已过」，必须返回 null
+      return null;
     }
     return undefined;
   });
@@ -1184,8 +1268,8 @@ test("end-to-end: live mdlog lifecycle from bottom stickiness to disconnection r
   });
 
   await waitFor(() => expect(screen.getByText("New AI response appended.")).toBeInTheDocument());
-  // 确认自动贴底且未挂载印章
-  expect(scrollContainer.scrollTop).toBe(1000);
+  // mdlog 记录期间模型追加禁止吸底跟随（新规则）：即便当前在底部，位置也保持 600 不变；印章不挂载
+  expect(scrollContainer.scrollTop).toBe(600);
   expect(screen.queryByText("墨迹未干")).not.toBeInTheDocument();
 
   // 3. 用户主动上滑查看历史（滚至顶部 scrollTop = 100，距离底部 1000 - 100 - 400 = 500 > 80）

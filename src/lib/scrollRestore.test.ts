@@ -13,7 +13,7 @@ vi.mock("./smoothScroll", () => ({
   cancelScrollAnimation: (container: HTMLElement) => cancelScrollAnimationMock(container),
 }));
 
-import { captureScrollPosition, resolveAnchorElement, restoreScrollPosition } from "./scrollRestore";
+import { captureScrollPosition, resolveAnchorElement, resolveBlockElement, restoreScrollPosition } from "./scrollRestore";
 
 function mockRect(el: Element, top: number) {
   vi.spyOn(el, "getBoundingClientRect").mockReturnValue({
@@ -51,6 +51,21 @@ function addHeading(id: string, top: number): HTMLElement {
   document.body.appendChild(el);
   mockRect(el, top);
   return el;
+}
+
+/// 造一个 .markdown-body 作用域并按序塞入顶层块，返回块元素列表
+function addBlocks(tops: number[]): HTMLElement[] {
+  const content = document.createElement("div");
+  const body = document.createElement("div");
+  body.className = "markdown-body";
+  content.appendChild(body);
+  document.body.appendChild(content);
+  return tops.map((top) => {
+    const el = document.createElement("p");
+    body.appendChild(el);
+    mockRect(el, top);
+    return el;
+  });
 }
 
 const outline = (ids: string[]): OutlineHeading[] =>
@@ -94,6 +109,51 @@ describe("captureScrollPosition", () => {
     expect(record.anchorId).toBe("h2");
     expect(record.anchorIndex).toBe(1);
   });
+
+  it("有内容根时记录首个可见顶层块的序号与偏移", () => {
+    const container = makeContainer(1000, 3000, 500);
+    const content = document.createElement("div");
+    const body = document.createElement("div");
+    body.className = "markdown-body";
+    content.appendChild(body);
+    document.body.appendChild(content);
+    const blocks = [-300, -80, 120].map((top) => {
+      const el = document.createElement("p");
+      body.appendChild(el);
+      mockRect(el, top);
+      return el;
+    });
+    void blocks;
+    // 第一个 bottom > 视口顶 +1 的块：top=-80（bottom=-60）不合格？bottom=-80+20=-60 < 1，
+    // 合格的是 top=120 的块——首个可见块可以是部分进入视口或紧随其后的块
+    const record = captureScrollPosition(container, [], content);
+    expect(record.blockIndex).toBe(2);
+    expect(record.blockOffset).toBe(-120);
+  });
+
+  it("块锚点取「底边越过视口顶」的首块（跨视口顶的块优先）", () => {
+    const container = makeContainer(500, 3000, 500);
+    const content = document.createElement("div");
+    const body = document.createElement("div");
+    body.className = "markdown-body";
+    content.appendChild(body);
+    document.body.appendChild(content);
+    [-200, -10, 300].forEach((top) => {
+      const el = document.createElement("p");
+      body.appendChild(el);
+      mockRect(el, top);
+    });
+    // top=-10 的块 bottom=10 > 1 → 首块命中
+    const record = captureScrollPosition(container, [], content);
+    expect(record.blockIndex).toBe(1);
+    expect(record.blockOffset).toBe(10); // 视口顶 0 − 块顶 −10
+  });
+
+  it("不传内容根时退化为比例 + 标题锚点（向后兼容）", () => {
+    const container = makeContainer(750, 2000, 500);
+    const record = captureScrollPosition(container, []);
+    expect(record).toEqual({ ratio: 0.5 });
+  });
 });
 
 describe("resolveAnchorElement", () => {
@@ -129,6 +189,36 @@ describe("resolveAnchorElement", () => {
   });
 });
 
+describe("resolveBlockElement", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("blockIndex 命中直接返回对应顶层块", () => {
+    const blocks = addBlocks([0, 100, 200]);
+    const content = document.querySelector(".markdown-body")!.parentElement as HTMLElement;
+    expect(resolveBlockElement({ ratio: 0.5, blockIndex: 1 }, content)).toBe(blocks[1]);
+  });
+
+  it("序号越界（内容被删短）时钳到末块", () => {
+    const blocks = addBlocks([0, 100]);
+    const content = document.querySelector(".markdown-body")!.parentElement as HTMLElement;
+    expect(resolveBlockElement({ ratio: 0.5, blockIndex: 9 }, content)).toBe(blocks[1]);
+  });
+
+  it("无 blockIndex 或无块时返回 null", () => {
+    const blocks = addBlocks([0]);
+    const content = document.querySelector(".markdown-body")!.parentElement as HTMLElement;
+    expect(resolveBlockElement({ ratio: 0.5 }, content)).toBeNull();
+    void blocks;
+    const empty = document.createElement("div");
+    expect(resolveBlockElement({ ratio: 0.5, blockIndex: 0 }, empty)).toBeNull();
+  });
+});
+
 describe("restoreScrollPosition", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
@@ -159,6 +249,51 @@ describe("restoreScrollPosition", () => {
     const content = document.createElement("div");
     restoreScrollPosition(container, content, { ratio: 0.4 }, []);
     expect(animateScrollToMock).toHaveBeenCalledWith(container, 1000); // 0.4 * (3000-500)
+  });
+
+  it("无标题时按块锚点恢复（末尾追加后总高变大也不错位）", () => {
+    // mdlog 场景：文档在记录期间从 3000 高涨到 6000 高，比例 0.4 会落到 2200，
+    // 但块锚点锁定的是同一个顶层块——目标 = 当前 scrollTop + 块视口位移 + 偏移
+    const container = makeContainer(1000, 6000, 500);
+    const content = document.createElement("div");
+    const body = document.createElement("div");
+    body.className = "markdown-body";
+    content.appendChild(body);
+    document.body.appendChild(content);
+    for (let i = 0; i < 5; i++) {
+      const el = document.createElement("p");
+      body.appendChild(el);
+      mockRect(el, 100 * i - 350); // 第 3 块 top=-150
+    }
+    restoreScrollPosition(
+      container,
+      content,
+      { ratio: 0.4, blockIndex: 2, blockOffset: 150 },
+      []
+    );
+    // 目标 = 1000 + (-150) + 150 = 1000（块顶恰好在偏移位置 → 不动）
+    expect(animateScrollToMock).toHaveBeenCalledWith(container, 1000);
+  });
+
+  it("标题锚点优先于块锚点", () => {
+    const container = makeContainer(1000, 3000, 500);
+    addHeading("sec", 100);
+    const content = document.createElement("div");
+    const body = document.createElement("div");
+    body.className = "markdown-body";
+    content.appendChild(body);
+    document.body.appendChild(content);
+    const el = document.createElement("p");
+    body.appendChild(el);
+    mockRect(el, 400);
+    restoreScrollPosition(
+      container,
+      content,
+      { ratio: 0.9, anchorId: "sec", anchorIndex: 0, offset: 80, blockIndex: 0, blockOffset: -400 },
+      outline(["sec"])
+    );
+    // 走标题锚点：1000 + 100 + 80 = 1180（而非块锚点的 1000 + 400 - 400）
+    expect(animateScrollToMock).toHaveBeenCalledWith(container, 1180);
   });
 
   it("用户滚动时结束守护并取消动画", () => {

@@ -23,14 +23,31 @@ function headingElement(id: string): HTMLElement | null {
  */
 export function captureScrollPosition(
   container: HTMLElement,
-  headings: OutlineHeading[]
+  headings: OutlineHeading[],
+  contentEl?: HTMLElement
 ): ScrollPositionRecord {
   const max = container.scrollHeight - container.clientHeight;
   const ratio = max > 0 ? clamp(container.scrollTop / max, 0, 1) : 0;
   const record: ScrollPositionRecord = { ratio };
-  if (headings.length === 0) return record;
 
   const containerTop = container.getBoundingClientRect().top;
+
+  // 顶层块锚点：与标题无关，对末尾追加稳定（mdlog 无标题文档的主锚点）
+  if (contentEl) {
+    const scope = contentEl.querySelector(".markdown-body") ?? contentEl;
+    const blocks = scope.children;
+    for (let i = 0; i < blocks.length; i++) {
+      const rect = blocks[i].getBoundingClientRect();
+      if (rect.bottom > containerTop + 1) {
+        record.blockIndex = i;
+        record.blockOffset = Math.round(containerTop - rect.top);
+        break;
+      }
+    }
+  }
+
+  if (headings.length === 0) return record;
+
   let anchor: { id: string; index: number; top: number } | null = null;
 
   for (let i = 0; i < headings.length; i++) {
@@ -57,6 +74,24 @@ export function captureScrollPosition(
     record.offset = Math.round(containerTop - anchor.top);
   }
   return record;
+}
+
+/**
+ * 按 blockIndex 解析顶层块锚点元素：序号越界（内容被删短）时钳到末块；
+ * 无 blockIndex 或没有任何块时返回 null（调用方继续退回比例兜底）。
+ */
+export function resolveBlockElement(
+  record: ScrollPositionRecord,
+  contentEl: HTMLElement
+): HTMLElement | null {
+  const index = record.blockIndex;
+  if (index === undefined) return null;
+  const scope = contentEl.querySelector(".markdown-body") ?? contentEl;
+  const blocks = scope.children;
+  if (blocks.length === 0) return null;
+  const clamped = Math.min(Math.max(0, Math.round(index)), blocks.length - 1);
+  const el = blocks[clamped];
+  return el instanceof HTMLElement ? el : null;
 }
 
 /**
@@ -101,6 +136,10 @@ export function resolveAnchorElement(
  * scrollHeight、推动内容下移，目标点随之漂移。这里在初次恢复后用 ResizeObserver
  * 盯住内容尺寸，一旦变化就按锚点重新定位，直到布局稳定。
  *
+ * 锚点优先级：标题锚点（身份稳定）→ 顶层块锚点（末尾追加稳定，mdlog 无标题文档
+ * 的救命锚）→ 比例兜底。守护重锚定同样走该优先级——有元素锚点时目标锁定固定
+ * 元素，widget/图片异步撑大总高不会让落点追漂；纯比例记录才随总高重新换算。
+ *
  * 守护结束条件（先到为准）：用户滚轮/触摸/按键接管、自定义滚动条拖拽接管
  *（容器上的 vellum:scrollbar-drag，拖 thumb 不产生任何原生输入事件）、
  * 超过 SETTLE_GUARD_MS、返回的取消函数被调用（切换文档/组件卸载）。
@@ -119,6 +158,15 @@ export function restoreScrollPosition(
       const target =
         container.scrollTop +
         (anchor.getBoundingClientRect().top - container.getBoundingClientRect().top) +
+        offset;
+      return clamp(Math.round(target), 0, max);
+    }
+    const block = resolveBlockElement(record, contentEl);
+    if (block) {
+      const offset = record.blockOffset ?? 0;
+      const target =
+        container.scrollTop +
+        (block.getBoundingClientRect().top - container.getBoundingClientRect().top) +
         offset;
       return clamp(Math.round(target), 0, max);
     }

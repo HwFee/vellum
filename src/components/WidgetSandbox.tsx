@@ -3,17 +3,25 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { widgetRegistry } from "../lib/widgetRegistry";
+import { isWidgetInteractive } from "../lib/widgetInteractivity";
 import { CodeBlock } from "./CodeBlock";
 
 export type WidgetSandboxProps = {
   html: string;
   autoMount: boolean;
 };
+
+// 预载视距：进入视口前提前挂载 iframe——下方 1200px（阅读方向，滑到时已渲染完毕，
+// 不再看到「闪一下」），上方 400px（回滑同理）。仍受 widgetRegistry 的 LRU 上限约束。
+const PRELOAD_ROOT_MARGIN = "400px 0px 1200px 0px";
+// iframe load 后未收到 resize 上报（非规范 widget 无通信 IIFE）的淡入兜底时长
+const READY_FALLBACK_MS = 500;
 
 interface RegisterResult {
   id: string;
@@ -34,6 +42,9 @@ export const WidgetSandbox = memo(function WidgetSandbox({
   const [height, setHeight] = useState<number>(240);
   const [title, setTitle] = useState<string>("交互演示");
   const [isDormant, setIsDormant] = useState<boolean>(false);
+  // iframe 内容就绪（首个 resize 上报或 load 后超时兜底）前保持透明，就绪后淡入，
+  // 避免「空白子帧 → 内容突然拍出」的硬闪
+  const [isFrameReady, setIsFrameReady] = useState<boolean>(false);
   // 授权记录在 activatedForHtmlRef 上（A1：必须以 html 为键且在仲裁 effect 执行期实时读取），
   // 而 ref 写入本身不触发渲染；用户点击占位块授权时靠 grantRenderTick 强制一次渲染，
   // 让下方挂载仲裁 effect 以新的 isAuthorized 重新求值（故必须列入 effect 依赖表）。
@@ -43,6 +54,21 @@ export const WidgetSandbox = memo(function WidgetSandbox({
 
   const prevHtmlRef = useRef(html);
   const prevAutoMountRef = useRef(autoMount);
+  const readyFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 静态图（通信 IIFE 之外无脚本/控件/链接）的 iframe 禁用指针事件：
+  // 滚轮手势命中跨源沙箱子帧会被 scroll-latch 锁住（子帧哪怕只有几 px 可滚动
+  // 余量，整个手势期父容器都收不到滚动——「图上滚动卡住、图微移、停一两秒自愈」
+  // 的根因）。命中测试穿透 iframe 后，手势直接落在滚动容器上，从根上消除锁存。
+  // 交互 widget 保持放行（判定保守化，见 widgetInteractivity.ts）。
+  const interactive = useMemo(() => isWidgetInteractive(html), [html]);
+
+  const clearReadyFallbackTimer = () => {
+    if (readyFallbackTimerRef.current !== null) {
+      clearTimeout(readyFallbackTimerRef.current);
+      readyFallbackTimerRef.current = null;
+    }
+  };
 
   // 安全门禁以 html 字符串为键：同一份 widget 内容只需授权一次。
   // 通过 ref 在仲裁 effect 执行期实时读取，规避 React 提交帧闭包导致的旧授权在途越权注册竞态（A1/P2-race）。
@@ -75,6 +101,8 @@ export const WidgetSandbox = memo(function WidgetSandbox({
       setWidgetUrl(null);
       setIsDormant(false);
       setHasError(false);
+      setIsFrameReady(false);
+      clearReadyFallbackTimer();
       // 实例复用时同步复位展示态，避免上一文档的标题/高度残留
       setTitle("交互演示");
       setHeight(240);
@@ -101,6 +129,8 @@ export const WidgetSandbox = memo(function WidgetSandbox({
             void Promise.resolve(invoke("unregister_widget", { id: idToUnregister })).catch(() => {});
           }
           setWidgetUrl(null);
+          setIsFrameReady(false);
+          clearReadyFallbackTimer();
         }
       }
     });
@@ -108,6 +138,7 @@ export const WidgetSandbox = memo(function WidgetSandbox({
     return () => {
       unsubscribe();
       widgetRegistry.release(instanceId);
+      clearReadyFallbackTimer();
       if (idRef.current) {
         const idToUnregister = idRef.current;
         idRef.current = null;
@@ -133,7 +164,7 @@ export const WidgetSandbox = memo(function WidgetSandbox({
           }
         }
       },
-      { rootMargin: "200px" }
+      { rootMargin: PRELOAD_ROOT_MARGIN }
     );
 
     observer.observe(el);
@@ -186,6 +217,10 @@ export const WidgetSandbox = memo(function WidgetSandbox({
         return;
       }
 
+      // 收到首个合法上报说明沙箱已完成排版，可以淡入
+      setIsFrameReady(true);
+      clearReadyFallbackTimer();
+
       if (typeof data.title === "string" && data.title.trim()) {
         setTitle(data.title.trim());
       }
@@ -205,6 +240,7 @@ export const WidgetSandbox = memo(function WidgetSandbox({
     window.addEventListener("message", handleMessage);
     return () => {
       window.removeEventListener("message", handleMessage);
+      clearReadyFallbackTimer();
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
       }
@@ -274,11 +310,22 @@ export const WidgetSandbox = memo(function WidgetSandbox({
       {widgetUrl ? (
         <iframe
           ref={iframeRef}
-          className="mdlog-widget__frame"
+          className={
+            (isFrameReady ? "mdlog-widget__frame mdlog-widget__frame--ready" : "mdlog-widget__frame") +
+            (interactive ? "" : " mdlog-widget__frame--static")
+          }
           src={widgetUrl}
           title={title}
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"
+          onLoad={() => {
+            // 非规范 widget 可能永不上报 resize：load 后超时兜底放行，避免永远透明
+            clearReadyFallbackTimer();
+            readyFallbackTimerRef.current = setTimeout(() => {
+              readyFallbackTimerRef.current = null;
+              setIsFrameReady(true);
+            }, READY_FALLBACK_MS);
+          }}
           style={{ height: `${height}px` }}
         />
       ) : (

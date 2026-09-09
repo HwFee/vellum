@@ -339,6 +339,55 @@ plain block
     expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
   });
 
+  it("renders CJK-adjacent bold and strikethrough that strict CommonMark leaves literal", () => {
+    // CommonMark flanking 规则下，** 跨「汉字+括号」交界会被判为普通字符（GitHub/VS Code 原样输出）；
+    // remark-cjk-friendly 放宽该判定，中文书写习惯下应渲染为真正的强调
+    const markdown = [
+      "所谓的**记忆腐化(Memory Rot)**是情景记忆系统的隐患",
+      "",
+      "这是~~已废弃方案(旧版)~~不建议采用的写法",
+    ].join("\n");
+    const { container } = render(<MarkdownDocument markdown={markdown} />);
+
+    const strong = container.querySelector("strong");
+    expect(strong).toBeInTheDocument();
+    expect(strong).toHaveTextContent("记忆腐化(Memory Rot)");
+    const del = container.querySelector("del");
+    expect(del).toBeInTheDocument();
+    expect(del).toHaveTextContent("已废弃方案(旧版)");
+    expect(container.textContent).not.toContain("**");
+    expect(container.textContent).not.toContain("~~");
+  });
+
+  it("renders bold when the closing ** sits between an ASCII paren and a CJK character (mdlog 实录回归)", () => {
+    // 2026-09-04 线上事故实录：`**标准终止条件(Stop Condition)**是` 的闭 ** 左侧贴 ASCII 括号、
+    // 右侧贴汉字，严格 flanking 判为普通字符被原样输出。此用例锁定该失败类别不再回潮
+    const markdown = "课程推荐的**标准终止条件(Stop Condition)**是哪一种？";
+    const { container } = render(<MarkdownDocument markdown={markdown} />);
+
+    const strong = container.querySelector("strong");
+    expect(strong).toBeInTheDocument();
+    expect(strong).toHaveTextContent("标准终止条件(Stop Condition)");
+    expect(container.textContent).not.toContain("**");
+  });
+
+  it("renders emphasis adjacent to CJK quotation marks and sentence-final particles", () => {
+    const cases: Array<{ markdown: string; tag: "strong" | "del"; text: string }> = [
+      { markdown: "**「记忆腐化」**是隐患", tag: "strong", text: "「记忆腐化」" },
+      { markdown: "答案是**C**！", tag: "strong", text: "C" },
+      { markdown: "写**粗体**(注)中文", tag: "strong", text: "粗体" },
+      { markdown: "这是~~删除线~~中文", tag: "del", text: "删除线" },
+    ];
+    for (const { markdown, tag, text } of cases) {
+      const { container, unmount } = render(<MarkdownDocument markdown={markdown} />);
+      const el = container.querySelector(tag);
+      expect(el, markdown).toBeInTheDocument();
+      expect(el, markdown).toHaveTextContent(text);
+      expect(container.textContent, markdown).not.toMatch(/\*\*|~~/);
+      unmount();
+    }
+  });
+
   it("opens mailto links with the system opener instead of the webview", () => {
     render(<MarkdownDocument markdown="[写信](mailto:a@example.com)" />);
 

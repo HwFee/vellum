@@ -262,6 +262,36 @@ textarea {
   pointer-events: auto;
 }
 
+/* 侧边栏宽度调节手柄：骑跨侧栏右缘边线（aside 有 overflow:hidden，故作兄弟节点
+   外置为 fixed），平时不可见，悬停/拖拽时显现发丝靛青线 */
+.outline-resize-handle {
+  position: fixed;
+  top: 46px;
+  bottom: 0;
+  left: var(--outline-width);
+  width: 10px;
+  margin-left: -5px;
+  cursor: col-resize;
+  z-index: 810;
+  touch-action: none;
+}
+
+.outline-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 2px;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.outline-resize-handle:hover::after,
+.app-shell--sidebar-resizing .outline-resize-handle::after {
+  background: color-mix(in srgb, var(--brand) 45%, transparent);
+}
+
 .outline-panel {
   display: flex;
   flex-direction: column;
@@ -612,6 +642,66 @@ mark.search-match--current {
   .outline-scrim {
     transition: none;
     animation: none;
+  }
+}
+
+/* 布局过渡窗的滚动容器过渡关停：拖宽时正文 margin 即时跟随指针，不做 250ms 滞后动画 */
+.app-shell--sidebar-resizing .document-scroll {
+  transition: none;
+}
+
+.app-shell--sidebar-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* 跳转到底部：右下角浮钮，距底超过阈值才浮现；z 序低于窄屏遮罩（750），
+   遮罩在位时按钮随之不可点 */
+.jump-bottom {
+  position: fixed;
+  right: 20px;
+  bottom: 24px;
+  z-index: 740;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  background: var(--parchment);
+  color: var(--brand);
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.jump-bottom--visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.jump-bottom:hover {
+  border-color: var(--brand);
+  background: var(--ivory);
+}
+
+.jump-bottom:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jump-bottom {
+    transition: none;
   }
 }
 
@@ -1255,6 +1345,31 @@ mark.search-match--current {
   border: 0;
   border-top: 1px solid var(--hairline);
   background: var(--parchment);
+  /* 就绪（首个 resize 上报或 load 兜底超时）前保持透明，就绪后淡入，避免硬闪；
+     高度随沙箱上报平滑伸缩（宿主测「墨迹未干」式的由虚而实） */
+  opacity: 0;
+  transition:
+    opacity 180ms ease-out,
+    height 200ms ease-out;
+}
+
+.mdlog-widget__frame--ready {
+  opacity: 1;
+}
+
+/* 静态图（通信 IIFE 之外无交互逻辑）的 iframe 禁用指针事件：
+   滚轮手势命中跨源沙箱子帧会被 Chromium scroll-latch 锁进子帧——子帧只要
+   存在几 px 可滚动余量（高度过渡/字体后加载/2000px 截断），整个手势期父
+   容器完全收不到滚动（「图上滚动卡住、图微移、停 1-2 秒自愈」的根因）。
+   穿透后命中测试直接落在滚动容器上。交互 widget 不加此类，保持可操作。 */
+.mdlog-widget__frame--static {
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mdlog-widget__frame {
+    transition: none;
+  }
 }
 
 .markdown-body .mdlog-widget__placeholder {
@@ -1331,5 +1446,15 @@ mark.search-match--current {
   .mdlog-live::before {
     animation: none;
   }
+}
+
+/* 布局过渡窗（侧边栏开关 450ms / 拖宽期间持续）：关闭 widget iframe 的高度过渡，
+   消除窗口期内的重排级联与子帧可滚动余量。
+   注意：本规则必须保持在文件中首个 ".mdlog-widget" 出现位置之后——
+   kami.css.test.ts 以首个出现处起扫描 mdlog 区段的设计约束，提前出现会把无关
+   区段卷入扫描 */
+.app-shell--layout-shifting .mdlog-widget__frame,
+.app-shell--sidebar-resizing .mdlog-widget__frame {
+  transition: none;
 }
 

@@ -29,7 +29,14 @@ describe("scrollMemory", () => {
   });
 
   it("保存并读回锚点记录", async () => {
-    const record = { ratio: 0.42, anchorId: "section-a", anchorIndex: 3, offset: 120 };
+    const record = {
+      ratio: 0.42,
+      anchorId: "section-a",
+      anchorIndex: 3,
+      offset: 120,
+      blockIndex: 17,
+      blockOffset: 36,
+    };
     await saveScrollPosition("/a.md", record);
     expect(setMock).toHaveBeenCalledWith("/a.md", record);
     expect(saveMock).toHaveBeenCalled();
@@ -57,7 +64,15 @@ describe("scrollMemory", () => {
       anchorId: 123,
       anchorIndex: -2,
       offset: Number.NaN,
+      blockIndex: -1,
+      blockOffset: "bad",
     });
     await expect(loadScrollPosition("/mixed.md")).resolves.toEqual({ ratio: 0.5 });
+  });
+
+  it("无标题文档的块锚点记录完整读写", async () => {
+    const record = { ratio: 0.9, blockIndex: 42, blockOffset: 128 };
+    await saveScrollPosition("/log.md", record);
+    await expect(loadScrollPosition("/log.md")).resolves.toEqual(record);
   });
 });

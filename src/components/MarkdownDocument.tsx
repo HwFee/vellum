@@ -4,6 +4,8 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema, type Options as RehypeSanitizeOptions } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import remarkCjkFriendly from "remark-cjk-friendly";
+import remarkCjkFriendlyGfmStrikethrough from "remark-cjk-friendly-gfm-strikethrough";
 import "katex/dist/katex.min.css";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { isValidElement, memo, useCallback, useLayoutEffect, useMemo, useRef, type ReactElement, type ReactNode } from "react";
@@ -213,7 +215,15 @@ function urlTransform(url: string) {
 }
 
 // remark 插件列表与文档无关，提升为模块常量，避免每次渲染产生新引用
-const REMARK_PLUGINS: PluggableList = [remarkGfm, remarkMath, remarkMathCurrencyGuard];
+// remark-cjk-friendly（含 gfm 删除线版）：放宽 CommonMark 强调定界符的 flanking 判定，
+// 使 **粗体**(注)、~~删除线~~中文 这类「标点贴 CJK」写法正常渲染（规范原文下会输出字面 **）
+const REMARK_PLUGINS: PluggableList = [
+  remarkGfm,
+  remarkCjkFriendly,
+  remarkCjkFriendlyGfmStrikethrough,
+  remarkMath,
+  remarkMathCurrencyGuard,
+];
 
 // strict: "ignore"：容忍公式里的 CJK/Unicode 文本（如 $\text{向量}$），不在控制台刷警告。
 // 解析失败时 rehype-katex 内部会降级为红色源码兜底渲染，不会中断整篇文档。

@@ -1,9 +1,11 @@
 use crate::widget::{
-    build_widget_response, judge_mdlog_alive, read_mdlog_state_from_path, MdlogSidecarData,
-    MdlogStateResponse, RegisterResult, WidgetRegistry, WidgetState, MAX_REGISTRY_CAPACITY,
+    build_widget_response, cleanup_stale_sidecar_if_dead, judge_mdlog_alive,
+    read_mdlog_state_from_path, should_cleanup_stale_sidecar, MdlogSidecarData, MdlogStateResponse,
+    RegisterResult, WidgetRegistry, WidgetState, HEARTBEAT_TIMEOUT_MS, MAX_REGISTRY_CAPACITY,
     MAX_WIDGET_HTML_BYTES,
 };
 use std::fs;
+use std::path::PathBuf;
 
 #[test]
 fn registry_rejects_html_exceeding_512kb() {
@@ -280,6 +282,230 @@ fn read_mdlog_state_returns_none_when_heartbeat_expired_or_pid_dead() {
     assert_eq!(res_dead, None);
 
     let _ = fs::remove_file(&temp_sidecar);
+}
+
+/// 构造一份仅 pid / heartbeatAt 可变的 sidecar 数据，供清理判据测试复用。
+fn sidecar_data(pid: u32, heartbeat_at: u64) -> MdlogSidecarData {
+    MdlogSidecarData {
+        version: Some(1),
+        session_id: Some("sess-cleanup".to_string()),
+        pid,
+        connected_at: Some(heartbeat_at.saturating_sub(10_000)),
+        last_write_at: heartbeat_at,
+        heartbeat_at,
+        anchor_lost: Some(false),
+    }
+}
+
+/// 在临时目录创建唯一的一对 `<文档>.md` 与 `<文档>.md.mdlog` 路径（uuid 保证并行测试互不撞名）。
+fn temp_doc_and_sidecar(tag: &str) -> (PathBuf, PathBuf) {
+    let doc = std::env::temp_dir().join(format!(
+        "vellum_sidecar_cleanup_{tag}_{}.md",
+        uuid::Uuid::new_v4()
+    ));
+    let sidecar = crate::watcher::sidecar_path_for(&doc);
+    (doc, sidecar)
+}
+
+fn write_sidecar(path: &PathBuf, data: &MdlogSidecarData) {
+    fs::write(path, serde_json::to_string(data).unwrap()).unwrap();
+}
+
+#[test]
+fn should_cleanup_stale_sidecar_matrix_covers_pid_heartbeat_and_clock_rollback() {
+    let hb = 100_000_u64;
+    let alive_pid = |pid: u32| pid == 9999;
+    let dead_pid = |_pid: u32| false;
+
+    // 1. pid 已死 + 心跳新鲜 -> true（进程被强杀，属残留，可清理）
+    assert!(should_cleanup_stale_sidecar(
+        &sidecar_data(9999, hb),
+        110_000,
+        &dead_pid
+    ));
+
+    // 2. pid 已死 + 心跳超时 -> true
+    assert!(should_cleanup_stale_sidecar(
+        &sidecar_data(9999, hb),
+        250_000,
+        &dead_pid
+    ));
+
+    // 3. pid 存活 + 心跳新鲜 -> false（正在记录，绝不删除）
+    assert!(!should_cleanup_stale_sidecar(
+        &sidecar_data(9999, hb),
+        110_000,
+        &alive_pid
+    ));
+
+    // 4. pid 存活 + 心跳彻底超时 -> true（进程僵死 / 心跳写入器停摆）
+    assert!(should_cleanup_stale_sidecar(
+        &sidecar_data(9999, hb),
+        220_001,
+        &alive_pid
+    ));
+
+    // 5. 时钟回拨（heartbeat_at > now）+ pid 存活 -> false（刻意保留，宁可不删活会话状态）
+    assert!(!should_cleanup_stale_sidecar(
+        &sidecar_data(9999, hb),
+        90_000,
+        &alive_pid
+    ));
+}
+
+#[test]
+fn should_cleanup_stale_sidecar_boundary_only_exceeding_timeout_counts_as_stale() {
+    let hb = 100_000_u64;
+    let alive_pid = |pid: u32| pid == 9999;
+
+    // 心跳刚刚写入 -> false
+    assert!(!should_cleanup_stale_sidecar(
+        &sidecar_data(9999, hb),
+        hb,
+        &alive_pid
+    ));
+
+    // now - heartbeat_at 恰好等于 120_000（阈值内）-> false，必须「超过」才算超时
+    assert!(!should_cleanup_stale_sidecar(
+        &sidecar_data(9999, hb),
+        hb + HEARTBEAT_TIMEOUT_MS,
+        &alive_pid
+    ));
+
+    // 再多 1ms -> true
+    assert!(should_cleanup_stale_sidecar(
+        &sidecar_data(9999, hb),
+        hb + HEARTBEAT_TIMEOUT_MS + 1,
+        &alive_pid
+    ));
+}
+
+#[test]
+fn should_cleanup_stale_sidecar_is_complementary_to_judge_mdlog_alive_except_clock_rollback() {
+    let hb = 500_000_u64;
+    let cases: [(u64, bool); 4] = [
+        (hb, true),                            // 刚写入心跳
+        (hb + HEARTBEAT_TIMEOUT_MS, true),     // 阈值边界（未超时）
+        (hb + HEARTBEAT_TIMEOUT_MS + 1, true), // 彻底超时
+        (hb + 10_000, false),                  // 心跳新鲜但 pid 已死
+    ];
+
+    for (now, pid_alive) in cases {
+        let data = sidecar_data(9999, hb);
+        let alive = judge_mdlog_alive(&data, now, &|_| pid_alive);
+        let stale = should_cleanup_stale_sidecar(&data, now, &|_| pid_alive);
+        assert_ne!(
+            alive, stale,
+            "now={now}, pid_alive={pid_alive}: 判活与判残留必须互斥"
+        );
+    }
+
+    // 唯一例外：时钟回拨（heartbeat_at > now）时两侧都判 false，此时刻意保留不删
+    let rollback = sidecar_data(9999, hb);
+    assert!(!judge_mdlog_alive(&rollback, hb - 1, &|_| true));
+    assert!(!should_cleanup_stale_sidecar(&rollback, hb - 1, &|_| true));
+}
+
+#[test]
+fn cleanup_stale_sidecar_removes_heartbeat_expired_file_and_keeps_live_one() {
+    // 固定假时钟（毫秒），避免真实时间抖动导致用例不稳定
+    let now = 1_700_000_000_000_u64;
+
+    // A. 心跳彻底超时（now - heartbeat_at > 120s）-> 判残留并删除
+    let (doc_a, sidecar_a) = temp_doc_and_sidecar("expired");
+    fs::write(&doc_a, "# expired").unwrap();
+    write_sidecar(
+        &sidecar_a,
+        &sidecar_data(std::process::id(), now - HEARTBEAT_TIMEOUT_MS - 1),
+    );
+    assert!(sidecar_a.is_file());
+    assert!(cleanup_stale_sidecar_if_dead(&sidecar_a, now));
+    assert!(!sidecar_a.exists());
+
+    // B. 自身 pid + 新鲜心跳 -> 活会话，绝不删除
+    let (doc_b, sidecar_b) = temp_doc_and_sidecar("live");
+    fs::write(&doc_b, "# live").unwrap();
+    write_sidecar(&sidecar_b, &sidecar_data(std::process::id(), now));
+    assert!(!cleanup_stale_sidecar_if_dead(&sidecar_b, now));
+    assert!(sidecar_b.is_file());
+
+    let _ = fs::remove_file(doc_a);
+    let _ = fs::remove_file(doc_b);
+    let _ = fs::remove_file(sidecar_b);
+}
+
+#[test]
+#[cfg(windows)]
+fn cleanup_stale_sidecar_removes_dead_pid_file_even_with_fresh_heartbeat() {
+    // 仅 Windows 有意义：非 Windows 分支的 is_pid_alive_win32 是恒 true 存根。
+    let now = 1_700_000_000_000_u64;
+    let dead_pid = u32::MAX - 1;
+    assert!(!crate::widget::is_pid_alive_win32(dead_pid));
+
+    let (doc, sidecar) = temp_doc_and_sidecar("deadpid");
+    fs::write(&doc, "# deadpid").unwrap();
+    write_sidecar(&sidecar, &sidecar_data(dead_pid, now));
+
+    // 心跳新鲜但进程已不存在（终端被强杀的典型形态）-> 仍判残留并删除
+    assert!(cleanup_stale_sidecar_if_dead(&sidecar, now));
+    assert!(!sidecar.exists());
+
+    let _ = fs::remove_file(doc);
+}
+
+#[test]
+fn cleanup_stale_sidecar_is_best_effort_on_missing_or_unparsable_file() {
+    let now = 1_700_000_000_000_u64;
+
+    // 1. 文件不存在 -> false，不 panic
+    let missing = std::env::temp_dir().join(format!(
+        "vellum_sidecar_missing_{}.mdlog",
+        uuid::Uuid::new_v4()
+    ));
+    assert!(!cleanup_stale_sidecar_if_dead(&missing, now));
+
+    let (doc, sidecar) = temp_doc_and_sidecar("unparsable");
+    fs::write(&doc, "# unparsable").unwrap();
+
+    // 2. JSON 损坏 -> false，文件原样保留
+    fs::write(&sidecar, "{ corrupted json").unwrap();
+    assert!(!cleanup_stale_sidecar_if_dead(&sidecar, now));
+    assert!(sidecar.is_file());
+
+    // 3. JSON 合法但缺 pid / heartbeatAt 必填字段 -> false，文件原样保留
+    fs::write(&sidecar, r#"{"lastWriteAt":1}"#).unwrap();
+    assert!(!cleanup_stale_sidecar_if_dead(&sidecar, now));
+    assert!(sidecar.is_file());
+
+    let _ = fs::remove_file(sidecar);
+    let _ = fs::remove_file(doc);
+}
+
+#[test]
+fn read_mdlog_state_from_path_stays_side_effect_free_deferring_cleanup_to_command_layer() {
+    let now = 1_700_000_000_000_u64;
+    let (doc, sidecar) = temp_doc_and_sidecar("purity");
+    fs::write(&doc, "# purity").unwrap();
+    write_sidecar(
+        &sidecar,
+        &sidecar_data(u32::MAX - 1, now - HEARTBEAT_TIMEOUT_MS - 1),
+    );
+
+    // 纯函数只仲裁状态，绝不产生删除副作用
+    assert_eq!(
+        read_mdlog_state_from_path(Some(&doc), &|_| false, now),
+        None
+    );
+    assert!(
+        sidecar.is_file(),
+        "read_mdlog_state_from_path 必须保持纯净：清理只允许发生在命令层"
+    );
+
+    // 命令层的清理钩子负责真正删除
+    assert!(cleanup_stale_sidecar_if_dead(&sidecar, now));
+    assert!(!sidecar.exists());
+
+    let _ = fs::remove_file(doc);
 }
 
 #[test]

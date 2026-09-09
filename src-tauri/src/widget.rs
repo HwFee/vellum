@@ -173,6 +173,35 @@ pub fn judge_mdlog_alive(
     pid_alive(state.pid)
 }
 
+/// 纯函数：判定残留 sidecar 是否可安全清理：记录进程已死，或心跳彻底超时。
+/// 刻意排除 heartbeat_at > now（系统时钟回拨）的情形：此时宁可保留，不删活会话的状态。
+pub fn should_cleanup_stale_sidecar(
+    data: &MdlogSidecarData,
+    now: u64,
+    pid_alive: &dyn Fn(u32) -> bool,
+) -> bool {
+    if !pid_alive(data.pid) {
+        return true;
+    }
+    data.heartbeat_at <= now && now - data.heartbeat_at > HEARTBEAT_TIMEOUT_MS
+}
+
+/// 文件层残留清理（best-effort）：读盘 → 解析 → 判定为死会话则删除，返回是否已删除。
+/// 从命令体抽离为独立函数，使清理行为可脱离 Tauri 运行时单元测试；
+/// 任何失败（文件不存在、JSON 损坏、无删除权限）一律降级为 false，绝不向上抛错。
+pub fn cleanup_stale_sidecar_if_dead(sidecar_path: &Path, now: u64) -> bool {
+    let Ok(content) = std::fs::read_to_string(sidecar_path) else {
+        return false;
+    };
+    let Ok(data) = serde_json::from_str::<MdlogSidecarData>(&content) else {
+        return false;
+    };
+    if !should_cleanup_stale_sidecar(&data, now, &is_pid_alive_win32) {
+        return false;
+    }
+    std::fs::remove_file(sidecar_path).is_ok()
+}
+
 /// Windows 原生 Win32 进程存活检查：
 /// 1. OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid)；
 /// 2. 成功获取句柄后调用 GetExitCodeProcess 复核，并在返回前必须 CloseHandle 释放（G2）；
@@ -309,5 +338,12 @@ pub async fn read_mdlog_state(
         .unwrap_or(0);
 
     let result = read_mdlog_state_from_path(current.as_deref(), &is_pid_alive_win32, now);
+    if result.is_none() {
+        if let Some(path) = current.as_deref() {
+            // 残留清理：pi 进程被强杀 / 崩溃时扩展的 session_shutdown 不会执行，
+            // sidecar 会永久留在用户文件夹。此处 best-effort 删除，失败绝不影响命令返回。
+            let _ = cleanup_stale_sidecar_if_dead(&sidecar_path_for(path), now);
+        }
+    }
     Ok(result)
 }
