@@ -39,3 +39,6 @@ nul
 
 # Project-local agent skills are junctions to the shared skill repo
 .agents/
+
+# Local run logs / review prompts, never versioned
+outputs/
