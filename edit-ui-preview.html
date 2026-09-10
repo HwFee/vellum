@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Vellum 编辑界面创意（4 版）</title>
+<style>
+/* ===== 真实字体（仓库内自托管，路径与真应用一致） ===== */
+@font-face { font-family: "TsangerJinKai02"; src: url("public/fonts/TsangerJinKai02-W04.woff2") format("woff2"); font-display: block; }
+@font-face { font-family: "JetBrains Mono"; src: url("public/fonts/JetBrainsMono.woff2") format("woff2"); font-display: block; }
+
+/* ===== 真实 token（抄自 src/styles/kami.css :root） ===== */
+:root {
+  --parchment: #f5f4ed; --ivory: #faf9f5; --inline-code-bg: #f0eee6; --warm-sand: #e8e6dc;
+  --near-black: #141413; --dark-warm: #3d3d3a; --olive: #504e49; --stone: #6b6a64;
+  --brand: #1B365D; --tag-bg: #E4ECF5; --brand-tint: #EEF2F7;
+  --border: #e8e6dc; --border-soft: #e5e3d8; --hairline: #dddacc;
+  --serif: "TsangerJinKai02", "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", STSong, Charter, Georgia, serif;
+  --mono: "JetBrains Mono", "SF Mono", Consolas, Monaco, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 28px 24px 64px;
+  background: #ebe9e0; color: var(--near-black);
+  font-family: var(--serif); font-size: 15px; line-height: 1.7;
+}
+h1.page { font-size: 20px; font-weight: 500; margin: 0 0 6px; letter-spacing: .02em; }
+p.page { margin: 0 0 18px; color: var(--olive); font-size: 13.5px; max-width: 78ch; }
+.legend { font-family: var(--mono); font-size: 11.5px; color: var(--stone); }
+
+/* ===== 变体切换（纯 CSS，无 JS） ===== */
+input.vpick { position: absolute; opacity: 0; pointer-events: none; }
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; }
+.tabs label {
+  display: inline-flex; align-items: baseline; gap: 8px;
+  padding: 8px 14px; border: 1px solid var(--hairline); border-radius: 3px;
+  background: var(--ivory); cursor: pointer; font-size: 13.5px; color: var(--dark-warm);
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+.tabs label:hover { background: var(--warm-sand); }
+/* 顶栏图标：与真应用同构（14×14 / viewBox 24 / 线宽 2 / round），无 emoji */
+.ic { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tabs label .t-num { font-family: var(--mono); font-size: 11px; color: var(--stone); }
+.tabs label .t-sub { font-family: var(--mono); font-size: 10.5px; color: var(--stone); }
+#v1:checked ~ .tabs label[for="v1"], #v2:checked ~ .tabs label[for="v2"],
+#v3:checked ~ .tabs label[for="v3"], #v4:checked ~ .tabs label[for="v4"] {
+  background: var(--brand-tint); border-color: var(--brand); color: var(--brand);
+}
+.stage { display: none; }
+#v1:checked ~ .stages .stage[data-v="1"],
+#v2:checked ~ .stages .stage[data-v="2"],
+#v3:checked ~ .stages .stage[data-v="3"],
+#v4:checked ~ .stages .stage[data-v="4"] { display: block; }
+
+/* ===== 仿应用外壳（尺寸/配色/字号与真界面同源） ===== */
+.win {
+  position: relative; width: 980px; max-width: 100%; height: 620px;
+  border: 1px solid var(--hairline); border-radius: 4px; overflow: hidden;
+  background: var(--parchment);
+}
+.top-bar {
+  position: absolute; top: 0; left: 0; right: 0; height: 46px;
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px;
+  padding-left: 16px; border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--parchment) 94%, var(--ivory));
+}
+.tb-actions { display: flex; align-items: center; gap: 6px; }
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--stone); box-shadow: inset 0 0 0 1px var(--border);
+}
+.icon-btn.is-active { background: var(--brand-tint); color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
+.tb-meta { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.tb-title { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-path { font-family: var(--mono); font-size: 10.5px; color: var(--stone); }
+.win-ctrls { display: flex; align-items: center; }
+.win-ctrl { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin-right: 8px; border-radius: 6px; color: var(--stone); box-shadow: inset 0 0 0 1px var(--border); }
+.win-ctrl.close { color: #a12014; box-shadow: inset 0 0 0 1px #e2c9c5; }
+
+/* 侧栏（大纲） */
+.sidebar {
+  position: absolute; top: 46px; bottom: 0; left: 0; width: 240px;
+  border-right: 1px solid var(--border-soft); background: color-mix(in srgb, var(--parchment) 96%, var(--ivory));
+}
+.sb-head { padding: 16px 18px 10px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .16em; color: var(--stone); }
+.sb-search { margin: 0 14px 12px; height: 28px; border: 1px solid var(--hairline); border-radius: 3px; background: var(--ivory); display: flex; align-items: center; padding: 0 9px; justify-content: space-between; }
+.sb-search span { font-size: 12px; color: var(--stone); }
+.sb-search kbd { font-family: var(--mono); font-size: 10px; color: var(--stone); }
+.sb-list { padding: 4px 0 0 14px; }
+.sb-item { position: relative; padding: 5px 10px 5px 12px; font-size: 13px; color: var(--dark-warm); border-radius: 2px; }
+.sb-item.lv2 { padding-left: 26px; font-size: 12.5px; color: var(--olive); }
+.sb-item.active { color: var(--brand); }
+.sb-item.active::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px; border-radius: 2px; background: var(--brand); }
+
+/* 正文 */
+.paper {
+  position: absolute; top: 46px; bottom: 0; left: 240px; right: 0;
+  overflow: hidden; padding: 34px 0 0;
+}
+.doc { width: min(680px, calc(100% - 80px)); margin: 0 auto; }
+.doc h1 { font-size: 22px; font-weight: 500; margin: 0 0 14px; }
+.doc h2 { font-size: 16.5px; font-weight: 500; margin: 26px 0 10px; }
+.doc p { margin: 0 0 14px; font-size: 15px; line-height: 1.75; color: var(--near-black); }
+.doc code.inline { font-family: var(--mono); font-size: 12.5px; background: var(--inline-code-bg); padding: 1px 5px; border-radius: 2px; }
+.doc .ro-html { margin: 0 0 14px; padding: 10px 12px; border-left: 2px solid var(--hairline); background: var(--ivory); font-size: 13.5px; color: var(--olive); }
+.doc .ro-widget { margin: 0 0 14px; padding: 12px; border: 1px solid var(--hairline); border-radius: 3px; background: var(--ivory); }
+.doc .ro-widget .badge { font-family: var(--mono); font-size: 9.5px; color: var(--stone); }
+.doc .ro-widget .box { margin-top: 8px; padding: 10px; border: 1px dashed var(--hairline); border-radius: 2px; text-align: center; color: var(--stone); font-size: 12.5px; }
+
+/* 编辑中的块（textarea 覆盖层视觉：mono + 左轨 2px 靛青 + 端头 2px） */
+.editing-block {
+  position: relative; margin: 0 0 14px; padding: 0 2px;
+  border-left: 2px solid var(--brand); border-radius: 2px;
+  font-family: var(--mono); font-size: 13px; line-height: 1.55; white-space: pre-wrap;
+  color: var(--near-black);
+}
+.editing-block .caret { display: inline-block; width: 1px; height: 14px; background: var(--near-black); vertical-align: -2px; animation: blink 1.1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* ---------- 变体 1 · 静水：只有顶栏一个墨点 + 块左轨 ---------- */
+.save-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--brand); margin-left: 2px; vertical-align: 1px; }
+.save-dot.saved { background: var(--hairline); }
+
+/* ---------- 变体 2 · 状态栏：底部 24px 细条 ---------- */
+.status-bar {
+  position: absolute; left: 240px; right: 0; bottom: 0; height: 26px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 0 14px; border-top: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--parchment) 96%, var(--ivory));
+  font-family: var(--mono); font-size: 10.5px; color: var(--stone);
+}
+.status-bar .mid { color: var(--brand); }
+.status-bar .mid.unsaved { color: #8a6a1f; }
+.status-bar .k { color: var(--hairline); }
+
+/* ---------- 变体 3 · 块工具条 ---------- */
+.block-bar {
+  display: flex; align-items: center; gap: 10px; margin: 0 0 4px -2px;
+  padding: 3px 8px; border: 1px solid var(--border-soft); border-bottom: 0;
+  border-radius: 3px 3px 0 0; background: var(--ivory);
+  font-family: var(--mono); font-size: 10px; color: var(--stone);
+}
+.block-bar .kind { color: var(--olive); letter-spacing: .08em; }
+.block-bar .spacer { flex: 1; }
+.block-bar button { font-family: var(--mono); font-size: 10px; color: var(--brand); background: transparent; border: 0; padding: 1px 3px; cursor: default; }
+.block-bar .state-unsaved { color: #8a6a1f; }
+.tag-ro {
+  display: inline-block; margin: 0 0 6px; padding: 1px 6px; border-radius: 3px;
+  background: var(--tag-bg); font-family: var(--mono); font-size: 9.5px; color: var(--brand); letter-spacing: .06em;
+}
+
+/* ---------- 变体 4 · 落墨：细框 + 角标 + 印章 ---------- */
+.ink-frame { position: relative; margin: 0 0 14px; padding: 6px 8px; border: 1px solid var(--brand); border-radius: 3px; }
+.ink-frame::before {
+  content: "段落"; position: absolute; top: -9px; left: 8px; padding: 0 5px;
+  background: var(--parchment); font-family: var(--mono); font-size: 9.5px; color: var(--brand); letter-spacing: .08em;
+}
+.ink-frame.unsaved { border-color: var(--brand); }
+.seal {
+  position: absolute; right: 22px; bottom: 20px; padding: 6px 12px; border-radius: 3px;
+  background: var(--tag-bg); font-family: var(--mono); font-size: 10px; color: var(--near-black);
+  letter-spacing: .06em; transform: rotate(-1.5deg);
+}
+.seal.saved { background: var(--brand-tint); color: var(--brand); }
+
+/* 变体说明面板 */
+.notes { width: 980px; max-width: 100%; margin: 18px 0 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px 22px; }
+.note { border-top: 1px solid var(--hairline); padding-top: 10px; }
+.note h3 { margin: 0 0 6px; font-size: 13.5px; font-weight: 500; }
+.note p, .note li { margin: 0 0 6px; font-size: 12.5px; line-height: 1.65; color: var(--olive); }
+.note ul { margin: 0; padding-left: 18px; }
+.note code { font-family: var(--mono); font-size: 11.5px; background: var(--inline-code-bg); padding: 0 4px; border-radius: 2px; }
+.rec { color: var(--brand); font-family: var(--mono); font-size: 10.5px; letter-spacing: .06em; }
+</style>
+</head>
+<body>
+<h1 class="page">Vellum 编辑界面创意 · 4 版</h1>
+<p class="page">同一份界面内容（顶栏 + 大纲 + 正文，含「编辑中的段落」「HTML 只读块」「交互只读块」），只换<strong>编辑提示</strong>与<strong>未保存/已保存反馈</strong>的语汇。尺寸与配色取自真实 token（暖纸 <code>#f5f4ed</code>、靛青 <code>#1B365D</code>、发丝线 <code>#dddacc</code>），字体用仓库自托管的仓耳今楷与 JetBrains Mono。点上方标签切换。</p>
+
+<input class="vpick" type="radio" name="variant" id="v1" checked />
+<input class="vpick" type="radio" name="variant" id="v2" />
+<input class="vpick" type="radio" name="variant" id="v3" />
+<input class="vpick" type="radio" name="variant" id="v4" />
+
+<div class="tabs">
+  <label for="v1"><span class="t-num">01</span> 静水 <span class="t-sub">一个墨点</span></label>
+  <label for="v2"><span class="t-num">02</span> 状态栏 <span class="t-sub">底部一行</span></label>
+  <label for="v3"><span class="t-num">03</span> 块工具条 <span class="t-sub">块上浮条</span></label>
+  <label for="v4"><span class="t-num">04</span> 落墨 <span class="t-sub">细框 + 印章</span></label>
+</div>
+
+<div class="stages">
+
+  <!-- ============ 变体 1 · 静水 ============ -->
+  <section class="stage" data-v="1">
+    <div class="win">
+      <div class="top-bar">
+        <div class="tb-actions">
+          <span class="icon-btn" title="切换大纲"><svg class="ic" viewBox="0 0 24 24"><line x1="4" y1="6" x2="15" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="12" y2="18"/><circle cx="19" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="18" r="1" fill="currentColor" stroke="none"/></svg></span>
+          <span class="icon-btn is-active" title="返回阅读视图（Ctrl+E）"><svg class="ic" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>
+          <span class="icon-btn" title="打开文件"><svg class="ic" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
+        </div>
+        <div class="tb-meta">
+          <div class="tb-title">weekly-log.md</div>
+          <span class="save-dot" title="有未保存的草稿"></span>
+          <div class="tb-path">C:/notes</div>
+        </div>
+        <div class="win-ctrls"><span class="win-ctrl"><svg class="ic" viewBox="0 0 24 24"><line x1="6" y1="15" x2="18" y2="15"/></svg></span><span class="win-ctrl"><svg class="ic" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></span><span class="win-ctrl close"><svg class="ic" viewBox="0 0 24 24"><line x1="6.5" y1="6.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="6.5" x2="6.5" y2="17.5"/></svg></span></div>
+      </div>
+      <div class="sidebar">
+        <div class="sb-head">目錄</div>
+        <div class="sb-search"><span>搜索</span><kbd>⌘K</kbd></div>
+        <div class="sb-list">
+          <div class="sb-item">一、本周进展</div>
+          <div class="sb-item lv2 active">编辑体验</div>
+          <div class="sb-item lv2">性能</div>
+          <div class="sb-item">二、下周计划</div>
+        </div>
+      </div>
+      <div class="paper">
+        <div class="doc">
+          <h1>一、本周进展</h1>
+          <h2>编辑体验</h2>
+          <p>阅读态就是现在这样：字落在纸上，没有任何编辑器的味道。</p>
+          <div class="editing-block">- 进入编辑视图后，鼠标点哪一块，哪一块就地变成源码<span class="caret"></span>
+- 顶栏标题旁一个墨点：有草稿未落盘
+- 点走 / Esc 即提交落盘，墨点消失</div>
+          <p>下面是两类只读块：</p>
+          <div class="ro-html">&lt;div class="payload"&gt;块级 HTML：只读，点击只出一次极轻的提示&lt;/div&gt;</div>
+          <div class="ro-widget"><span class="badge">交互块 · 只读</span><div class="box">widget 沙箱（点击仍可交互）</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="note">
+        <h3>语汇 <span class="rec">最安静</span></h3>
+        <ul>
+          <li>编辑视图：顶栏按钮变「书」，正文所有可编辑块 hover 时浮现左轨 2px 靛青细线</li>
+          <li>正在编辑：该块左轨实心 + 源码等宽显示（与大纲激活项同一语汇：2px 端头方块）</li>
+          <li>未保存：<strong>顶栏标题右侧一个 6px 靛青墨点</strong>；提交后墨点化为发丝灰</li>
+          <li>只读块：hover 左轨为发丝虚线，不出现任何文字标签</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3>取舍</h3>
+        <ul>
+          <li>优点：最不打扰，阅读→编辑的切换只有一处变色</li>
+          <li>缺点：<strong>「未保存」在视线之外</strong>（你正在打字的位置离顶栏很远），且只读块靠 hover 才可知</li>
+          <li>实现成本：最低（一个类 + 一个圆点）</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 变体 2 · 状态栏 ============ -->
+  <section class="stage" data-v="2">
+    <div class="win">
+      <div class="top-bar">
+        <div class="tb-actions">
+          <span class="icon-btn"><svg class="ic" viewBox="0 0 24 24"><line x1="4" y1="6" x2="15" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="12" y2="18"/><circle cx="19" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="18" r="1" fill="currentColor" stroke="none"/></svg></span>
+          <span class="icon-btn is-active"><svg class="ic" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>
+          <span class="icon-btn"><svg class="ic" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
+        </div>
+        <div class="tb-meta"><div class="tb-title">weekly-log.md</div><div class="tb-path">C:/notes</div></div>
+        <div class="win-ctrls"><span class="win-ctrl"><svg class="ic" viewBox="0 0 24 24"><line x1="6" y1="15" x2="18" y2="15"/></svg></span><span class="win-ctrl"><svg class="ic" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></span><span class="win-ctrl close"><svg class="ic" viewBox="0 0 24 24"><line x1="6.5" y1="6.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="6.5" x2="6.5" y2="17.5"/></svg></span></div>
+      </div>
+      <div class="sidebar">
+        <div class="sb-head">目錄</div>
+        <div class="sb-search"><span>搜索</span><kbd>⌘K</kbd></div>
+        <div class="sb-list">
+          <div class="sb-item">一、本周进展</div>
+          <div class="sb-item lv2 active">编辑体验</div>
+          <div class="sb-item lv2">性能</div>
+          <div class="sb-item">二、下周计划</div>
+        </div>
+      </div>
+      <div class="paper">
+        <div class="doc">
+          <h1>一、本周进展</h1>
+          <h2>编辑体验</h2>
+          <p>阅读态就是现在这样：字落在纸上，没有任何编辑器的味道。</p>
+          <div class="editing-block">- 进入编辑视图后，鼠标点哪一块，哪一块就地变成源码<span class="caret"></span>
+- 底部状态栏实时显示：未保存 ○ / 保存中 ⟳ / 已保存 ✓
+- Ctrl+S 立即落盘，Esc 完成本块</div>
+          <p>下面是两类只读块：</p>
+          <div class="ro-html">&lt;div class="payload"&gt;块级 HTML：只读，点击只出一次极轻的提示&lt;/div&gt;</div>
+          <div class="ro-widget"><span class="badge">交互块 · 只读</span><div class="box">widget 沙箱（点击仍可交互）</div></div>
+        </div>
+      </div>
+      <div class="status-bar">
+        <span>编辑视图 · 段落 3/12</span>
+        <span class="mid unsaved">● 未保存 <span class="k">|</span> Ctrl+S 立即保存 · Esc 完成</span>
+        <span>weekly-log.md</span>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="note">
+        <h3>语汇 <span class="rec">信息最全</span></h3>
+        <ul>
+          <li>底部 26px 细状态栏：左「编辑视图 · 段落 3/12」、中「● 未保存 / ⟳ 保存中 / ✓ 已保存」、右文件名</li>
+          <li>状态栏只在编辑视图出现（阅读视图仍是纯纸页，零 chrome）</li>
+          <li>块左轨同变体 1，但加上「在编辑」方块角标</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3>取舍</h3>
+        <ul>
+          <li>优点：未保存状态**始终在视野边缘**，且能顺带放快捷键提示</li>
+          <li>缺点：多一条横线，与「纸页」气质稍有冲突；窄窗口下要压缩文案</li>
+          <li>实现成本：中（新组件 + 与既有 <code>.document-scroll</code> 高度协调）</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 变体 3 · 块工具条 ============ -->
+  <section class="stage" data-v="3">
+    <div class="win">
+      <div class="top-bar">
+        <div class="tb-actions">
+          <span class="icon-btn"><svg class="ic" viewBox="0 0 24 24"><line x1="4" y1="6" x2="15" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="12" y2="18"/><circle cx="19" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="18" r="1" fill="currentColor" stroke="none"/></svg></span>
+          <span class="icon-btn is-active"><svg class="ic" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>
+          <span class="icon-btn"><svg class="ic" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
+        </div>
+        <div class="tb-meta"><div class="tb-title">weekly-log.md</div><span class="save-dot" title="未保存"></span><div class="tb-path">C:/notes</div></div>
+        <div class="win-ctrls"><span class="win-ctrl"><svg class="ic" viewBox="0 0 24 24"><line x1="6" y1="15" x2="18" y2="15"/></svg></span><span class="win-ctrl"><svg class="ic" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></span><span class="win-ctrl close"><svg class="ic" viewBox="0 0 24 24"><line x1="6.5" y1="6.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="6.5" x2="6.5" y2="17.5"/></svg></span></div>
+      </div>
+      <div class="sidebar">
+        <div class="sb-head">目錄</div>
+        <div class="sb-search"><span>搜索</span><kbd>⌘K</kbd></div>
+        <div class="sb-list">
+          <div class="sb-item">一、本周进展</div>
+          <div class="sb-item lv2 active">编辑体验</div>
+          <div class="sb-item lv2">性能</div>
+          <div class="sb-item">二、下周计划</div>
+        </div>
+      </div>
+      <div class="paper">
+        <div class="doc">
+          <h1>一、本周进展</h1>
+          <h2>编辑体验</h2>
+          <p>阅读态就是现在这样：字落在纸上，没有任何编辑器的味道。</p>
+          <div class="block-bar"><span class="kind">段落</span><span class="spacer"></span><span class="state-unsaved">未保存</span><button>撤销</button><button>保存</button><button>完成 ⏎</button></div>
+          <div class="editing-block">- 编辑中的块上方浮一条极窄工具条<span class="caret"></span>
+- 右侧三个文字按钮：撤销 / 保存 / 完成
+- 「未保存」二字随草稿状态变化</div>
+          <p>下面是两类只读块：</p>
+          <div class="tag-ro">HTML · 只读</div>
+          <div class="ro-html">&lt;div class="payload"&gt;块级 HTML：只读，标签常驻在块左上角&lt;/div&gt;</div>
+          <div class="tag-ro">交互块 · 只读</div>
+          <div class="ro-widget"><div class="box">widget 沙箱（点击仍可交互）</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="note">
+        <h3>语汇 <span class="rec">语义最明确</span></h3>
+        <ul>
+          <li>正在编辑的块：上方一条 18px 工具条（发丝线上边 + 纸底），左「段落」，右「未保存 / 撤销 / 保存 / 完成 ⏎」</li>
+          <li>未保存二字就在鼠标附近，改完立刻可见；保存后变为「已保存」并在 1.2s 内淡出</li>
+          <li>只读块：左上角常驻极小实色标签「HTML · 只读」「交互块 · 只读」——不靠 hover 猜</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3>取舍</h3>
+        <ul>
+          <li>优点：把「这块在编辑 / 还没保存 / 能撤销」全部说清，且按钮给了鼠标用户退路</li>
+          <li>缺点：块上方多一行 chrome，与「最安静的阅读器」气质冲突最大；触碰「不加工具栏」的原定边界</li>
+          <li>实现成本：最高（新组件 + 焦点/快捷键协调）</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 变体 4 · 落墨 ============ -->
+  <section class="stage" data-v="4">
+    <div class="win">
+      <div class="top-bar">
+        <div class="tb-actions">
+          <span class="icon-btn"><svg class="ic" viewBox="0 0 24 24"><line x1="4" y1="6" x2="15" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="12" y2="18"/><circle cx="19" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="18" r="1" fill="currentColor" stroke="none"/></svg></span>
+          <span class="icon-btn is-active"><svg class="ic" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>
+          <span class="icon-btn"><svg class="ic" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
+        </div>
+        <div class="tb-meta"><div class="tb-title">weekly-log.md</div><div class="tb-path">C:/notes</div></div>
+        <div class="win-ctrls"><span class="win-ctrl"><svg class="ic" viewBox="0 0 24 24"><line x1="6" y1="15" x2="18" y2="15"/></svg></span><span class="win-ctrl"><svg class="ic" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></span><span class="win-ctrl close"><svg class="ic" viewBox="0 0 24 24"><line x1="6.5" y1="6.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="6.5" x2="6.5" y2="17.5"/></svg></span></div>
+      </div>
+      <div class="sidebar">
+        <div class="sb-head">目錄</div>
+        <div class="sb-search"><span>搜索</span><kbd>⌘K</kbd></div>
+        <div class="sb-list">
+          <div class="sb-item">一、本周进展</div>
+          <div class="sb-item lv2 active">编辑体验</div>
+          <div class="sb-item lv2">性能</div>
+          <div class="sb-item">二、下周计划</div>
+        </div>
+      </div>
+      <div class="paper">
+        <div class="doc">
+          <h1>一、本周进展</h1>
+          <h2>编辑体验</h2>
+          <p>阅读态就是现在这样：字落在纸上，没有任何编辑器的味道。</p>
+          <div class="ink-frame unsaved">
+            <div class="editing-block">- 编辑中的块四周一圈 1px 靛青发丝框，左上角方形角标写块类型<span class="caret"></span>
+- 草稿有改动时右下角一枚小印：「未落墨」
+- 提交后小印换成「已落墨」并淡出</div>
+          </div>
+          <p>下面是两类只读块：</p>
+          <div class="ro-html">&lt;div class="payload"&gt;块级 HTML：hover 时整块轻微下沉 1px，表示「动不了」&lt;/div&gt;</div>
+          <div class="ro-widget"><span class="badge">交互块</span><div class="box">widget 沙箱（点击仍可交互）</div></div>
+          <div class="seal">未落墨</div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="note">
+        <h3>语汇 <span class="rec">最像「纸」</span></h3>
+        <ul>
+          <li>编辑中的块：四周 1px 靛青发丝框 + 左上角方形角标「段落」（方形端头与大纲指示条同语汇）</li>
+          <li>未保存：右下角一枚微斜 −1.5° 的小印「未落墨」→ 提交后变「已落墨」并淡出（延续既有「墨迹未干」印章的隐喻）</li>
+          <li>只读块：hover 下沉 1px（触感「不能动」），不给文字标签</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3>取舍</h3>
+        <ul>
+          <li>优点：状态就在被编辑的块上，隐喻与项目既有印章一致；不需要新增整条 chrome</li>
+          <li>缺点：一个块四周加框，在密集文档里会比变体 1 更「重」；小印是浮层，长块滚出视野时看不到</li>
+          <li>实现成本：低-中（框 + 角标 + 一枚浮层印）</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<p class="page" style="margin-top:26px">
+  <span class="legend">统一语义（四版共用）：阅读视图 = 纸页无 chrome；编辑视图 = 顶栏图标由「笔」变「书」；块级只读 = HTML / 交互块永远没有编辑入口；未保存 = 草稿已改但尚未提交落盘（点走 / Esc / Ctrl+S 即落盘）。</span>
+</p>
+<script>
+  // 允许用 #v1..#v4 直链某版（截图与分享用）
+  const wanted = document.querySelector(location.hash);
+  if (wanted && wanted.classList.contains("vpick")) wanted.checked = true;
+</script>
+</body>
+</html>

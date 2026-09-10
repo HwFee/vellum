@@ -65,6 +65,11 @@ export function BlockEditor({
     const textarea = textareaRef.current;
     const target = targetRef.current;
     if (!textarea || !target) return;
+    // 必须先归零再量：scrollHeight 返回「内容高与自身可见高的较大值」，而 textarea 的
+    // 固有高来自 rows（默认**2 行**）—— 不归零就会把单行草稿量成两行高，于是每次点击
+    // 单行块都会撑出两行、把下方内容推下去（真机 UX 缺陷：单行下面留白 + 内容被推走）。
+    // 配套 rows={1} 作双保险。
+    textarea.style.height = "0px";
     const height = Math.max(textarea.scrollHeight, lockedHeightRef.current);
     textarea.style.height = `${height}px`;
     target.style.height = `${height}px`;
@@ -103,6 +108,13 @@ export function BlockEditor({
     const targetRect = target.getBoundingClientRect();
     targetRef.current = target;
     lockedHeightRef.current = targetRect.height;
+    // 行高按**该块渲染态实测值**对齐（不写死）：段落 / 标题 / 列表项的行高各不相同，
+    // 不按块测量就会让盒高与首行基线一起漂移（单行块表现为「字往上跳 + 下面留白」）。
+    // 由 CSS 提供 fallback，这里的内联值优先。
+    const renderedLineHeight = window.getComputedStyle(target).lineHeight;
+    if (renderedLineHeight && renderedLineHeight !== "normal") {
+      textarea.style.lineHeight = renderedLineHeight;
+    }
     target.style.visibility = "hidden";
     target.style.overflow = "hidden";
     target.style.height = `${targetRect.height}px`;
@@ -162,6 +174,9 @@ export function BlockEditor({
       className="block-editor__input"
       // 调试属性：便于真机 DevTools / 手检时确认覆盖层对应哪个块，生产逻辑不消费。
       data-block-editor-for={unitIndex}
+      // rows=1：textarea 的固有高默认是 2 行，会让首次测量与首次绘制都高出两行
+      //（配合 syncHeight 的「归零再量」双保险，见该函数注释）。
+      rows={1}
       value={value}
       spellCheck={false}
       style={

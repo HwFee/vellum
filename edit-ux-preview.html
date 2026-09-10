@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Vellum 页面内编辑体验 + 落款样式（可交互）</title>
+<style>
+@font-face { font-family: "TsangerJinKai02"; src: url("public/fonts/TsangerJinKai02-W04.woff2") format("woff2"); font-display: block; }
+@font-face { font-family: "JetBrains Mono"; src: url("public/fonts/JetBrainsMono.woff2") format("woff2"); font-display: block; }
+
+:root {
+  --parchment: #f5f4ed; --ivory: #faf9f5; --inline-code-bg: #f0eee6; --warm-sand: #e8e6dc;
+  --near-black: #141413; --dark-warm: #3d3d3a; --olive: #504e49; --stone: #6b6a64;
+  --brand: #1B365D; --tag-bg: #E4ECF5; --brand-tint: #EEF2F7; --seal: #8a6a1f;
+  --border: #e8e6dc; --border-soft: #e5e3d8; --hairline: #dddacc;
+  --serif: "TsangerJinKai02", "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", STSong, Charter, Georgia, serif;
+  --mono: "JetBrains Mono", "SF Mono", Consolas, Monaco, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 26px 24px 70px; background: #ebe9e0; color: var(--near-black); font-family: var(--serif); font-size: 15px; line-height: 1.7; }
+h1.page { font-size: 20px; font-weight: 500; margin: 0 0 6px; }
+h2.sec { font-size: 15px; font-weight: 500; margin: 34px 0 6px; letter-spacing: .02em; }
+h2.sec .n { font-family: var(--mono); font-size: 11px; color: var(--stone); margin-right: 8px; }
+p.page { margin: 0 0 16px; color: var(--olive); font-size: 13.5px; max-width: 84ch; }
+.ic { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.legend { font-family: var(--mono); font-size: 11.5px; color: var(--stone); }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 16px; align-items: center; }
+.bar > span.lbl { font-family: var(--mono); font-size: 10.5px; color: var(--stone); letter-spacing: .1em; margin-right: 2px; }
+.bar label { display: inline-flex; align-items: baseline; gap: 7px; padding: 6px 11px; border: 1px solid var(--hairline); border-radius: 3px; background: var(--ivory); cursor: pointer; font-size: 13px; color: var(--dark-warm); }
+.bar label:hover { background: var(--warm-sand); }
+.bar label code { font-family: var(--mono); font-size: 10px; color: var(--stone); }
+input.pick { position: absolute; opacity: 0; pointer-events: none; }
+#m1:checked ~ .wrap .bar label[for="m1"], #m2:checked ~ .wrap .bar label[for="m2"], #m3:checked ~ .wrap .bar label[for="m3"] { background: var(--brand-tint); border-color: var(--brand); color: var(--brand); }
+#s1:checked ~ .wrap .bar label[for="s1"], #s2:checked ~ .wrap .bar label[for="s2"], #s3:checked ~ .wrap .bar label[for="s3"], #s4:checked ~ .wrap .bar label[for="s4"], #s5:checked ~ .wrap .bar label[for="s5"], #s6:checked ~ .wrap .bar label[for="s6"], #s7:checked ~ .wrap .bar label[for="s7"], #s8:checked ~ .wrap .bar label[for="s8"] { background: var(--brand-tint); border-color: var(--brand); color: var(--brand); }
+#r1:checked ~ .wrap .bar label[for="r1"], #r2:checked ~ .wrap .bar label[for="r2"], #r3:checked ~ .wrap .bar label[for="r3"],
+#r4:checked ~ .wrap .bar label[for="r4"], #r5:checked ~ .wrap .bar label[for="r5"], #r6:checked ~ .wrap .bar label[for="r6"],
+#h1:checked ~ .wrap .bar label[for="h1"], #h2:checked ~ .wrap .bar label[for="h2"] { background: var(--brand-tint); border-color: var(--brand); color: var(--brand); }
+
+/* ===== 仿应用窗口 ===== */
+.win { position: relative; width: 980px; max-width: 100%; height: 560px; border: 1px solid var(--hairline); border-radius: 4px; overflow: hidden; background: var(--parchment); }
+.top-bar { position: absolute; top: 0; left: 0; right: 0; height: 46px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding-left: 16px; border-bottom: 1px solid var(--border-soft); background: color-mix(in srgb, var(--parchment) 94%, var(--ivory)); }
+.tb-actions { display: flex; align-items: center; gap: 6px; }
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; color: var(--stone); box-shadow: inset 0 0 0 1px var(--border); }
+.icon-btn.is-active { background: var(--brand-tint); color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
+.tb-meta { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.tb-title { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-path { font-family: var(--mono); font-size: 10.5px; color: var(--stone); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--hairline); display: inline-block; transition: background .18s ease; }
+.win.unsaved .dot { background: var(--brand); }
+.win.unsaved .dot::after { content: ""; }
+.win-ctrls { display: flex; align-items: center; }
+.win-ctrl { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin-right: 8px; border-radius: 6px; color: var(--stone); box-shadow: inset 0 0 0 1px var(--border); }
+.win-ctrl.close { color: #a12014; box-shadow: inset 0 0 0 1px #e2c9c5; }
+.sidebar { position: absolute; top: 46px; bottom: 0; left: 0; width: 240px; border-right: 1px solid var(--border-soft); background: color-mix(in srgb, var(--parchment) 96%, var(--ivory)); }
+.sb-head { padding: 16px 18px 10px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .16em; color: var(--stone); }
+.sb-search { margin: 0 14px 12px; height: 28px; border: 1px solid var(--hairline); border-radius: 3px; background: var(--ivory); display: flex; align-items: center; padding: 0 9px; justify-content: space-between; font-size: 12px; color: var(--stone); }
+.sb-search kbd { font-family: var(--mono); font-size: 10px; }
+.sb-item { position: relative; padding: 5px 10px 5px 12px; font-size: 13px; color: var(--dark-warm); }
+.sb-item.lv2 { padding-left: 26px; font-size: 12.5px; color: var(--olive); }
+.sb-item.active { color: var(--brand); }
+.sb-item.active::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px; border-radius: 2px; background: var(--brand); }
+.sb-list { padding-top: 4px; }
+.paper { position: absolute; top: 46px; bottom: 0; left: 240px; right: 0; overflow: auto; padding: 30px 0 40px; }
+.doc { width: min(660px, calc(100% - 76px)); margin: 0 auto; }
+.doc h1 { font-size: 21px; font-weight: 500; margin: 0 0 14px; }
+.doc h2 { font-size: 16px; font-weight: 500; margin: 24px 0 10px; }
+
+/* ===== 块：渲染态 / 编辑态 ===== */
+.blk { position: relative; margin: 0 0 14px; border-left: 2px solid transparent; border-radius: 2px; padding-left: 8px; }
+.blk p { margin: 0; font-size: 15px; line-height: 1.75; }
+.blk .src { display: none; }
+.blk .rendered { display: block; }
+
+/* hover 提示：左轨浮现（过渡模式 m1 无过渡 / m2 淡入 / m3 位移+淡入） */
+.blk.editable { cursor: text; }
+.blk.editable:hover { border-left-color: color-mix(in srgb, var(--brand) 42%, var(--parchment)); }
+.blk.ro:hover { border-left-color: var(--hairline); border-left-style: dashed; }
+
+/* 编辑态：源码等宽 + 左轨实心（与真实现 .block-editor__input 同度量） */
+.blk.editing { border-left-color: var(--brand); }
+.blk.editing .rendered { display: none; }
+.blk.editing .src {
+  display: block; width: 100%; border: 0; outline: none; background: transparent;
+  font-family: var(--mono); font-size: 14px; color: var(--near-black);
+  /* 行高由 --blk-line 提供：进入编辑时按**该块渲染态实测行高**写入（见 edit()），
+     不写死。写死会让标题/列表项这类非段落块与段落对不上——那正是「单行字往上跳 +
+     下面留白」的根因：行高不匹配 ⇒ 盒高变化 + 首行基线漂移。 */
+  line-height: var(--blk-line, 26.25px);
+  padding: 0 2px; margin: 0; resize: none; overflow: hidden; white-space: pre-wrap; word-break: break-word;
+}
+/* 过渡节奏（三个变体） */
+.win[data-mode="m1"] .blk, .win[data-mode="m1"] .seal { transition: none; }
+.win[data-mode="m2"] .blk.editing .src { animation: src-in .12s ease-out; }
+.win[data-mode="m2"] .blk .rendered { animation: src-in .12s ease-out; }
+@keyframes src-in { from { opacity: .25; } to { opacity: 1; } }
+.win[data-mode="m3"] .blk { transition: border-color .14s ease, padding-left .14s ease; }
+.win[data-mode="m3"] .blk.editing { padding-left: 12px; }
+.win[data-mode="m3"] .win-body { transition: none; }
+
+/* ===== 块标识：取代竖线的 6 种画法（由 [data-rail] 切换） ===== */
+.win[data-rail="r1"] .blk.editable:hover { border-left-color: transparent; background: color-mix(in srgb, var(--warm-sand) 55%, transparent); }
+.win[data-rail="r1"] .blk.editing { border-left-color: transparent; background: color-mix(in srgb, var(--brand-tint) 65%, transparent); }
+.win[data-rail="r1"] .blk.ro:hover { border-left-color: transparent; background: color-mix(in srgb, var(--warm-sand) 35%, transparent); }
+.win[data-rail="r2"] .blk { border-left-color: transparent; }
+.win[data-rail="r2"] .blk.editable:hover { border-top: 1px solid color-mix(in srgb, var(--brand) 30%, var(--parchment)); border-bottom: 1px solid color-mix(in srgb, var(--brand) 30%, var(--parchment)); }
+.win[data-rail="r2"] .blk.editing { border-top: 1px solid var(--brand); border-bottom: 1px solid var(--brand); }
+.win[data-rail="r3"] .blk { border-left-color: transparent; }
+.win[data-rail="r3"] .blk.editable, .win[data-rail="r3"] .blk.ro { padding-left: 14px; }
+.win[data-rail="r3"] .blk.editable::before { content: ""; position: absolute; left: 0; top: .62em; width: 4px; height: 4px; border-radius: 1px; background: color-mix(in srgb, var(--brand) 40%, var(--parchment)); opacity: 0; transition: opacity .12s ease; }
+.win[data-rail="r3"] .blk.editable:hover::before, .win[data-rail="r3"] .blk.editing::before { opacity: 1; }
+.win[data-rail="r3"] .blk.editing::before { background: var(--brand); }
+.win[data-rail="r4"] .blk { border-left-color: transparent; padding-left: 12px; }
+.win[data-rail="r4"] .blk.editable::before, .win[data-rail="r4"] .blk.editing::before { content: ""; position: absolute; left: 0; top: 2px; bottom: 2px; width: 7px; border-left: 1px solid color-mix(in srgb, var(--brand) 35%, var(--parchment)); border-top: 1px solid color-mix(in srgb, var(--brand) 35%, var(--parchment)); border-bottom: 1px solid color-mix(in srgb, var(--brand) 35%, var(--parchment)); opacity: 0; transition: opacity .12s ease; }
+.win[data-rail="r4"] .blk.editable:hover::before, .win[data-rail="r4"] .blk.editing::before { opacity: 1; }
+.win[data-rail="r4"] .blk.editing::before { border-left-color: var(--brand); border-top-color: var(--brand); border-bottom-color: var(--brand); }
+.win[data-rail="r5"] .blk { border-left-color: transparent; padding: 6px 10px; border: 1px solid transparent; border-radius: 3px; }
+.win[data-rail="r5"] .blk.editable:hover { background: color-mix(in srgb, var(--ivory) 80%, transparent); border-color: var(--hairline); }
+.win[data-rail="r5"] .blk.editing { background: var(--ivory); border-color: var(--brand); }
+.win[data-rail="r6"] .blk { border-left-color: transparent; padding-left: 18px; }
+.win[data-rail="r6"] .blk.editable::before, .win[data-rail="r6"] .blk.ro::before { content: ""; position: absolute; left: 0; top: .82em; width: 12px; height: 1px; background: color-mix(in srgb, var(--brand) 35%, var(--parchment)); opacity: 0; transition: opacity .12s ease; }
+.win[data-rail="r6"] .blk.editable:hover::before, .win[data-rail="r6"] .blk.editing::before { opacity: 1; }
+.win[data-rail="r6"] .blk.editing::before { background: var(--brand); }
+.win[data-mode="m3"] .blk { transition: border-color .14s ease, background .14s ease, padding-left .14s ease; }
+
+/* ===== 高度策略 ===== */
+/* H1（默认）：「贴合内容」—— 行高已由 .blk.editing .src 按该块实测值对齐（--blk-line），
+   因此单行块进入编辑时盒高不变、首行基线不跳、也不留白。
+   H2（对照）：进入前记录原块高写入 --keep-h 作 min-height —— 保留旧行为（源比渲染矮时会留白）。 */
+.win[data-height="h2"] .blk .src { min-height: var(--keep-h, 0); }
+
+/* 只读块 */
+.ro { cursor: default; }
+.ro-html { padding: 10px 12px; border-left: 2px solid var(--hairline); background: var(--ivory); font-size: 13.5px; color: var(--olive); }
+.win[data-mode="m3"] .ro-html { transition: transform .12s ease; }
+.win[data-mode="m3"] .ro:hover .ro-html { transform: translateY(1px); }
+.ro-widget { padding: 12px; border: 1px solid var(--hairline); border-radius: 3px; background: var(--ivory); }
+.ro-widget .box { margin-top: 8px; padding: 10px; border: 1px dashed var(--hairline); border-radius: 2px; text-align: center; color: var(--stone); font-size: 12.5px; }
+
+/* ===== 落款小方框（8 种样式，由 [data-seal] 切换） ===== */
+.seal { position: absolute; right: -6px; bottom: -10px; opacity: 0; transition: opacity .16s ease; font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; }
+.blk.editing .seal { opacity: 1; }
+
+/* 01 方形角标（骑压边框） */
+.win[data-seal="s1"] .seal { right: auto; left: -1px; bottom: auto; top: -9px; padding: 0 5px; background: var(--parchment); color: var(--brand); letter-spacing: .1em; }
+/* 02 实色标签（框内右下） */
+.win[data-seal="s2"] .seal { right: 2px; bottom: 2px; padding: 1px 6px; border-radius: 3px; background: var(--tag-bg); color: var(--brand); }
+/* 03 印章（微斜 · 描边方框） */
+.win[data-seal="s3"] .seal { right: 4px; bottom: -12px; padding: 3px 7px; border: 1px solid var(--brand); border-radius: 2px; color: var(--brand); background: color-mix(in srgb, var(--parchment) 88%, transparent); transform: rotate(-2deg); }
+/* 04 朱点（只一个点，悬停才出字） */
+.win[data-seal="s4"] .seal { right: 0; bottom: -9px; width: 6px; height: 6px; padding: 0; border-radius: 1px; background: var(--brand); color: transparent; overflow: hidden; }
+.blk.editing:hover .seal { color: var(--brand); }
+.win[data-seal="s4"] .blk.editing:hover .seal { width: auto; height: auto; padding: 0 1px; background: transparent; color: var(--brand); }
+/* 05 竖排小签（框左外缘） */
+.win[data-seal="s5"] .seal { left: -18px; right: auto; bottom: 2px; writing-mode: vertical-rl; color: var(--stone); letter-spacing: .18em; }
+/* 06 无字直角线（两段发丝线） */
+.win[data-seal="s6"] .seal { right: -5px; bottom: -5px; width: 10px; height: 10px; padding: 0; color: transparent; border-right: 1px solid var(--brand); border-bottom: 1px solid var(--brand); }
+/* 07 圆点状态（无文字，实心=未落墨 / 空心=已落墨） */
+.win[data-seal="s7"] .seal { right: 0; bottom: -9px; width: 5px; height: 5px; padding: 0; border-radius: 50%; background: var(--seal); color: transparent; border: 1px solid var(--seal); }
+.win[data-seal="s7"] .blk.saved .seal { background: transparent; }
+/* 08 双线角标（左上，字在两条线之间） */
+.win[data-seal="s8"] .seal { left: -1px; right: auto; top: -10px; bottom: auto; padding: 0 6px; background: var(--parchment); color: var(--seal); border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); }
+
+.seal.saved-state { color: var(--brand); }
+
+/* ===== 提示条（只读点击 / 已落墨） ===== */
+.toast { position: absolute; left: 50%; bottom: 15%; transform: translateX(-50%); padding: 6px 14px; border-radius: 3px; background: var(--tag-bg); color: var(--near-black); font-family: var(--mono); font-size: 10px; letter-spacing: .04em; opacity: 0; transition: opacity .18s ease; pointer-events: none; }
+.toast.show { opacity: 1; }
+
+/* ===== 落款样式对照表 ===== */
+.grid { width: 980px; max-width: 100%; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.cell { border: 1px solid var(--hairline); border-radius: 3px; background: var(--parchment); padding: 14px 14px 16px; }
+.cell .frame { position: relative; height: 62px; border-left: 2px solid var(--brand); border-radius: 2px; padding-left: 8px; }
+.cell .frame p { margin: 0; font-size: 13px; color: var(--olive); }
+.cell .demo { position: absolute; font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; color: var(--brand); }
+.cell .demo.s1 { left: -1px; top: -9px; padding: 0 5px; background: var(--parchment); }
+.cell .demo.s2 { right: 2px; bottom: 2px; padding: 1px 6px; border-radius: 3px; background: var(--tag-bg); }
+.cell .demo.s3 { right: 4px; bottom: -12px; padding: 3px 7px; border: 1px solid var(--brand); border-radius: 2px; transform: rotate(-2deg); }
+.cell .demo.s4 { right: 0; bottom: 4px; width: 6px; height: 6px; border-radius: 1px; background: var(--brand); color: transparent; overflow: hidden; }
+.cell .demo.s5 { left: -18px; bottom: 2px; writing-mode: vertical-rl; color: var(--stone); letter-spacing: .18em; }
+.cell .demo.s6 { right: -5px; bottom: -5px; width: 10px; height: 10px; color: transparent; border-right: 1px solid var(--brand); border-bottom: 1px solid var(--brand); }
+.cell .demo.s7 { right: 0; bottom: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--seal); color: transparent; }
+.cell .demo.s8 { left: -1px; top: -10px; padding: 0 6px; background: var(--parchment); color: var(--seal); border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); }
+.cell h3 { margin: 26px 0 4px; font-size: 13px; font-weight: 500; }
+.cell p.why { margin: 0; font-size: 11.5px; line-height: 1.6; color: var(--stone); }
+table.cmp { width: 980px; max-width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 12.5px; }
+table.cmp th, table.cmp td { border-bottom: 1px solid var(--hairline); padding: 7px 10px; text-align: left; vertical-align: top; }
+table.cmp th { font-family: var(--mono); font-size: 10.5px; color: var(--stone); font-weight: 500; letter-spacing: .06em; }
+</style>
+</head>
+<body>
+<h1 class="page">Vellum · 页面内编辑体验 + 落款样式（可交互）</h1>
+<p class="page">
+  <strong>本轮修订</strong>：① 竖线换成 6 种「块标识」（可切）② 过渡节奏默认改为<strong>推移</strong>
+  ③ 新增<strong>高度策略</strong>对照 —— H1「贴合内容」把源码行高与渲染态对齐（首行基线不跳、块高随内容自然变化、单行不留白；这是你指出的「一行字下面一堆空白 + 往上推」的解法），H2「保留原占地」保留旧行为供对照。<br />
+  下面的窗口是<strong>真的能点</strong>的：点一段正文就地变源码，随便打字看「未落墨」反应，按 Esc / 点空白处提交，会看到「已落墨」一闪。两类只读块点了只出提示。
+  上方两组按钮：<strong>过渡节奏</strong>（进入/退出的动效）与<strong>落款样式</strong>（那个小方框的 8 种画法）。全部尺寸/配色/字体取自真实 token。
+</p>
+
+<input class="pick" type="radio" name="mode" id="m1" />
+<input class="pick" type="radio" name="mode" id="m2" />
+<input class="pick" type="radio" name="mode" id="m3" checked />
+<input class="pick" type="radio" name="seal" id="s1" checked />
+<input class="pick" type="radio" name="seal" id="s2" />
+<input class="pick" type="radio" name="seal" id="s3" />
+<input class="pick" type="radio" name="seal" id="s4" />
+<input class="pick" type="radio" name="seal" id="s5" />
+<input class="pick" type="radio" name="seal" id="s6" />
+<input class="pick" type="radio" name="seal" id="s7" />
+<input class="pick" type="radio" name="seal" id="s8" />
+<input class="pick" type="radio" name="rail" id="r1" checked />
+<input class="pick" type="radio" name="rail" id="r2" />
+<input class="pick" type="radio" name="rail" id="r3" />
+<input class="pick" type="radio" name="rail" id="r4" />
+<input class="pick" type="radio" name="rail" id="r5" />
+<input class="pick" type="radio" name="rail" id="r6" />
+<input class="pick" type="radio" name="height" id="h1" checked />
+<input class="pick" type="radio" name="height" id="h2" />
+
+<div class="wrap">
+  <div class="bar">
+    <span class="lbl">过渡节奏</span>
+    <label for="m1">瞬时 <code>0ms</code></label>
+    <label for="m2">淡入 <code>120ms</code></label>
+    <label for="m3">推移 <code>140ms</code></label>
+  </div>
+  <div class="bar">
+    <span class="lbl">落款样式</span>
+    <label for="s1">01 方形角标</label>
+    <label for="s2">02 实色标签</label>
+    <label for="s3">03 印章</label>
+    <label for="s4">04 朱点</label>
+    <label for="s5">05 竖排签</label>
+    <label for="s6">06 直角线</label>
+    <label for="s7">07 圆点状态</label>
+    <label for="s8">08 双线角标</label>
+  </div>
+
+  <div class="bar">
+    <span class="lbl">块标识（取代原来的竖线）</span>
+    <label for="r1">R1 淡底色</label>
+    <label for="r2">R2 上下横线</label>
+    <label for="r3">R3 首行方点</label>
+    <label for="r4">R4 四角括号</label>
+    <label for="r5">R5 纸签底+框</label>
+    <label for="r6">R6 左侧短划</label>
+  </div>
+  <div class="bar">
+    <span class="lbl">高度策略</span>
+    <label for="h1">H1 贴合内容（行高对齐 · 无留白）</label>
+    <label for="h2">H2 保留原块占地（会留白）</label>
+  </div>
+
+  <h2 class="sec"><span class="n">01</span>页面内编辑体验（点着试）</h2>
+  <div class="win" id="win" data-mode="m2" data-seal="s1">
+    <div class="top-bar">
+      <div class="tb-actions">
+        <span class="icon-btn" title="切换大纲"><svg class="ic" viewBox="0 0 24 24"><line x1="4" y1="6" x2="15" y2="6" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="18" x2="12" y2="18" /></svg></span>
+        <span class="icon-btn is-active" title="返回阅读视图（Ctrl+E）"><svg class="ic" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg></span>
+        <span class="icon-btn" title="打开文件"><svg class="ic" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg></span>
+      </div>
+      <div class="tb-meta">
+        <div class="tb-title">weekly-log.md</div>
+        <span class="dot" id="dot" title="有草稿未落盘时变靛青"></span>
+        <div class="tb-path">C:/notes</div>
+      </div>
+      <div class="win-ctrls">
+        <span class="win-ctrl"><svg class="ic" viewBox="0 0 24 24"><line x1="6" y1="15" x2="18" y2="15" /></svg></span>
+        <span class="win-ctrl"><svg class="ic" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2" /></svg></span>
+        <span class="win-ctrl close"><svg class="ic" viewBox="0 0 24 24"><line x1="6.5" y1="6.5" x2="17.5" y2="17.5" /><line x1="17.5" y1="6.5" x2="6.5" y2="17.5" /></svg></span>
+      </div>
+    </div>
+    <div class="sidebar">
+      <div class="sb-head">目錄</div>
+      <div class="sb-search"><span>搜索</span><kbd>⌘K</kbd></div>
+      <div class="sb-list">
+        <div class="sb-item">一、本周进展</div>
+        <div class="sb-item lv2 active">编辑体验</div>
+        <div class="sb-item lv2">性能</div>
+        <div class="sb-item">二、下周计划</div>
+      </div>
+    </div>
+    <div class="paper" id="paper">
+      <div class="doc">
+        <h1>一、本周进展</h1>
+        <h2>编辑体验</h2>
+
+        <div class="blk editable" data-src="阅读态就是现在这样：字落在纸上，没有任何编辑器的味道。点这一行试试。">
+          <p class="rendered">阅读态就是现在这样：字落在纸上，没有任何编辑器的味道。点这一行试试。</p>
+          <textarea class="src" rows="1" spellcheck="false"></textarea>
+          <span class="seal">未落墨</span>
+        </div>
+
+        <div class="blk editable" data-src="- 进入编辑视图后，鼠标点哪一块，哪一块就地变成源码&#10;- 草稿一改，顶栏墨点变靛青、块角出现落款&#10;- 点空白 / Esc / Ctrl+S 即提交落盘，落款变「已落墨」一闪">
+          <p class="rendered">- 进入编辑视图后，鼠标点哪一块，哪一块就地变成源码<br />- 草稿一改，顶栏墨点变靛青、块角出现落款<br />- 点空白 / Esc / Ctrl+S 即提交落盘，落款变「已落墨」一闪</p>
+          <textarea class="src" rows="1" spellcheck="false"></textarea>
+          <span class="seal">未落墨</span>
+        </div>
+
+        <p style="margin:0 0 14px;font-size:15px;line-height:1.75">下面是两类只读块（点了只出提示，永远没有编辑入口）：</p>
+
+        <div class="blk ro" data-ro="HTML 区块为只读">
+          <div class="ro-html">&lt;div class="payload"&gt;块级 HTML：只读，hover 时左轨变虚线&lt;/div&gt;</div>
+        </div>
+
+        <div class="blk ro" data-ro="交互块只读，点击可交互">
+          <div class="ro-widget">
+            <div style="font-family:var(--mono);font-size:9.5px;color:var(--stone)">交互块</div>
+            <div class="box">widget 沙箱（真实实现里这里可点、可交互）</div>
+          </div>
+        </div>
+
+        <div class="blk editable" data-src="再点这一段落，验证「点另一块会先把上一块提交掉」。">
+          <p class="rendered">再点这一段落，验证「点另一块会先把上一块提交掉」。</p>
+          <textarea class="src" rows="1" spellcheck="false"></textarea>
+          <span class="seal">未落墨</span>
+        </div>
+      </div>
+    </div>
+    <div class="toast" id="toast">已落墨</div>
+  </div>
+  <p class="legend" style="margin-top:10px">提示：焦点在编辑块里时按 <strong>Esc</strong> 提交；点别的块会先提交当前块；点只读块出提示条。</p>
+
+  <h2 class="sec"><span class="n">02</span>块标识 · 6 种（取代原来的竖线）</h2>
+  <table class="cmp">
+    <thead><tr><th>方案</th><th>笔画</th><th>hover 提示</th><th>编辑中</th><th>性格</th></tr></thead>
+    <tbody>
+      <tr><td>R1 淡底色</td><td>无线条</td><td>暖砂 55% 底</td><td>淡靛青 65% 底</td><td>最柔：靠底色变化说话，与「纸」气质最合</td></tr>
+      <tr><td>R2 上下横线</td><td>两条 1px</td><td>30% 靛青细线</td><td>实靛青细线</td><td>像夹注／批点，横线不挡视线</td></tr>
+      <tr><td>R3 首行方点</td><td>一个 4px 方点</td><td>方点淡入（40%）</td><td>方点变实靛青</td><td>最省：只标首行，与落款角标同形</td></tr>
+      <tr><td>R4 四角括号</td><td>三段 1px</td><td>括号淡入</td><td>括号变靛青</td><td>「括住这一段」的语义最直白</td></tr>
+      <tr><td>R5 纸签底+框</td><td>1px 全框</td><td>象牙底 + 发丝框</td><td>象牙底 + 靛青框</td><td>最明确，但每块都成「卡片」，最远离纸页感</td></tr>
+      <tr><td>R6 左侧短划</td><td>一段 12px 横短划</td><td>短划淡入（35%）</td><td>短划变靛青</td><td>像钢笔点住行首，轻且非零</td></tr>
+    </tbody>
+  </table>
+
+  <h2 class="sec"><span class="n">03</span>落款小方框 · 8 种样式（对照）</h2>
+  <div class="grid">
+    <div class="cell"><div class="frame"><p>第 3 段正文…</p><span class="demo s1">段落 · 未落墨</span></div><h3>01 方形角标</h3><p class="why">骑压左上边框，纸底遮线。与大纲激活指示条同一「2px 端头」语汇；最省空间。</p></div>
+    <div class="cell"><div class="frame"><p>第 3 段正文…</p><span class="demo s2">未落墨</span></div><h3>02 实色标签</h3><p class="why">标签底色是既有 <code>--tag-bg</code>，与提示条同语汇；落在块内右下，不压正文。</p></div>
+    <div class="cell"><div class="frame"><p>第 3 段正文…</p><span class="demo s3">未落墨</span></div><h3>03 印章</h3><p class="why">描边方框微斜 −2°，延续「墨迹未干」印章隐喻；最有落款味。</p></div>
+    <div class="cell"><div class="frame"><p>第 3 段正文…</p><span class="demo s4">未落墨</span></div><h3>04 朱点</h3><p class="why">常态只是一个 6px 靛青方点，悬停才展开文字。最安静，但「是什么」需 hover 才知。</p></div>
+    <div class="cell"><div class="frame"><p>第 3 段正文…</p><span class="demo s5">未落墨</span></div><h3>05 竖排签</h3><p class="why">贴在块左外缘的竖排小签（题签式）。气质最书卷，但要占左侧留白。</p></div>
+    <div class="cell"><div class="frame"><p>第 3 段正文…</p><span class="demo s6">·</span></div><h3>06 直角线</h3><p class="why">只有两段发丝线构成的角，无文字。纯状态、零语义；需配合别处文字说明。</p></div>
+    <div class="cell"><div class="frame"><p>第 3 段正文…</p><span class="demo s7">·</span></div><h3>07 圆点状态</h3><p class="why">实心=未落墨、空心=已落墨。把状态压到一个点，但完全不含「正在编辑哪块」以外的信息。</p></div>
+    <div class="cell"><div class="frame"><p>第 3 段正文…</p><span class="demo s8">未落墨</span></div><h3>08 双线角标</h3><p class="why">上下两条发丝线夹住文字，墨色（非靛青）字；像页眉批注，最「纸」。</p></div>
+  </div>
+
+  <table class="cmp">
+    <thead><tr><th>样式</th><th>辨识度</th><th>占地</th><th>与既有语汇的关系</th><th>未落墨 / 已落墨 区分方式</th></tr></thead>
+    <tbody>
+      <tr><td>01 方形角标</td><td>高</td><td>极小（骑线）</td><td>同大纲 2px 端头</td><td>文字 + 靛青→纸灰</td></tr>
+      <tr><td>02 实色标签</td><td>高</td><td>小（块内）</td><td>同提示条 <code>--tag-bg</code></td><td>文字 + 底色调暗</td></tr>
+      <tr><td>03 印章</td><td>高</td><td>中（压出块外）</td><td>同「墨迹未干」印章</td><td>文字 + 边框变灰</td></tr>
+      <tr><td>04 朱点</td><td>低（需 hover）</td><td>极小</td><td>新语汇</td><td>点的实/虚</td></tr>
+      <tr><td>05 竖排签</td><td>中</td><td>中（占左留白）</td><td>书卷题签</td><td>文字 + 墨色深浅</td></tr>
+      <tr><td>06 直角线</td><td>低</td><td>极小</td><td>发丝线</td><td>线的实/虚</td></tr>
+      <tr><td>07 圆点状态</td><td>低</td><td>极小</td><td>同「未保存」点</td><td>实心 / 空心</td></tr>
+      <tr><td>08 双线角标</td><td>中</td><td>小（骑线）</td><td>发丝线 + 墨色字</td><td>文字 + 墨色→发丝线</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+const win = document.getElementById("win");
+const toast = document.getElementById("toast");
+const paper = document.getElementById("paper");
+
+function syncFromRadios() {
+  const mode = document.querySelector('input[name="mode"]:checked');
+  const seal = document.querySelector('input[name="seal"]:checked');
+  const rail = document.querySelector('input[name="rail"]:checked');
+  const height = document.querySelector('input[name="height"]:checked');
+  if (mode) win.dataset.mode = mode.id;
+  if (seal) win.dataset.seal = seal.id;
+  if (rail) win.dataset.rail = rail.id;
+  if (height) win.dataset.height = height.id;
+}
+document.querySelectorAll('input[name="mode"], input[name="seal"], input[name="rail"], input[name="height"]').forEach((el) => {
+  el.addEventListener("change", syncFromRadios);
+});
+syncFromRadios();
+
+let active = null;
+
+function showToast(text) {
+  toast.textContent = text;
+  toast.classList.add("show");
+  clearTimeout(showToast.t);
+  showToast.t = setTimeout(() => toast.classList.remove("show"), 1800);
+}
+
+function autoGrow(el) {
+  // 关键：不能先设 height:auto —— textarea 的固有高度来自 rows（默认 2），
+  // 那会让 scrollHeight 报「两行高」，单行文本因此被撑成两行（下方留白 + 内容被推下去）。
+  // 正确做法：先归零，再按真实内容高写回；配合 rows="1" 双保险。
+  el.style.height = "0px";
+  el.style.height = el.scrollHeight + "px";
+}
+
+function commit() {
+  if (!active) return;
+  const { blk, ta, original } = active;
+  const text = ta.value;
+  blk.classList.remove("editing", "saved", "unsaved");
+  blk.querySelector(".rendered").innerHTML = text
+    .split("\n")
+    .map((line) => line.replace(/&/g, "&amp;").replace(/</g, "&lt;"))
+    .join("<br />");
+  blk.dataset.src = text;
+  active = null;
+  win.classList.remove("unsaved");
+  if (text !== original) {
+    blk.classList.add("saved");
+    blk.querySelector(".seal").textContent = "已落墨";
+    showToast("已落墨");
+    setTimeout(() => {
+      blk.classList.remove("saved");
+      blk.querySelector(".seal").textContent = "未落墨";
+    }, 1400);
+  }
+}
+
+function edit(blk, caretRatio) {
+  if (active && active.blk === blk) return;
+  commit();
+
+  const ta = blk.querySelector(".src");
+  const src = blk.dataset.src;
+  // 行高按该块**渲染态实测值**写入（不写死）：这是「单行不留白、首行不跳位」的关键，
+  // 也直接对应真实实现里必须按块测量、而非全局硬编码行高。
+  const rendered = blk.querySelector(".rendered");
+  blk.style.setProperty("--blk-line", getComputedStyle(rendered).lineHeight);
+  // H2 对照用：记录进入前的块高作为 min-height（H1 下无害，因为 CSS 只在 [data-height=h2] 时生效）
+  blk.style.setProperty("--keep-h", blk.getBoundingClientRect().height + "px");
+  ta.value = src;
+  blk.classList.add("editing");
+  active = { blk, ta, original: src };
+  autoGrow(ta);
+  ta.focus();
+
+  // 行级近似：按点击纵向比率落光标（与真实实现同口径）
+  const lines = src.split("\n");
+  const ratio = Math.min(1, Math.max(0, caretRatio));
+  const line = Math.min(lines.length - 1, Math.round(ratio * (lines.length - 1)));
+  let offset = 0;
+  for (let i = 0; i < line; i += 1) offset += lines[i].length + 1;
+  ta.setSelectionRange(offset, offset);
+}
+
+document.querySelectorAll(".blk.editable").forEach((blk) => {
+  blk.addEventListener("mousedown", (event) => {
+    if (blk.classList.contains("editing")) return;
+    const rect = blk.getBoundingClientRect();
+    edit(blk, (event.clientY - rect.top) / rect.height);
+  });
+  blk.querySelector(".src").addEventListener("input", (event) => {
+    const ta = event.target;
+    autoGrow(ta);
+    const dirty = ta.value !== active.original;
+    win.classList.toggle("unsaved", dirty);
+    blk.querySelector(".seal").textContent = dirty ? "未落墨" : "已保存";
+  });
+  blk.querySelector(".src").addEventListener("keydown", (event) => {
+    if (event.key === "Escape" || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s")) {
+      event.preventDefault();
+      commit();
+    }
+  });
+});
+
+document.querySelectorAll(".blk.ro").forEach((blk) => {
+  blk.addEventListener("click", () => showToast(blk.dataset.ro));
+});
+
+paper.addEventListener("mousedown", (event) => {
+  if (!event.target.closest(".blk")) commit();
+});
+</script>
+</body>
+</html>

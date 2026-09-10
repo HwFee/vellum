@@ -355,4 +355,35 @@ describe("BlockEditor", () => {
     unmount();
     expect(target.style.height).toBe("140px");
   });
+
+  it("textarea 是单行固有高（rows=1），不是默认的两行", () => {
+    mountHostFixture(`<p data-vellum-unit="0">正文</p>`);
+    render(<Harness onCommit={vi.fn()} />);
+
+    // 真机缺陷：rows 默认 2 ⇒ 单行草稿被量成两行高，每次点击都多出一行留白并把下方内容推走
+    expect(screen.getByRole("textbox")).toHaveAttribute("rows", "1");
+  });
+
+  it("自增高先把高度归零再读 scrollHeight（否则 rows 的固有高会把结果抬高）", () => {
+    mountHostFixture(`<p data-vellum-unit="0">正文</p>`);
+    let heightAtRead: string | null = null;
+    Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", {
+      configurable: true,
+      get(this: HTMLTextAreaElement) {
+        heightAtRead = this.style.height;
+        return 96;
+      },
+    });
+
+    render(<Harness onCommit={vi.fn()} />);
+
+    expect(heightAtRead).toBe("0px");
+  });
+
+  it("行高按目标块实测值对齐（不写死，标题/列表项才不会错位）", () => {
+    mountHostFixture(`<p data-vellum-unit="0" style="line-height: 30px">正文</p>`);
+    render(<Harness onCommit={vi.fn()} />);
+
+    expect(screen.getByRole("textbox").style.lineHeight).toBe("30px");
+  });
 });
