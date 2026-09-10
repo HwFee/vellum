@@ -619,6 +619,9 @@ export const MarkdownDocument = memo(function MarkdownDocument({
       const target = (event.target as Element | null)?.closest("[data-vellum-unit]");
       if (!target) return;
       const index = Number(target.getAttribute("data-vellum-unit"));
+      // 不变量：closest 已保证属性存在、且 data* 不经 sanitize（标记插件在 sanitize 之后），
+      // 故取值恒为整数。守卫只是显式阻断 Number(null) === 0 这类隐式误命中，不改变可达路径
+      if (!Number.isInteger(index)) return;
       const unit = units.find((candidate) => candidate.index === index);
       if (!unit) return;
 
@@ -627,9 +630,18 @@ export const MarkdownDocument = memo(function MarkdownDocument({
         return;
       }
 
-      const rect = target.getBoundingClientRect();
+      // 被包裹的块（代码块/数学块/widget）命中的是 .vellum-unit-wrap 包裹层，而 T7 给它的
+      // CSS 是 display: contents（不生成布局盒，Chromium 对其 getBoundingClientRect() 返回全 0）。
+      // 此时改用首个元素子节点当测量盒；只有 rect 不可用才回退，因为普通 <p> 的首个子元素
+      // 可能是行内 <strong>/<code>，无条件使用会算错盒。
+      const measured =
+        target.getBoundingClientRect().height > 0 ? target : target.firstElementChild ?? target;
+      const rect = measured.getBoundingClientRect();
       const ratio = rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0;
-      const source = markdown.slice(unit.start, unit.end);
+      // 裁定 F9b：消费端（textarea）拿到的是 LF 归一文本，caret 偏移必须按同一文本算。
+      // 若直接用原始切片，行尾 \r 会被 caretOffsetForRatio 计入行宽（每行 +1），CRLF 文档
+      // 每多一行就多偏一位，点块中/块尾落在错误的行上。
+      const source = markdown.slice(unit.start, unit.end).replace(/\r\n/g, "\n");
       onActivateUnit?.(index, caretOffsetForRatio(source, ratio));
     },
     [editable, markdown, onActivateUnit, onLockedUnitClick, units]

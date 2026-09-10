@@ -24,6 +24,31 @@ beforeEach(() => {
   });
 });
 
+/// jsdom 里所有 getBoundingClientRect() 都返回全 0（块内比率恒为 0），caret 计算路径因此
+/// 无法被断言。这里按元素指定测量盒，让「点击高度 → 比率 → 源码偏移」可精确验证。
+/// 桩刻意打在**元素实例**上（而非 Element/HTMLElement.prototype）：本文件已有若干用例
+/// 对 HTMLElement.prototype 打了不还原的桩，原型级桩会被它们遮住，导致断言随文件内
+/// 测试顺序漂移。
+function stubRects(entries: Array<[Element, { top: number; height: number }]>) {
+  const zero = {
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: 0,
+    height: 0,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  } as unknown as DOMRect;
+
+  return entries.map(([element, { top, height }]) =>
+    vi.spyOn(element, "getBoundingClientRect").mockImplementation(
+      (): DOMRect => ({ ...zero, top, height, bottom: top + height, y: top }) as DOMRect
+    )
+  );
+}
+
 describe("MarkdownDocument", () => {
   it("renders headings, lists, tables, quotes, and code", async () => {
     const markdown = [
@@ -1082,19 +1107,27 @@ plain block
     expect(onActivateUnit).toHaveBeenCalledTimes(1);
   });
 
-  it("点击原始 HTML 只读块回调 html 原因", () => {
+  it("点击文档中部的原始 HTML 只读块回调 html 原因，锁定标记落在该 div 上", () => {
     const onActivateUnit = vi.fn();
     const onLockedUnitClick = vi.fn();
+    // 前置段落使 raw HTML 块的 offset ≠ 0：hast position 若被当成「块内相对偏移」，
+    // 标记会错落到第一个块上（offset 0 的旧夹具区分不出相对/绝对）
     render(
       <MarkdownDocument
-        markdown={'<div class="x">原始块</div>\n'}
+        markdown={'前段\n\n<div class="x">原始块</div>\n'}
         editable
         onActivateUnit={onActivateUnit}
         onLockedUnitClick={onLockedUnitClick}
       />
     );
 
-    fireEvent.click(document.querySelector('[data-vellum-locked="html"]') as Element);
+    const locked = document.querySelector('[data-vellum-locked="html"]') as Element;
+    expect(locked.tagName).toBe("DIV");
+    expect(locked).toHaveAttribute("data-vellum-unit", "1");
+    // 前置段落保持自己的索引与可编辑性
+    expect(document.querySelector('[data-vellum-unit="0"]')?.tagName).toBe("P");
+
+    fireEvent.click(locked);
     expect(onLockedUnitClick).toHaveBeenCalledWith("html");
     expect(onActivateUnit).not.toHaveBeenCalled();
   });
@@ -1107,5 +1140,100 @@ plain block
     const wrapper = container.querySelector(".vellum-unit-wrap");
     expect(wrapper).not.toBeNull();
     expect(wrapper).toHaveAttribute("data-vellum-unit", "0");
+  });
+
+  it("阅读视图（含代码块与 widget 围栏）不产生包裹层，也没有任何块标记", () => {
+    const markdown = [
+      "正文",
+      "",
+      "```ts",
+      "const a = 1;",
+      "```",
+      "",
+      "```vellum-widget",
+      "<div>x</div>",
+      "```",
+    ].join("\n");
+    const { container } = render(<MarkdownDocument markdown={markdown} />);
+
+    // <pre> 一律外包是本任务结构风险最高的改动，阅读视图零泄漏必须被测试锁定，
+    // 不能只靠「插件不入管线」的推理
+    expect(container.querySelector(".vellum-unit-wrap")).toBeNull();
+    expect(container.querySelectorAll("[data-vellum-unit]").length).toBe(0);
+    expect(container.querySelector(".code-block")).toBeInTheDocument();
+  });
+
+  it("点击可编辑块得到精确 caret 偏移（LF 与 CRLF 均按归一文本计算）", () => {
+    // 块源码 = "alpha\nbeta\ngamma"（三行）：行首偏移依次为 0 / 6 / 11；
+    // CRLF 文档的原始切片含 \r，若按原始切片算行宽，块中/块尾会分别偏成 7 / 13
+    const cases = [
+      { name: "LF 块首", markdown: "alpha\nbeta\ngamma\n\nend\n", clientY: 100, expected: 0 },
+      { name: "LF 块中", markdown: "alpha\nbeta\ngamma\n\nend\n", clientY: 150, expected: 6 },
+      { name: "LF 块尾", markdown: "alpha\nbeta\ngamma\n\nend\n", clientY: 200, expected: 11 },
+      { name: "CRLF 块首", markdown: "alpha\r\nbeta\r\ngamma\r\n\r\nend\r\n", clientY: 100, expected: 0 },
+      { name: "CRLF 块中", markdown: "alpha\r\nbeta\r\ngamma\r\n\r\nend\r\n", clientY: 150, expected: 6 },
+      { name: "CRLF 块尾", markdown: "alpha\r\nbeta\r\ngamma\r\n\r\nend\r\n", clientY: 200, expected: 11 },
+    ];
+
+    for (const { name, markdown, clientY, expected } of cases) {
+      const onActivateUnit = vi.fn();
+      const { container, unmount } = render(
+        <MarkdownDocument markdown={markdown} editable onActivateUnit={onActivateUnit} />
+      );
+      const block = container.querySelector('[data-vellum-unit="0"]') as HTMLElement;
+      // 测量盒固定贴 top=100、高 100，使 clientY 直接映射成块内比率 0 / 0.5 / 1
+      const spies = stubRects([[block, { top: 100, height: 100 }]]);
+      try {
+        fireEvent.click(block, { clientY });
+        expect(onActivateUnit, name).toHaveBeenCalledWith(0, expected);
+      } finally {
+        spies.forEach((spy) => spy.mockRestore());
+        unmount();
+      }
+    }
+  });
+
+  it("键盘触发点击（clientY 为 0，在块上方）时比率被钳制，光标落在块首", () => {
+    const onActivateUnit = vi.fn();
+    const markdown = "alpha\nbeta\ngamma\n\nend\n";
+    const { container } = render(
+      <MarkdownDocument markdown={markdown} editable onActivateUnit={onActivateUnit} />
+    );
+    const block = container.querySelector('[data-vellum-unit="0"]') as HTMLElement;
+    // 块在视口下方（top=400）而 clientY=0 ⇒ 比率为负，必须钳到块首而不是取到负数行
+    const spies = stubRects([[block, { top: 400, height: 100 }]]);
+    try {
+      fireEvent.click(block, { clientY: 0 });
+      expect(onActivateUnit).toHaveBeenCalledWith(0, 0);
+    } finally {
+      spies.forEach((spy) => spy.mockRestore());
+    }
+  });
+
+  it("包裹层自身无布局盒（display: contents）时回退到首个元素子节点测量", () => {
+    const onActivateUnit = vi.fn();
+    const markdown = "```ts\nalpha\nbeta\ngamma\n```\n";
+    const { container } = render(
+      <MarkdownDocument markdown={markdown} editable onActivateUnit={onActivateUnit} />
+    );
+
+    const wrapper = container.querySelector(".vellum-unit-wrap") as HTMLElement;
+    expect(wrapper).toHaveAttribute("data-vellum-unit", "0");
+    const inner = wrapper.firstElementChild as HTMLElement;
+    expect(inner).not.toBeNull();
+
+    // T7 用 display: contents 让包裹层退出布局 ⇒ Chromium 对其 getBoundingClientRect()
+    // 返回 height 0。此时必须改用首个元素子节点当测量盒，否则比率恒为 0、光标永远落在块首
+    // （块源码 "```ts\nalpha\nbeta\ngamma\n```" 的行首偏移依次为 0 / 6 / 12 / 17 / 23）
+    const spies = stubRects([
+      [wrapper, { top: 0, height: 0 }],
+      [inner, { top: 100, height: 100 }],
+    ]);
+    try {
+      fireEvent.click(inner, { clientY: 150 });
+      expect(onActivateUnit).toHaveBeenCalledWith(0, 12);
+    } finally {
+      spies.forEach((spy) => spy.mockRestore());
+    }
   });
 });

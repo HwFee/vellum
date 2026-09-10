@@ -26,6 +26,11 @@ function isElement(node: HastNode): node is HastElement {
   return node.type === "element";
 }
 
+/// 注意：walk 会给区间内的**任意嵌套元素**打标（段落里的行内 <code>、表格里的 <tr> …），
+/// 因此 querySelectorAll("[data-vellum-unit]").length 一般**不等于**单元数，按块计数会误判；
+/// 取块索引必须用 closest()（命中最近的外层块元素）。
+/// 外层 <pre> 的标记是死负载（components.pre 不透传属性、DOM 里不存在），
+/// 真正承载契约的是其外包容器；内层标记只在 katex 替换前作为属性沿用的保障。
 function tag(element: HastElement, unit: EditUnit): void {
   element.properties.dataVellumUnit = unit.index;
   if (!unit.editable && unit.reason) {
