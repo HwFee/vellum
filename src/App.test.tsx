@@ -1254,7 +1254,9 @@ test("P6: handleContentRendered skips async scroll position restore if bottom ar
   restoreSpy.mockRestore();
 });
 
-test("layout effect arbitrates scroll on hot reload even when markdown content is unchanged (via reloadTick)", async () => {
+test("hot reload with unchanged content is a no-op: no reloadTick, no scroll arbitration (F30 早退)", async () => {
+  // 磁盘内容与内存逐字符相同 —— 我方写入的 watcher 回声场景（裁定 F30）：
+  // 必须不更新状态、不递增 reloadTick、不闪印章、不做滚动补偿。
   backendInvoke.mockImplementation(async (cmd: string) => {
     if (cmd === "load_document") {
       return {
@@ -1274,19 +1276,78 @@ test("layout effect arbitrates scroll on hot reload even when markdown content i
   await waitFor(() => expect(screen.getByRole("heading", { name: "Unchanged Content" })).toBeInTheDocument());
 
   const container = document.querySelector(".document-scroll") as HTMLElement;
-  Object.defineProperty(container, "scrollTop", { value: 200, writable: true, configurable: true });
+  // 距底 1000 − 380 − 600 = 20px ≤ 80：若滚动仲裁被执行，这里会被吸底成 scrollHeight=1000
+  Object.defineProperty(container, "scrollTop", { value: 380, writable: true, configurable: true });
   Object.defineProperty(container, "scrollHeight", { value: 1000, writable: true, configurable: true });
   Object.defineProperty(container, "clientHeight", { value: 600, writable: true, configurable: true });
 
   const reloadCall = vi.mocked(listen).mock.calls.find(([event]) => event === "file-changed");
   expect(reloadCall).toBeDefined();
-
-  container.scrollTop = 250;
   await act(async () => {
     (reloadCall![1] as (payload: unknown) => void)({ payload: {} });
   });
 
-  expect(container.scrollTop).toBe(250);
+  // 非空断言：分流确实读过一次盘（否则本用例会因「处理器没跑」而假绿）
+  expect(
+    backendInvoke.mock.calls.filter(([command]) => command === "load_document")
+  ).toHaveLength(2);
+  // 判据：内容未变 ⇒ 无 reloadTick ⇒ 布局 effect 不跑 ⇒ 位置与印章都不动
+  expect(container.scrollTop).toBe(380);
+  expect(document.querySelector(".reload-note")).toBeNull();
+});
+
+test("layout effect arbitrates scroll on hot reload even when markdown content is unchanged (via reloadTick)", async () => {
+  // 布局 effect 的依赖是 [markdown, reloadTick]：同路径重开（系统关联 / 第二实例深链）
+  // 时 markdown 字符串逐字符相同，React 视为未变化，唯一能驱动仲裁的就是 reloadTick。
+  // 故这条路径是本用例名的真实落点（F30 之后 file-changed 已不再承载「内容未变」的场景）。
+  // 断掉 rAF：让缓动动画一帧都不走，仲裁写入的 scrollTop 可被精确断言
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+
+  const markdown = "# Unchanged Content\n\nLine 1\nLine 2";
+  backendInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === "load_document") {
+      return { path: "C:/notes/same.md", fileName: "same.md", parentPath: "C:/notes", markdown };
+    }
+    return undefined;
+  });
+
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/same.md");
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Unchanged Content" })).toBeInTheDocument());
+
+  const scrollRestoreModule = await import("./lib/scrollRestore");
+  const restoreSpy = vi.spyOn(scrollRestoreModule, "restoreScrollPosition");
+
+  const container = document.querySelector(".document-scroll") as HTMLElement;
+  // 距底 20px ≤ 80：命中「mdlog 非记录态 + 贴底 ⇒ 吸底跟随」分支
+  Object.defineProperty(container, "scrollTop", { value: 380, writable: true, configurable: true });
+  Object.defineProperty(container, "scrollHeight", { value: 1000, writable: true, configurable: true });
+  Object.defineProperty(container, "clientHeight", { value: 600, writable: true, configurable: true });
+
+  // 同路径二次打开：loadPath 走 reloadCurrent（静默热重载）⇒ reloadTick 递增
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/same.md");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+  });
+
+  expect(
+    backendInvoke.mock.calls.filter(([command]) => command === "load_document")
+  ).toHaveLength(2);
+  // 贴底仲裁写入 scrollHeight（rAF 已断，缓动不会覆盖它）：
+  // 去掉 reloadTick 依赖或删掉贴底分支，这里都会停在 380
+  expect(container.scrollTop).toBe(1000);
+  // 贴底分支同时按 ratio 1 重锚（与既有 P6 用例同一判据）
+  expect(restoreSpy).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.anything(),
+    { ratio: 1 },
+    expect.anything()
+  );
+  // reloadTick 递增的可见证据：非 mdlog 热重载的「墨迹未干」印章
+  expect(screen.getByText("墨迹未干")).toBeInTheDocument();
+  restoreSpy.mockRestore();
 });
 
 

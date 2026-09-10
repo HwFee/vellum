@@ -1,7 +1,7 @@
 # Vellum 块级就地编辑（Obsidian Live Preview 近似）设计
 
 - 日期：2026-09-10
-- 状态：待评审（本文件为实施计划的唯一依据）
+- 状态：已实施并收口（2026-09-10，Task 8；实施期修订见 §14）
 - 关联：`docs/superpowers/specs/2026-09-05-pi-mdlog-live-log-design.md`（mdlog 实时记录）、`AGENTS.md`（性能结构约束）
 
 ## 1. 背景
@@ -62,7 +62,7 @@ Vellum 目前是**纯阅读器**：`load_document` 只读命令把 Markdown 读�
 
 | 文件 | 改动 |
 |---|---|
-| `src/components/MarkdownDocument.tsx` | 新增 rehype **标记插件**（给块元素打 `data-vellum-unit`）、数学块包裹、`sanitize` schema 增加 `data*`、编辑视图下的点击解析与 `BlockEditor` 挂载（新增 props 需引用稳定，见下） |
+| `src/components/MarkdownDocument.tsx` | 新增 rehype **标记插件**（给块元素打 `data-vellum-unit`）、数学块包裹、~~`sanitize` schema 增加 `data*`~~（**该步骤已作废**，见 §14.2）、编辑视图下的点击解析与 `BlockEditor` 挂载（新增 props 需引用稳定，见下） |
 | `src/App.tsx` | `Ctrl+E` 门禁、编辑视图接线、提交后状态更新、外部变更分流、回声抑制、滚动位置进出编辑的衔接 |
 | `src/components/TopBar.tsx` | 阅读/编辑视图切换按钮（含禁用态：无文档 / mdlog 记录中） |
 | `src-tauri/src/document.rs` | `save_markdown_file`：原子写 + EOL 保真 + 大小/扩展名/路径闸门 |
@@ -102,7 +102,7 @@ Vellum 目前是**纯阅读器**：`load_document` 只读命令把 Markdown 读�
 ### 5.3 标记插件与单一真相源
 
 - rehype 插件按**源码区间查表**给块元素打 `data-vellum-unit="<index>"`；表中的 index 与区间来自 `buildEditUnits(markdown)` 的同一份结果 ⇒ 前端与 DOM 不存在两套索引，无漂移可能
-- `hast-util-sanitize` 的 schema 增加 `'data*'` 通配（readme 明示支持），标记属性得以活过 sanitize
+- ~~`hast-util-sanitize` 的 schema 增加 `'data*'` 通配（readme 明示支持），标记属性得以活过 sanitize~~ —— **已作废**（见 §14.2）：标记插件位于 `rehype-sanitize` **之后**，标记属性根本不经过 sanitize；追加通配只会放宽**阅读视图**的白名单
 - 插件位置在 `rehype-sanitize` **之后**（避免属性被剥）、`rehype-katex` **之前**（位置信息尚未丢失）
 - **仅在编辑视图启用**：`editable === false`（阅读视图）时不打标记、不包裹数学块 ⇒ 阅读视图 DOM 与今日逐字节一致，零回归风险与零额外开销
 - **数学块**：命中 `math-display` / `math-inline` / `pre > code.language-math` 的单元，标记打在新建的外层包裹元素上（`display: contents`，不参与布局）；取矩形时回退到首个元素子节点
@@ -168,7 +168,7 @@ next = markdown.slice(0, unit.start) + draft + markdown.slice(unit.end)
 
 ### 7.2 回声抑制（我方写入触发的热重载）
 
-`file-changed` 到达时：调用既有 `load_document` 读取，把结果与「最近一次我方写入的内容」按**归一 EOL 后**比对：
+`file-changed` 到达时：调用既有 `load_document` 读取，把结果与**当前内存 markdown**（而非「最近一次我方写入的内容」，见 §14.4）按**归一 EOL 后**比对：
 
 - **相等 ⇒ 自己的回声**：整体忽略 —— 不更新状态、不递增 `reloadTick`、不播放「墨迹未干」印章、不做滚动补偿
 - **不等 ⇒ 外部变更**：按 §6.4 分流（未在编辑 ⇒ 静默采纳，维持现状行为）
@@ -282,3 +282,41 @@ next = markdown.slice(0, unit.start) + draft + markdown.slice(unit.end)
 6. `App` 接线 + 集成测试 + 回声抑制
 7. 样式与 `DESIGN.md`
 8. 全量回归 + 真机复核
+
+## 14. 实施期修订登记（2026-09-10，Task 8 收口）
+
+本功能的实施全程受 `.superpowers/sdd/2026-09-10-vellum-block-editing/rulings.md` 的裁定 F1–F35 约束；后者与本文冲突时以裁定为准。以下是**已交付形态与本文正文不一致**的部分（其余裁定属对计划代码的细化，不改本文口径）：
+
+### 14.1 §6.4 「外部变更且框内有改动」二选一横幅 → 中断路径（已交付 `db001e0`）
+
+已按 Task 4 的登记落定：不实现「保留我的改动 / 载入磁盘版本」二选一横幅，一律走与「mdlog 变活跃」完全相同的 `notifyInterrupted`（尽力把草稿写入剪贴板 + 取消编辑 + 提示）。理由：提交即落盘使草稿存活窗口极短，二选一横幅需额外状态机与 UI（YAGNI）。§6.4 正文已就地标注该修订。
+
+### 14.2 计划步骤 5.4 「给 `kamiSchema` 追加 `data*`」**作废**（裁定 F13，已交付 `3ad0f80`）
+
+不追加、也不新建派生 schema。理由：标记插件插在 `[rehypeSanitize, kamiSchema]` **之后**，`data-vellum-*` 根本不经过 sanitize；追加 `data*` 只会放宽**阅读视图**的白名单，直接违反「阅读视图 DOM 与改动前逐字节一致」这条绑定约束。§4 与 §5.3 的对应文字已就地作废。
+
+### 14.3 `<pre>` 一律外包 `.vellum-unit-wrap`，标题交还标记属性（裁定 F12，已交付 `3ad0f80`）
+
+计划的包裹规则只覆盖「会被 katex 替换的节点」（数学块），实测漏了第二类：`components.pre`（`CodeBlock` / `WidgetSandbox`）与 `components.h1/h2/h3` 是 React 覆盖渲染、**不透传 hast 属性**，不外包则代码块/widget 的 `data-vellum-unit`、`data-vellum-locked="widget"` 永远到不了 DOM。现规则：所有 `<pre>` 外包 `div.vellum-unit-wrap`（`display: contents` 退布局，见 §9 与 T7），`h1/h2/h3` 手动把两个标记属性交还给元素。
+
+### 14.4 §7.2 回声判据改为「与内存 markdown 比对」（裁定 F30，已交付 `46ed156`）
+
+原口径的「最近一次我方写入的内容」快照被删除：固定快照会误吞真实外部变更（外部改成 E 再改回 W ⇒ 视图永久停在 E），且在 `await save` 之后才赋值会造成提交在途竞态。现判据：磁盘内容（LF 归一）== 内存 `state.document.markdown`（LF 归一）⇒ 视为无实际变更（可能是我方回声）整体忽略；不等 ⇒ 走外部分支。§7.2 正文已就地修订。
+
+### 14.5 就地编辑面的三处实现细化（裁定 F4 / F18 / F19 / F20 / F27，已交付 `0ab2e1c`、`1b64c53`）
+
+- **覆盖层定位基准**是 `.document-scroll__content`（与覆盖层的 containing block 同容器矩形相减），不是 `.document-scroll` + `scrollTop`；也不使用 jsdom 下恒为 null 的 `offsetParent`
+- **操作目标解析**：包裹层 `display: contents` 不生成布局盒，故隐藏/锁高/自增高/测量必须作用在「首个有布局盒的子元素」上；判定以 `classList.contains("vellum-unit-wrap")` 为首选，「高 0 且子节点自身有布局盒」为兜底
+- **自增高由组件显式写高**（`onChange` 与 RO 回调都把 `textarea.scrollHeight` 写进 `height`），不依赖 textarea 自身盒高变化触发 RO——后者在真机上回调永不触发、内容会被 `overflow:hidden` 裁掉
+
+### 14.6 提示条 2.4s 自动消失已落地（裁定 F31，已交付 `46ed156`）
+
+`useDocumentEditor` 内 `TOAST_DURATION_MS = 2400`，每次新提示重置计时，并导出 `dismissToast()`；CSS 只负责淡入淡出、**不得**成为消失机制。与 §9 一致，此处仅登记落地。
+
+### 14.7 其余裁定的落地位置
+
+块单元重叠归一化 / 嵌套 HTML·widget 锁定 / 区间对齐行首 + 草稿与光标同用 LF 归一（F7–F9，`3017ac3`）；畸形围栏下的已知取舍（F17，见 §11 与验收报告「已知限制」）；Rust 侧读旧文件失败不静默降级为 LF、临时文件名唯一（F28/F29，`b700a86`）；关窗失败不得关窗、成功路径不自行 `close()`（F33，`46ed156`）；`heavyDoc` 提示本会话内粘性不回退（F26，有意为之）。
+
+### 14.8 §10 回归基线的实测数字
+
+§10 写的「26 文件 / 280 用例」是撰写时的旧值：本功能开始前实测 **31 文件 / 399 用例**，收口后 **31 文件 / 400 用例**（新增一条：File-changed 无变更早退），`cargo test` 收口后 **63 用例**（56 + 7）。入口 chunk 体积实测见 `AGENTS.md` 性能结构约束与验收报告。

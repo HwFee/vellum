@@ -17,7 +17,7 @@ Tauri 2 + React 19 桌面 Markdown 阅读器，Windows 10/11 x64。
 ```bash
 npm run dev          # Vite 开发服务器（端口 1420）
 npm run build        # tsc + vite build
-npm test             # vitest run（26 测试文件，280 用例）
+npm test             # vitest run（31 测试文件，400 用例）
 npm run tauri        # Tauri CLI
 ```
 
@@ -104,14 +104,25 @@ npm run tauri        # Tauri CLI
 - **静态 widget 的 iframe 必须带 `mdlog-widget__frame--static`（`pointer-events: none`）**：跨源沙箱子帧只要存在几 px 可滚动余量（高度过渡窗口、字体后加载、2000px 截断），滚轮手势就会被 Chromium scroll-latch 锁进子帧——整个手势期父容器收不到滚动（「指针在图上滚动卡住、图微移、停 1-2 秒自愈」的根因）。交互性由 `widgetInteractivity.ts` 保守判定（通信 IIFE 之外有脚本/控件/链接/canvas 才算交互），宁可多放行也不错杀；别给静态图去掉这个类
 - `read_mdlog_state` 的返回值必须 `?? null` 归一后再入 state：后端抖动给出 `undefined` 时 `undefined !== null` 会被误判为记录中，静默禁用吸底与热重载印章
 - 残留 `.mdlog` sidecar 自动清理：`read_mdlog_state` 命令层在判定记录死亡（pid 死 或 心跳超时且非时钟回拨）后 best-effort 删除 sidecar 文件（`should_cleanup_stale_sidecar` / `cleanup_stale_sidecar_if_dead`）；`read_mdlog_state_from_path` 保持纯函数无副作用，pi 扩展侧 `session_start` 的 sessionId 不匹配分支也会对 pid 已死的 sidecar 做同样清理
+- **块级就地编辑（2026-09-10 新增）不变量**：
+  - 编辑面沿用既有 `.document-scroll` 容器（textarea 自增高推流），**不得**新建内层滚动系统——滚动记忆 / 跳底 / 自定义滚动条 / 布局过渡窗全部复用
+  - 提交（`useDocumentEditor.commitActive` → `onMarkdownChange` + `save_document`）**不递增 `reloadTick`、不播「墨迹未干」印章、不做滚动补偿**：印章语义是「外部改写了文件」；提交后 watcher 的回声由「磁盘 vs 内存 markdown（LF 归一）比对」抑制（`App.tsx` `reloadIfExternal`），相等即整体忽略
+  - 块标记包裹层 `.vellum-unit-wrap` 必须 `display: contents`（不生成布局盒）：`BlockEditor` 的隐藏/锁高/自增高/测量因此**必须**作用在 `resolveTarget()` 选出的「首个有布局盒的元素」上，作用于包裹层本身会全部失效
+  - 覆盖层选择器必须是 `.document-scroll__content--editing > .block-editor__input`（特异度高于 `kami.css` 的 `.markdown-body textarea`），且覆盖层**不是** `.markdown-body` 后代（`kami.css.test.ts` 锁死，防接线漂移）
+  - mdlog 记录中编辑门禁三重：顶栏/入口禁用（`toggleView`/`activateUnit`）＋ 提交口 `commitActive` 拦截 ＋ Rust `save_document` 存活闸门；**不得**只保留入口一处
+  - 入口 chunk（`dist/assets/index-*.js`）因本功能实测 143.76KB → 158.08KB（+14.32KB，gzip +4.57KB，来源：`npm run build` 产物对比 `848899c` 之前 `d9f8523` 的工作树）；此增量为 `useDocumentEditor` 引入 `buildEditUnits`（math 解析器进入口）所致。若后续继续增长，按裁定 F11 的退路把单元计算移回 lazy 侧
 - 完整优化记录见 `OPTIMIZATION_HANDOFF.md`（含评估后放弃的方向）
 
 ### 文件索引
 
 | 文件 | 职责 |
 |------|------|
-| `src/App.tsx` | 主入口、文档加载、窗口显示 |
+| `src/App.tsx` | 主入口、文档加载、窗口显示、编辑视图接线（提交落盘 / 回声抑制 / 外部变更分流） |
 | `src/components/MarkdownDocument.tsx` | Markdown 渲染（`React.lazy` 懒加载） |
+| `src/components/BlockEditor.tsx` | 就地编辑面（隐藏原块锁高、自增高推流、Esc/失焦提交） |
+| `src/hooks/useDocumentEditor.ts` | 编辑会话状态机（视图门禁、草稿、提交即落盘、提示条） |
+| `src/lib/editUnits.ts` | Markdown → 块单元（纯函数：区间、可编辑性、HTML/widget 结构性只读） |
+| `src/lib/rehypeEditUnits.ts` | 编辑视图的块标记 rehype 插件（sanitize 之后、katex 之前） |
 | `src/components/JumpToBottom.tsx` | 跳转到底部浮钮 |
 | `src/components/CodeBlock.tsx` | 代码高亮（PrismLight，20 种语言） |
 | `src/hooks/useOutlineWidth.ts` | 侧边栏宽度（200–320px，持久化） |
@@ -121,7 +132,7 @@ npm run tauri        # Tauri CLI
 
 ## 注意事项
 
-- 纯阅读器，无编辑功能
+- 阅读器 + 块级就地编辑（`Ctrl+E` / 顶栏按钮进编辑视图；mdlog 记录中禁止编辑）
 - 窗口初始隐藏（`visible: false`），由前端控制显示
 - `CustomScrollbar` 非常轻量，不需要优化
 - 字体文件在 `public/fonts/`（~17MB），是应用资源
