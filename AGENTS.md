@@ -17,7 +17,7 @@ Tauri 2 + React 19 桌面 Markdown 阅读器，Windows 10/11 x64。
 ```bash
 npm run dev          # Vite 开发服务器（端口 1420）
 npm run build        # tsc + vite build
-npm test             # vitest run（31 测试文件，400 用例）
+npm test             # vitest run（31 测试文件，427 用例）
 npm run tauri        # Tauri CLI
 ```
 
@@ -140,4 +140,8 @@ npm run tauri        # Tauri CLI
 - `CustomScrollbar` 非常轻量，不需要优化
 - 字体文件在 `public/fonts/`（~17MB），是应用资源
 - 强调定界符贴 CJK/标点的兼容由**渲染层软件兜底**：`remark-cjk-friendly` + `remark-cjk-friendly-gfm-strikethrough`（在 `REMARK_PLUGINS` 中位于 remarkMath 之前），并有渲染级回归测试锁定（`MarkdownDocument.test.tsx`）；`vellum-mdlog` 技能侧的写法要求仅为跨渲染器可移植性建议，不再是硬禁令
+- **生产构建专属坑（真机才会暴露，jsdom 与 dev 模式下全绿）**：
+  - capabilities 必须有 `core:window:allow-destroy`：`onCloseRequested` 的 JS 包装层在处理器**不拦截**时会调 `destroy()`，只声明 `allow-close` 是不够的——缺权限则**窗口永远关不掉**（真机 Console：`Command plugin:window|destroy not allowed by ACL`）。同理关闭处理器必须有异常兜底（任何意外都放行关闭，否则一次抛错就把窗口永久留住）
+  - CSP 必须含 `connect-src ipc: http://ipc.localhost`：缺它会回落到 `default-src 'self'` 把 IPC 拦掉，`plugin:store`（阅读位置 / 侧栏状态 / 上次打开）与 `plugin:event`（`file-changed` / `mdlog-state-changed` / `pending-open-paths`）在整个生产构建里**全程走 postMessage 降级通道并持续报错**（`main.rs` 有断言 CSP 字符串全等的测试，改 CSP 必须同步改它）
+  - 真机验证入口：`scripts/cdp-verify.mjs`（以 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` 启动 release exe，再用 Node 原生 WebSocket 走 CDP 断言：CSP 违规数 / ACL 拒绝数 / 笔⇄书图标 / 单位块数量 / 点 ✕ 后 page target 归零）
 - **`tauri/custom-protocol` feature 是生产上下文的开关**（tauri 2.11 的 `dev = !custom_protocol` 判定）：`Cargo.toml` 已显式声明，缺失它的构建会产出 dev 上下文 exe——窗口加载 `http://localhost:1420`、不嵌入前端资源，无 dev 服务器时显示「localhost 拒绝连接」。打包始终用 `npm run tauri build`（CLI 也会自动注入该 feature）；改 Rust 代码后验证可用裸 `cargo build --release`（manifest 已声明，结果一致）
