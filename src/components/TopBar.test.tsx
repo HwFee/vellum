@@ -46,4 +46,18 @@ describe("TopBar", () => {
     expect(button).toHaveAttribute("aria-pressed", "false");
     expect(button).toHaveAttribute("title", "记录中 · 断开连接后才能修改");
   });
+
+  it("阅读态显示笔、编辑态显示书，提示语随状态切换（Obsidian 视图切换语义）", () => {
+    const { rerender } = render(<TopBar onOpen={vi.fn()} isEditing={false} />);
+
+    const reading = screen.getByRole("button", { name: "切换编辑视图" });
+    expect(reading).toHaveAttribute("data-icon", "pen");
+    expect(reading).toHaveAttribute("title", "就地编辑（Ctrl+E）");
+
+    rerender(<TopBar onOpen={vi.fn()} isEditing />);
+
+    const editing = screen.getByRole("button", { name: "切换编辑视图" });
+    expect(editing).toHaveAttribute("data-icon", "book");
+    expect(editing).toHaveAttribute("title", "返回阅读视图（Ctrl+E）");
+  });
 });

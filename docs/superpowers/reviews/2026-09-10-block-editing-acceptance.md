@@ -160,3 +160,48 @@
 | F42 / F43 | 两条已知限制登记（见 §8 第 10/11 条） | 本文件 |
 
 同时修正本文档 3 处交叉引用（§7 → §8）、`CHANGELOG.md` 的软提示措辞（修完后声明为真）、spec §14.1 的交付 commit 哈希（`db001e0` → `e82ba24`）、`AGENTS.md` 覆盖层括注（CSS 侧 + DOM 侧两侧齐备）。修复波后基线为 `npm test` 31 文件 / 426 用例，`npx tsc --noEmit` exit 0，`npm run build` 成功（入口 chunk `index-BAtPp06D.js` = 158,538 B，较收口时 +458 B，仍远低于 F11 的 20KB 守门线），`cargo test` 63 用例（未受前端改动影响）（§2 表内数字为 T8 收口时点，未回改）。
+
+---
+
+## 9. 真机首轮验收（2026-09-10，v1.6.0 打包后）发现的缺陷与修复
+
+用户装包实测后报告两处现象；控制器用 **CDP 直连 WebView2**（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` + Node 原生 WebSocket 驱动 `outputs/__audit_scratch/cdp-probe.mjs`）在真实 release exe 上复现与定位，**不是推测**。
+
+### 9.1 结论先行：就地编辑功能本身可用（CDP 实测）
+
+| 实测项 | 结果 |
+|---|---|
+| 打开极简测试文档后 `article` 类名 | `markdown-body markdown-body--editing` |
+| `[data-vellum-unit]` 数量 | **7**（标题/段落/列表项/代码块均被标记） |
+| 内容宿主类名 | `document-scroll__content--editing` |
+| 点顶栏按钮后 | `aria-pressed` true→false、`article` 回到 `markdown-body`、`units` 归 0 ⇒ **进出编辑视图双向正常** |
+
+⇒ 用户初始「点了没反应」的观感，根因是 **9.3 的图标不换**（除悬停提示外无任何可见反馈），不是功能缺失。
+
+### 9.2 缺陷 A（严重）：✕ 关不掉窗口，进程只能强杀
+
+- **真机 Console 证据**：`Uncaught (in promise) Command plugin:window|destroy not allowed by ACL`
+- **根因**：Tauri 的 `onCloseRequested` 包装层（`node_modules/@tauri-apps/api/window.js:1632-1640`）在处理器**不拦截**时会调 `this.destroy()`，而 `src-tauri/capabilities/default.json` 只声明了 `core:window:allow-close`，**缺 `core:window:allow-destroy`** ⇒ 销毁被 ACL 拒绝，窗口留住。本功能引入的关闭处理器把此前「`close()` 直接关窗」的路径改成了「经 JS 包装层 destroy」，于是暴露了该缺失权限。
+- **修复**：capabilities 增加 `core:window:allow-destroy`；并给关闭处理器加**异常兜底**（任何意外都放行关闭、只记录日志），确保「关窗路径绝不会因本处理器抛错而卡住窗口」。
+- **验证**：重建后由 CDP 点 ✕，进程退出（见 §9.4）。
+
+### 9.3 缺陷 B（严重，先于本功能存在）：CSP 缺 `connect-src`，生产构建 IPC 被拦
+
+- **真机 Console 证据**：
+  ```
+  Connecting to 'http://ipc.localhost/plugin%3Astore%7Cload' violates the following Content Security Policy directive: "default-src 'self'"... The action has been blocked.
+  Connecting to 'http://ipc.localhost/plugin%3Aevent%7Clisten' violates ... The action has been blocked.
+  IPC custom protocol failed, Tauri will now use the postMessage interface instead TypeError: Failed to fetch
+  ```
+- **根因**：`tauri.conf.json` 的 CSP 没有 `connect-src`，回落到 `default-src 'self'` ⇒ `http://ipc.localhost` 被拒；Tauri 退化为 postMessage 回退通道。后果：`plugin:store`（阅读位置/侧栏状态/上次打开）与 `plugin:event`（`file-changed` / `mdlog-state-changed` / `pending-open-paths`）在生产构建里**始终走降级路径并每次报错** —— 这是**先于本功能**就存在的缺陷，dev 模式下同样是降级路径，故长期未被发现。
+- **修复**：CSP 增加 `connect-src ipc: http://ipc.localhost`；同步修正 `src-tauri/src/main.rs` 中断言 CSP 字符串的 Rust 测试。
+- **验证**：重建后 Console 不再出现 `ipc.localhost` 违规（见 §9.4）。
+
+### 9.4 缺陷 C（体验）：编辑视图切换无图标语义
+
+- **现象**：无论阅读态还是编辑态，顶栏按钮都是同一支笔，用户无法判断当前处于哪个视图（Obsidian 的视图切换在编辑态显示「书」）。
+- **修复**：阅读态显示**笔**（点击进就地编辑）、编辑态显示**书**（点击回阅读视图），提示语随状态切换；图标画法沿用顶栏既有规范（14×14 / viewBox 24 / `strokeWidth 2` / `round`），并加 `data-icon="pen|book"` 由 `TopBar.test.tsx` 锁定。
+
+### 9.5 修改后的验证基线
+
+`npm test` **31 文件 / 427 用例**全绿（新增图标语义用例）、`npx tsc --noEmit` exit 0、`cargo test` **63**（CSP 断言已同步）、`npm run tauri build` 成功。

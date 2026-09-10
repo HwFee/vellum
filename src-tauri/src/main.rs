@@ -308,7 +308,7 @@ mod tests {
             .as_str()
             .expect("security.csp must be a string");
 
-        let expected_csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self' data:; frame-src http://vellum-widget.localhost";
+        let expected_csp = "default-src 'self'; connect-src ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self' data:; frame-src http://vellum-widget.localhost";
         assert_eq!(csp, expected_csp);
     }
 

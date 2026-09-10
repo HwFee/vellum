@@ -398,13 +398,20 @@ export default function App() {
       // 不拦时的窗口销毁由 JS 包装层自己做（onCloseRequested → destroy，
       // 且它会 await 本处理器，故晚到的 preventDefault 依然生效）。
       const closeUnlisten = await getCurrentWindow().onCloseRequested(async (event) => {
-        const current = editorRef.current;
-        if (!current?.activeUnit) return;
-        // 提交成功（含 mdlog 门禁把会话中断掉）⇒ 不拦，包装层 destroy；
-        // 落盘失败 ⇒ 草稿仍在框里，拦下本次关闭让用户处理，绝不重试关闭。
-        const cleared = await current.commitActive();
-        if (!cleared) {
-          event.preventDefault();
+        // 关窗路径的**绝对不变量**：绝不能因本处理器抛错/卡住而让窗口关不掉。
+        // 任何意外都放行（不 preventDefault），最多损失一次未提交的草稿；
+        // 真正做到拦截的只有「提交返回 false」那一条路径。
+        try {
+          const current = editorRef.current;
+          if (!current?.activeUnit) return;
+          // 提交成功（含 mdlog 门禁把会话中断掉）⇒ 不拦，包装层 destroy；
+          // 落盘失败 ⇒ 草稿仍在框里，拦下本次关闭让用户处理，绝不重试关闭。
+          const cleared = await current.commitActive();
+          if (!cleared) {
+            event.preventDefault();
+          }
+        } catch (error) {
+          console.error("close-requested handler failed, closing anyway", error);
         }
       });
       if (cancelled) {
