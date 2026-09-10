@@ -174,6 +174,8 @@ Expected: FAIL —— `Failed to resolve import "./editUnits"`
 
 - [ ] **Step 3: 实现**
 
+> **实施后修订（裁定 F7–F10，已交付）**：下列代码为初版；实际交付以 `src/lib/editUnits.ts`（commit `3017ac3`）为准 —— 新增重叠归一化（`normalizeOverlaps` / `lineStartOnOrAfter`）、下钻不再覆盖锁定类型、区间 start 对齐行首、删除 `"unmapped"`、`try/catch` 注释为防御性代码。详见 `.superpowers/sdd/2026-09-10-vellum-block-editing/rulings.md`。
+
 ```ts
 // src/lib/editUnits.ts
 import type { Node, Parent, Root } from "mdast";
@@ -188,7 +190,7 @@ import { mathFromMarkdown } from "mdast-util-math";
 const PARSE_OPTIONS = {
   extensions: [gfm(), math()],
   mdastExtensions: [gfmFromMarkdown(), mathFromMarkdown()],
-} as const;
+};
 
 export type EditUnitKind =
   | "paragraph" | "heading" | "listItem" | "blockquoteChild"
@@ -306,13 +308,13 @@ export function caretOffsetForRatio(text: string, ratio: number): number {
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `npx vitest run src/lib/editUnits.test.ts`
-Expected: PASS（17 用例）
+Expected: PASS（15 用例）
 
 - [ ] **Step 5: 全量回归 + 提交**
 
 ```bash
 npm test && npx tsc --noEmit
-git add src/lib/editUnits.ts src/lib/editUnits.test.ts
+git add src/lib/editUnits.ts src/lib/editUnits.test.ts package.json package-lock.json
 git commit -m "feat(edit): 块单元切分纯函数（顶层 + list/blockquote 一次下钻、HTML/widget 结构性只读）"
 ```
 
@@ -519,8 +521,9 @@ Expected: PASS（3 用例）
 1. props 增加 `editable`、`onActivateUnit`、`onLockedUnitClick`
 2. `MarkdownDocument` 内 `const units = useMemo(() => (editable ? buildEditUnits(markdown) : []), [editable, markdown])`
 3. `MarkdownBody` 的 `rehypePlugins` 里，在 `[rehypeSanitize, kamiSchema]` 之后、搜索高亮之前插入 `...(editable ? [createRehypeEditUnits(units)] : [])`（`createRehypeEditUnits` 的结果需 `useMemo`，依赖 `[editable, units]`）
-4. `kamiSchema.attributes["*"]` 追加 `"data*"`
-5. article 上加 `onClick`：
+4. **不要**给 `kamiSchema.attributes["*"]` 追加 `"data*"`（计划原步骤作废，裁定 F13）：插件插在 `[rehypeSanitize, kamiSchema]` **之后**，标记属性根本不经过 sanitize；追加反而会放宽**阅读视图**的 sanitize 白名单，直接违反「阅读视图 DOM 逐字节一致」
+5. `<pre>` 必须**一律**外包 `div.vellum-unit-wrap` 承载标记（裁定 F12）：`components.pre` 的覆盖渲染（`CodeBlock` / `WidgetSandbox`）不透传 hast 属性，不外包则 widget 与代码块的标记永远到不了 DOM，`data-vellum-locked="widget"` 无法成立；同理 `components.h1/h2/h3` 需把 `data-vellum-unit` / `data-vellum-locked` 交还给元素（不透传 `node` 等内部 prop）
+6. article 上加 `onClick`：
 
 ```tsx
 const handleClick = useCallback(
