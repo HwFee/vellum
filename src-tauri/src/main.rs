@@ -199,6 +199,40 @@ async fn load_document(
 }
 
 #[tauri::command]
+async fn save_document(
+    path: String,
+    content: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<document::SaveOutcome, String> {
+    let canonical = dunce::canonicalize(Path::new(&path))
+        .map_err(|error| format!("Cannot open file: {error}"))?;
+
+    // 闸门 1：只允许写当前已加载的文档（AppState.current 是唯一可信锚点）。
+    let current = state
+        .current
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+
+    // 闸门 2：mdlog 记录中拒绝写入（前端门禁之外的服务端兜底）。
+    // 与 read_mdlog_state 命令同一判定链：sidecar 存活即视为记录中。
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0);
+    let mdlog_active = vellum_lib::widget::read_mdlog_state_from_path(
+        Some(&canonical),
+        &vellum_lib::widget::is_pid_alive_win32,
+        now,
+    )
+    .is_some();
+
+    document::check_save_gates(current.as_deref(), &canonical, mdlog_active)?;
+
+    document::save_markdown_file(&canonical, &content)
+}
+
+#[tauri::command]
 async fn resolve_asset(
     state: tauri::State<'_, AppState>,
     asset_src: String,
@@ -425,6 +459,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             load_document,
             resolve_asset,
+            save_document,
             drain_pending_open_paths,
             vellum_lib::widget::register_widget,
             vellum_lib::widget::unregister_widget,

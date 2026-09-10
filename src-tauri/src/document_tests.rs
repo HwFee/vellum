@@ -187,3 +187,172 @@ fn resolve_asset_to_data_url_keeps_data_urls_unchanged() {
 
     assert_eq!(resolved, "data:image/png;base64,abc");
 }
+
+mod save_tests {
+    use super::*;
+    use crate::document::{check_save_gates, save_markdown_file, MAX_FILE_SIZE_BYTES};
+
+    fn write_markdown(dir: &TestDir, name: &str, body: &str) -> PathBuf {
+        let path = dir.path().join(name);
+        fs::write(&path, body).unwrap();
+        path
+    }
+
+    fn temp_leftovers(dir: &TestDir) -> Vec<String> {
+        fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .filter(|name| name.contains("vellum-tmp"))
+            .collect()
+    }
+
+    #[test]
+    fn writes_content_and_reports_size() {
+        let dir = TestDir::new("vellum_save_write");
+        let path = write_markdown(&dir, "a.md", "旧内容\n");
+
+        let outcome = save_markdown_file(&path, "新内容\n").unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "新内容\n");
+        assert_eq!(outcome.bytes_written, "新内容\n".len());
+        assert_eq!(
+            outcome.path,
+            dunce::canonicalize(&path).unwrap().to_string_lossy()
+        );
+    }
+
+    #[test]
+    fn preserves_crlf_line_endings() {
+        let dir = TestDir::new("vellum_save_crlf");
+        let path = write_markdown(&dir, "b.md", "第一行\r\n第二行\r\n");
+
+        save_markdown_file(&path, "甲\n乙\n").unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "甲\r\n乙\r\n");
+    }
+
+    #[test]
+    fn does_not_introduce_crlf_into_lf_files() {
+        let dir = TestDir::new("vellum_save_lf");
+        let path = write_markdown(&dir, "c.md", "一行\n二行\n");
+
+        save_markdown_file(&path, "甲\n乙\n").unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "甲\n乙\n");
+    }
+
+    #[test]
+    fn does_not_double_convert_crlf_content() {
+        let dir = TestDir::new("vellum_save_crlf_roundtrip");
+        let path = write_markdown(&dir, "g.md", "一\r\n二\r\n");
+
+        // 前端 textarea 归一后应给 LF，但即便给出 CRLF 也不得变成 \r\r\n
+        save_markdown_file(&path, "甲\r\n乙\r\n").unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "甲\r\n乙\r\n");
+    }
+
+    #[test]
+    fn preserves_utf8_bom() {
+        let dir = TestDir::new("vellum_save_bom");
+        let path = write_markdown(&dir, "d.md", "\u{FEFF}原文\n");
+
+        save_markdown_file(&path, "\u{FEFF}改后\n").unwrap();
+
+        assert!(fs::read_to_string(&path).unwrap().starts_with('\u{FEFF}'));
+    }
+
+    #[test]
+    fn rejects_non_markdown_extension() {
+        let dir = TestDir::new("vellum_save_ext");
+        let path = write_markdown(&dir, "e.txt", "x\n");
+
+        let error = save_markdown_file(&path, "y\n").unwrap_err();
+
+        assert!(error.contains("Not a Markdown file"), "{error}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "x\n");
+        assert!(temp_leftovers(&dir).is_empty());
+    }
+
+    #[test]
+    fn rejects_oversized_content_without_touching_the_file() {
+        let dir = TestDir::new("vellum_save_oversize");
+        let path = write_markdown(&dir, "h.md", "原文\n");
+        let oversized = "a".repeat((MAX_FILE_SIZE_BYTES + 1) as usize);
+
+        let error = save_markdown_file(&path, &oversized).unwrap_err();
+
+        assert!(error.contains("content too large"), "{error}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "原文\n");
+        assert!(temp_leftovers(&dir).is_empty(), "{error}");
+    }
+
+    #[test]
+    fn leaves_no_temp_file_behind() {
+        let dir = TestDir::new("vellum_save_temp");
+        let path = write_markdown(&dir, "f.md", "x\n");
+
+        save_markdown_file(&path, "y\n").unwrap();
+
+        let leftovers = temp_leftovers(&dir);
+        assert!(leftovers.is_empty(), "残留临时文件: {leftovers:?}");
+    }
+
+    #[test]
+    fn gate_rejects_path_that_is_not_the_current_document() {
+        let dir = TestDir::new("vellum_save_gate_path");
+        let path = write_markdown(&dir, "i.md", "x\n");
+        let canonical = dunce::canonicalize(&path).unwrap();
+        let other = dunce::canonicalize(write_markdown(&dir, "j.md", "y\n")).unwrap();
+
+        let error = check_save_gates(Some(other.as_path()), &canonical, false).unwrap_err();
+
+        assert!(error.contains("currently loaded document"), "{error}");
+    }
+
+    #[test]
+    fn gate_rejects_when_no_document_is_loaded() {
+        let dir = TestDir::new("vellum_save_gate_none");
+        let canonical = dunce::canonicalize(write_markdown(&dir, "k.md", "x\n")).unwrap();
+
+        let error = check_save_gates(None, &canonical, false).unwrap_err();
+
+        assert!(error.contains("currently loaded document"), "{error}");
+    }
+
+    #[test]
+    fn gate_rejects_while_a_live_mdlog_sidecar_exists() {
+        let dir = TestDir::new("vellum_save_gate_mdlog");
+        let path = write_markdown(&dir, "l.md", "x\n");
+        let canonical = dunce::canonicalize(&path).unwrap();
+        let now = 1_000_000u64;
+        let sidecar = crate::watcher::sidecar_path_for(&canonical);
+        fs::write(
+            &sidecar,
+            r#"{"pid": 4321, "lastWriteAt": 1000000, "heartbeatAt": 1000000}"#,
+        )
+        .unwrap();
+
+        // 与 read_mdlog_state 命令同一判定链：进程存活 + 心跳未超时 ⇒ 记录中
+        let mdlog_active = crate::widget::read_mdlog_state_from_path(
+            Some(&canonical),
+            &|_pid: u32| true,
+            now,
+        )
+        .is_some();
+        assert!(mdlog_active, "前置条件：存活 sidecar 必须判定为记录中");
+
+        let error = check_save_gates(Some(&canonical), &canonical, mdlog_active).unwrap_err();
+
+        assert!(error.contains("mdlog 记录中"), "{error}");
+    }
+
+    #[test]
+    fn gate_allows_current_document_without_mdlog_record() {
+        let dir = TestDir::new("vellum_save_gate_ok");
+        let canonical = dunce::canonicalize(write_markdown(&dir, "m.md", "x\n")).unwrap();
+
+        assert!(check_save_gates(Some(&canonical), &canonical, false).is_ok());
+    }
+}
