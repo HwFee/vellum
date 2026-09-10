@@ -12,6 +12,8 @@ import { isValidElement, memo, useCallback, useLayoutEffect, useMemo, useRef, ty
 import { MarkdownImage } from "./MarkdownImage";
 import { slugify } from "../lib/outline";
 import { animateScrollTo } from "../lib/smoothScroll";
+import { buildEditUnits, caretOffsetForRatio, type EditUnit } from "../lib/editUnits";
+import { rehypeEditUnits } from "../lib/rehypeEditUnits";
 import { CodeBlock } from "./CodeBlock";
 import { WidgetSandbox } from "./WidgetSandbox";
 import type { OutlineHeading } from "../types";
@@ -28,6 +30,10 @@ type MarkdownDocumentProps = {
   searchQueryPending?: boolean;
   activeMatchIndex?: number;
   onMatchCountChange?: (count: number) => void;
+  /** 块级就地编辑视图：为真时才给块打标记并响应点击；缺省（阅读视图）不接入标记插件 */
+  editable?: boolean;
+  onActivateUnit?: (index: number, caretOffset: number) => void;
+  onLockedUnitClick?: (reason: "html" | "widget") => void;
 };
 
 type HastText = { type: "text"; value: string };
@@ -214,6 +220,19 @@ function urlTransform(url: string) {
   return url.startsWith("ftp:") ? url : defaultUrlTransform(url);
 }
 
+/// react-markdown 把 hast 属性作为 props 交给自定义 components，而被自定义组件接管的
+/// 标签不会自动把这些属性落到 DOM。这里只交还块标记属性（不透传 node 等内部 prop），
+/// 阅读视图下标记属性本就不存在，DOM 保持零差异。
+function unitMarkProps(props: object): { unit?: number; locked?: string } {
+  const record = props as Record<string, unknown>;
+  const unit = record["data-vellum-unit"];
+  const locked = record["data-vellum-locked"];
+  return {
+    unit: typeof unit === "number" ? unit : undefined,
+    locked: typeof locked === "string" ? locked : undefined,
+  };
+}
+
 // remark 插件列表与文档无关，提升为模块常量，避免每次渲染产生新引用
 // remark-cjk-friendly（含 gfm 删除线版）：放宽 CommonMark 强调定界符的 flanking 判定，
 // 使 **粗体**(注)、~~删除线~~中文 这类「标点贴 CJK」写法正常渲染（规范原文下会输出字面 **）
@@ -306,11 +325,14 @@ type MarkdownBodyProps = {
   markdown: string;
   headings?: OutlineHeading[];
   searchQuery?: string;
+  editable?: boolean;
+  /** 块单元由 MarkdownDocument 统一构建后传入（reading 视图恒为空数组） */
+  units: EditUnit[];
 };
 
 /// 真正执行 unified 解析管线的部分。props 全部是稳定引用（字符串或 memo 结果），
 /// 因此父组件因 activeMatchIndex 等无关状态重渲染时，这里整体跳过，不重新解析文档。
-const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuery }: MarkdownBodyProps) {
+const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuery, editable, units }: MarkdownBodyProps) {
   const resolveHeadingId = useHeadingIdResolver(headings);
 
   const isTrustedMdlog = useMemo(
@@ -322,10 +344,18 @@ const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuer
   // 输出完全一致；rehype-sanitize 始终保留作为安全保障
   const hasRawHtml = useMemo(() => RAW_HTML_RE.test(markdown), [markdown]);
 
-  const rehypePlugins: PluggableList = useMemo(
-    () => [
+  // 插件选项对象必须 memo：内联创建会让 unified 每次渲染都重跑标记插件
+  const editUnitOptions = useMemo(() => ({ units }), [units]);
+
+  const rehypePlugins: PluggableList = useMemo(() => {
+    // 块标记插件只在编辑视图接入，且位于 sanitize 之后：标记不经 sanitize 白名单，
+    // 阅读视图（editable 为假）的管线与改动前逐字节一致
+    const editPlugins: PluggableList = editable ? [[rehypeEditUnits, editUnitOptions]] : [];
+
+    return [
       ...(hasRawHtml ? [rehypeRaw] : []),
       [rehypeSanitize, kamiSchema],
+      ...editPlugins,
       // 搜索高亮必须在 katex 之前：此刻公式仍是 <code class="math-*"> 纯文本
       //（被 SEARCH_SKIP_TAGS 跳过），katex 渲染产物（MathML + 大量定位 span）
       // 不会被高亮逻辑拆开破坏
@@ -333,16 +363,48 @@ const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuer
       // katex 放管线末尾：其输出含大量 class、MathML 属性与内联样式，必须绕过
       // sanitize；rehype-katex 默认 trust:false（\href 等禁用），产物安全
       [rehypeKatex, KATEX_OPTIONS],
-    ],
-    [hasRawHtml, searchQuery]
-  );
+    ];
+  }, [hasRawHtml, searchQuery, editable, editUnitOptions]);
 
   // components 对象必须 memo：内联创建会让 react-markdown 每次渲染都重走解析管线
   const components: Components = useMemo(
     () => ({
-      h1: ({ children }) => <h1 id={resolveHeadingId(1, extractText(children))}>{children}</h1>,
-      h2: ({ children }) => <h2 id={resolveHeadingId(2, extractText(children))}>{children}</h2>,
-      h3: ({ children }) => <h3 id={resolveHeadingId(3, extractText(children))}>{children}</h3>,
+      h1: ({ children, ...props }) => {
+        const mark = unitMarkProps(props);
+        return (
+          <h1
+            id={resolveHeadingId(1, extractText(children))}
+            data-vellum-unit={mark.unit}
+            data-vellum-locked={mark.locked}
+          >
+            {children}
+          </h1>
+        );
+      },
+      h2: ({ children, ...props }) => {
+        const mark = unitMarkProps(props);
+        return (
+          <h2
+            id={resolveHeadingId(2, extractText(children))}
+            data-vellum-unit={mark.unit}
+            data-vellum-locked={mark.locked}
+          >
+            {children}
+          </h2>
+        );
+      },
+      h3: ({ children, ...props }) => {
+        const mark = unitMarkProps(props);
+        return (
+          <h3
+            id={resolveHeadingId(3, extractText(children))}
+            data-vellum-unit={mark.unit}
+            data-vellum-locked={mark.locked}
+          >
+            {children}
+          </h3>
+        );
+      },
       a: ({ href, children }) => {
         // 带协议（http(s)、mailto、ftp 等）的链接交给系统默认程序打开；
         // 页内锚点（#...）与相对路径保持原生行为
@@ -450,7 +512,19 @@ const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuer
   );
 });
 
-export const MarkdownDocument = memo(function MarkdownDocument({ markdown, headings, onRendered, searchQuery, searchQueryPending, activeMatchIndex, onMatchCountChange }: MarkdownDocumentProps) {  const articleRef = useRef<HTMLElement>(null);
+export const MarkdownDocument = memo(function MarkdownDocument({
+  markdown,
+  headings,
+  onRendered,
+  searchQuery,
+  searchQueryPending,
+  activeMatchIndex,
+  onMatchCountChange,
+  editable,
+  onActivateUnit,
+  onLockedUnitClick,
+}: MarkdownDocumentProps) {
+  const articleRef = useRef<HTMLElement>(null);
   const prevQueryRef = useRef("");
   const deleteScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -535,9 +609,49 @@ export const MarkdownDocument = memo(function MarkdownDocument({ markdown, headi
     [markdown]
   );
 
+  // 块单元只在编辑视图构建（阅读视图恒为空数组，不接入标记插件、无点击处理）
+  const units = useMemo(() => (editable ? buildEditUnits(markdown) : []), [editable, markdown]);
+
+  // 点击块 → 索引 + 块内纵向比率换算出的源码光标落点
+  const handleClick = useCallback(
+    (event: React.MouseEvent<HTMLElement>) => {
+      if (!editable) return;
+      const target = (event.target as Element | null)?.closest("[data-vellum-unit]");
+      if (!target) return;
+      const index = Number(target.getAttribute("data-vellum-unit"));
+      const unit = units.find((candidate) => candidate.index === index);
+      if (!unit) return;
+
+      if (!unit.editable) {
+        onLockedUnitClick?.(unit.reason === "widget" ? "widget" : "html");
+        return;
+      }
+
+      const rect = target.getBoundingClientRect();
+      const ratio = rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0;
+      const source = markdown.slice(unit.start, unit.end);
+      onActivateUnit?.(index, caretOffsetForRatio(source, ratio));
+    },
+    [editable, markdown, onActivateUnit, onLockedUnitClick, units]
+  );
+
+  const articleClassName = [
+    "markdown-body",
+    isTrustedMdlogDoc ? "markdown-body--mdlog" : null,
+    editable ? "markdown-body--editing" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <article className={isTrustedMdlogDoc ? "markdown-body markdown-body--mdlog" : "markdown-body"} ref={articleRef}>
-      <MarkdownBody markdown={markdown} headings={headings} searchQuery={searchQuery} />
+    <article className={articleClassName} ref={articleRef} onClick={editable ? handleClick : undefined}>
+      <MarkdownBody
+        markdown={markdown}
+        headings={headings}
+        searchQuery={searchQuery}
+        editable={editable}
+        units={units}
+      />
     </article>
   );
 });

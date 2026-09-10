@@ -1045,4 +1045,67 @@ plain block
     expect(plain.container.querySelector("article")).toHaveClass("markdown-body");
     expect(plain.container.querySelector("article")).not.toHaveClass("markdown-body--mdlog");
   });
+
+  it("编辑视图下块元素带 data-vellum-unit 与 markdown-body--editing，阅读视图下都没有", () => {
+    const markdown = "# 标题\n\n正文\n";
+    const { container, unmount } = render(<MarkdownDocument markdown={markdown} editable />);
+    expect(container.querySelectorAll("[data-vellum-unit]").length).toBe(2);
+    // 标题由自定义组件接管渲染，标记仍必须落到 h1 元素上
+    expect(container.querySelector('[data-vellum-unit="0"]')?.tagName).toBe("H1");
+    expect(container.querySelector('[data-vellum-unit="1"]')?.tagName).toBe("P");
+    expect(container.querySelector("article")).toHaveClass("markdown-body--editing");
+    unmount();
+
+    const reading = render(<MarkdownDocument markdown={markdown} />);
+    expect(reading.container.querySelectorAll("[data-vellum-unit]").length).toBe(0);
+    expect(reading.container.querySelector("article")).not.toHaveClass("markdown-body--editing");
+  });
+
+  it("点击可编辑块回调索引，点击只读块回调原因", () => {
+    const onActivateUnit = vi.fn();
+    const onLockedUnitClick = vi.fn();
+    const markdown = '正文\n\n```vellum-widget\n<div>x</div>\n```\n';
+    render(
+      <MarkdownDocument
+        markdown={markdown}
+        editable
+        onActivateUnit={onActivateUnit}
+        onLockedUnitClick={onLockedUnitClick}
+      />
+    );
+
+    fireEvent.click(screen.getByText("正文"));
+    expect(onActivateUnit).toHaveBeenCalledWith(0, expect.any(Number));
+
+    fireEvent.click(document.querySelector('[data-vellum-locked="widget"]') as Element);
+    expect(onLockedUnitClick).toHaveBeenCalledWith("widget");
+    expect(onActivateUnit).toHaveBeenCalledTimes(1);
+  });
+
+  it("点击原始 HTML 只读块回调 html 原因", () => {
+    const onActivateUnit = vi.fn();
+    const onLockedUnitClick = vi.fn();
+    render(
+      <MarkdownDocument
+        markdown={'<div class="x">原始块</div>\n'}
+        editable
+        onActivateUnit={onActivateUnit}
+        onLockedUnitClick={onLockedUnitClick}
+      />
+    );
+
+    fireEvent.click(document.querySelector('[data-vellum-locked="html"]') as Element);
+    expect(onLockedUnitClick).toHaveBeenCalledWith("html");
+    expect(onActivateUnit).not.toHaveBeenCalled();
+  });
+
+  it("编辑视图下块级公式的外包容器在 katex 替换后仍存活并带索引", () => {
+    const { container } = render(<MarkdownDocument markdown={"$$\na = b\n$$\n"} editable />);
+
+    // rehype-katex 会整体替换块级公式节点（连同属性），标记必须落在报外容器上
+    expect(container.querySelector(".katex-display")).toBeInTheDocument();
+    const wrapper = container.querySelector(".vellum-unit-wrap");
+    expect(wrapper).not.toBeNull();
+    expect(wrapper).toHaveAttribute("data-vellum-unit", "0");
+  });
 });
