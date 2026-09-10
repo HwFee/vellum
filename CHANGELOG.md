@@ -10,9 +10,16 @@
 
 - 块级就地编辑（Obsidian Live Preview 近似手感）：`Ctrl+E` / 顶栏按钮切换阅读 ⇄ 编辑视图，编辑视图下点任意块即就地改源码、点走即提交（`Esc` / `Ctrl+S` / 失焦 / 点别的块 / 切文档 / 关窗 / 搜索与大纲跳转全部走同一提交路径）。块粒度为顶层节点 + 列表项 + 引用/脚注定义内直接子块；光标落点为**行级近似**（精确到字符需编辑器内核，记入已知限制）
 - 提交即落盘（自动保存）：新增 `save_document` 命令做原子写（同目录临时文件 + rename）并保真换行符与 BOM，带「当前文档路径 / Markdown 扩展名 / 50MB 上限」三重闸门；保存失败时内存回退到磁盘状态、草稿留在框内可重试。不设体积硬阈值，实测提交耗时 > 800ms 时在编辑视图内挂一条常驻软提示（仅本会话内粘性）
-- 结构性只读：块级 HTML（含 mdlog 头注释）与 `vellum-widget` 交互块没有编辑入口，点击只给一次提示；行内 HTML 仍作为块内源码文本可编辑。mdlog 记录中编辑门禁全关（顶栏禁用 + 提交口拦截 + Rust 侧存活闸门）
+- 结构性只读：块级 HTML（含 mdlog 头注释）与 `vellum-widget` 交互块**没有编辑入口**（编辑视图里以**加粗灰色虚线框 + `not-allowed` 指针**标识，零文字提示），行内 HTML 仍作为块内源码文本可编辑；mdlog 记录中编辑门禁全关（顶栏禁用 + 提交口拦截 + Rust 侧存活闸门）
 - 外部变更分流与回声抑制：`file-changed` 到达时先与内存 markdown 按归一 EOL 比对——相等（我方写入的回声）整体忽略，不递增 `reloadTick`、不闪「墨迹未干」、不做滚动补偿；不等则中断当前块编辑（草稿尽力写入剪贴板）后静默热重载
 - 数学块、代码块与 widget 由 `display: contents` 包裹层 `div.vellum-unit-wrap` 承载块标记，包裹后仍可点入编辑；标记只在编辑视图挂载 ⇒ 阅读视图 DOM 与改动前逐字节一致
+
+### 修复
+
+- **✕ 关不掉窗口（真机）：** Tauri 的 `onCloseRequested` 包装层在不拦截时会调 `destroy()`，而 capabilities 里只有 `allow-close` —— 缺 `core:window:allow-destroy` 导致销毁被 ACL 拒绝（真机报 `Command plugin:window|destroy not allowed by ACL`）。已补权限，并给关闭处理器加异常兜底（任何意外都放行关闭，绝不因处理器抛错而卡住窗口）
+- **生产构建 IPC 被 CSP 拦下（先于本功能存在）：** CSP 缺 `connect-src`，回落到 `default-src 'self'` 把 `http://ipc.localhost` 全拦，`plugin:store`（阅读位置 / 侧栏状态 / 上次打开）与 `plugin:event`（`file-changed` / `mdlog-state-changed` / `pending-open-docs`）在生产构建里全程走 postMessage 降级通道并持续报错。已加 `connect-src ipc: http://ipc.localhost`
+- **单行块被撑成两行（真机）：** textarea 固有高默认 `rows=2`，而 `scrollHeight` 返回「内容高与自身可见高的较大值」——单行草稿被量成两行高，于是点每一块都会多出一行留白并把下方内容推走。已改为 `rows=1` + 自增高前先把高度归零再读 `scrollHeight`，并把行高按**该块渲染态实测值**对齐（段落/标题/列表项行高各异）
+- **点第一块却整篇滚到底（真机）：** 激活瞬间覆盖层尚未拿到内联定位，停在内容末尾的静态位置，浏览器为把焦点元素滚入视野一路滚到底（widget 重度长文档必现），且该「底部」会被阅读位置记忆记住、下次打开也在底部。已改为 `focus({ preventScroll: true })` + 盒未就绪时**不渲染**覆盖层
 
 ## [1.5.0] - 2026-09-10
 
