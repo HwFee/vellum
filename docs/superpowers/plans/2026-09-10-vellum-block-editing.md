@@ -147,9 +147,9 @@ describe("spliceUnit", () => {
 describe("caretOffsetForRatio", () => {
   const text = "第一行\n第二行\n第三行\n";
 
-  it("比率 0 落在首行行首，比率 1 落在末行行首", () => {
+  it("比率 0 落在首行行首，比率 1 落在末个可见行行首（尾随空行不计）", () => {
     expect(caretOffsetForRatio(text, 0)).toBe(0);
-    expect(caretOffsetForRatio(text, 1)).toBe(10);
+    expect(caretOffsetForRatio(text, 1)).toBe(8);
   });
 
   it("中间比率落在对应行行首", () => {
@@ -288,10 +288,13 @@ export function spliceUnit(markdown: string, unit: EditUnit, text: string): stri
   return markdown.slice(0, unit.start) + text + markdown.slice(unit.end);
 }
 
-/// 点击点纵向比率 → 最近的源码行行首偏移（光标落点的「行级近似」）
+/// 点击点纵向比率 → 最近的源码行行首偏移（光标落点的「行级近似」）；
+/// 尾随换行产生的末尾空行不计入行数，否则点块底部会落到空行上。
 export function caretOffsetForRatio(text: string, ratio: number): number {
   const clamped = Math.min(1, Math.max(0, ratio));
   const lines = text.split("\n");
+  if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+
   const targetLine = Math.min(lines.length - 1, Math.round(clamped * (lines.length - 1)));
 
   let offset = 0;
