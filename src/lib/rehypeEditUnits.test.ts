@@ -123,17 +123,21 @@ describe("rehypeEditUnits", () => {
   });
 
   it("跨多个块区间的容器不被打标，其内部的子块照常打标", () => {
-    // blockquote 自身跨越多个块区间（包含判定不成立），只有区间内的段落被打标
-    const markdown = "> 引用\n";
+    // blockquote 自身跨越多个块区间（包含判定不成立），只有区间内的段落被打标。
+    // 裁定 F9a 后 blockquoteChild 的区间从行首起算，故夹具必须含两个子块：
+    // 单子块引用的容器区间与子块区间恰好重合，会（正确地）一起被打标。
+    const markdown = "> 引用一\n>\n> 引用二\n";
     const units = buildEditUnits(markdown);
-    expect(units.map((unit) => unit.kind)).toEqual(["blockquoteChild"]);
-    const paragraph = el("p", units[0].start, units[0].end, [text("引用")]);
-    const quote = el("blockquote", 0, markdown.trimEnd().length, [paragraph]);
+    expect(units.map((unit) => unit.kind)).toEqual(["blockquoteChild", "blockquoteChild"]);
+    const first = el("p", units[0].start, units[0].end, [text("引用一")]);
+    const second = el("p", units[1].start, units[1].end, [text("引用二")]);
+    const quote = el("blockquote", 0, markdown.trimEnd().length, [first, second]);
     const children: TestNode[] = [quote];
     runPlugin(markdown, children);
 
     expect(unitOf(quote)).toBeUndefined();
-    expect(unitOf(paragraph)).toBe(0);
+    expect(unitOf(first)).toBe(0);
+    expect(unitOf(second)).toBe(1);
   });
 
   it("units 为空（阅读视图等价情形）时整棵树不产生任何标记", () => {
