@@ -190,7 +190,9 @@ fn resolve_asset_to_data_url_keeps_data_urls_unchanged() {
 
 mod save_tests {
     use super::*;
-    use crate::document::{check_save_gates, save_markdown_file, MAX_FILE_SIZE_BYTES};
+    use crate::document::{
+        check_save_gates, save_markdown_file, save_temp_path, MAX_FILE_SIZE_BYTES,
+    };
 
     fn write_markdown(dir: &TestDir, name: &str, body: &str) -> PathBuf {
         let path = dir.path().join(name);
@@ -297,6 +299,41 @@ mod save_tests {
 
         let leftovers = temp_leftovers(&dir);
         assert!(leftovers.is_empty(), "残留临时文件: {leftovers:?}");
+    }
+
+    #[test]
+    fn rejects_save_when_existing_content_cannot_be_read() {
+        let dir = TestDir::new("vellum_save_unreadable");
+        let path = write_markdown(&dir, "n.md", "原文\n");
+        // 真机上「读旧内容失败」唯一可达的构造：文档加载后文件被外部进程改成非 UTF-8。
+        // 此时读失败（InvalidData）而 rename 只需 DELETE 权限仍可能成功 ⇒ 若降级为 LF
+        // 会把 CRLF 文档整篇翻新。这里锁定「拒绝保存」这个方向。
+        let invalid_utf8 = [0x23u8, 0x20, 0xFF, 0xFE];
+        fs::write(&path, invalid_utf8).unwrap();
+
+        let error = save_markdown_file(&path, "新内容\n").unwrap_err();
+
+        assert!(error.contains("Cannot read existing document"), "{error}");
+        assert_eq!(fs::read(&path).unwrap(), invalid_utf8, "原文件不得被改写");
+        assert!(temp_leftovers(&dir).is_empty());
+    }
+
+    #[test]
+    fn temp_path_is_unique_per_call_and_stays_next_to_the_target() {
+        let dir = TestDir::new("vellum_save_temp_unique");
+        let canonical = dunce::canonicalize(write_markdown(&dir, "u.md", "x\n")).unwrap();
+
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..256 {
+            let temp = save_temp_path(&canonical).unwrap();
+
+            assert_eq!(temp.parent(), canonical.parent());
+            assert_ne!(temp, canonical);
+            let name = temp.file_name().unwrap().to_string_lossy().to_string();
+            assert!(name.starts_with(".u.md."), "{name}");
+            assert!(name.ends_with(".vellum-tmp"), "{name}");
+            assert!(seen.insert(temp), "临时路径重复（并发保存会互踩）: {name}");
+        }
     }
 
     #[test]

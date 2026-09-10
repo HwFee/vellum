@@ -186,6 +186,19 @@ pub fn check_save_gates(
     Ok(())
 }
 
+/// 纯函数：同目录临时文件路径（`.<name>.<uuid 前 8 位>.vellum-tmp`）。
+/// 唯一后缀是必需的：`save_document` 是 async 命令，Tauri 可并发轮询两次 invoke，
+/// 固定临时名会让两次保存交错写同一文件（产出混合内容），或让后到者 rename 时找不到源文件。
+pub(crate) fn save_temp_path(canonical: &Path) -> Result<PathBuf, String> {
+    let file_name = canonical
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "Cannot resolve file name".to_string())?;
+    let unique = uuid::Uuid::new_v4().simple().to_string();
+
+    Ok(canonical.with_file_name(format!(".{file_name}.{}{SAVE_TEMP_SUFFIX}", &unique[..8])))
+}
+
 /// 原子写入 Markdown：同目录临时文件 + rename 覆盖，保持原文件的 EOL 风格。
 /// 调用方（`save_document` 命令）负责闸门判定；本函数只做格式与体积校验后落盘。
 pub fn save_markdown_file(path: &Path, content: &str) -> Result<SaveOutcome, String> {
@@ -208,15 +221,13 @@ pub fn save_markdown_file(path: &Path, content: &str) -> Result<SaveOutcome, Str
         ));
     }
 
-    // 读不出旧内容（例如非 UTF-8）时按 LF 处理：宁可保持用户输入的换行，也不臆造 CRLF。
-    let existing = std::fs::read_to_string(&canonical).unwrap_or_default();
+    // 读不出旧内容时**拒绝保存**，不得降级为 LF：把「读失败」与「空文件」混为一谈，
+    // 一次保存就把 CRLF 文档整篇翻新（且 rename 只需 DELETE 权限，读失败时仍可能成功）。
+    let existing = std::fs::read_to_string(&canonical)
+        .map_err(|error| format!("Cannot read existing document: {error}"))?;
     let payload = apply_eol(content, dominant_eol(&existing));
 
-    let file_name = canonical
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| "Cannot resolve file name".to_string())?;
-    let temp_path = canonical.with_file_name(format!(".{file_name}{SAVE_TEMP_SUFFIX}"));
+    let temp_path = save_temp_path(&canonical)?;
 
     if let Err(error) = std::fs::write(&temp_path, payload.as_bytes()) {
         // 防御性清理：写临时文件失败（磁盘满等）时不留下半截文件。
