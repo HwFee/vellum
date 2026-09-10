@@ -1233,6 +1233,84 @@ mark.search-match--current {
   overflow-y: hidden;
 }
 
+/* ===== 编辑视图（块级就地编辑） ===== */
+
+/* 编辑态宿主：为绝对定位的覆盖层提供定位上下文（裁定 F4） */
+.document-scroll__content--editing {
+  position: relative;
+}
+
+/* 就地编辑覆盖层：受控 textarea，高度由组件显式写回（裁定 F19）。
+   选择器写成宿主容器的直接子元素（特异性 0,2,0）——必须压过阅读态输入控件的
+   内描边/圆角/底色；覆盖层刻意不进正文容器（裁定 F23），这里把冲突属性显式归零，
+   防止未来接线漂移。字体度量取正文实际值（14px / 1.55，letter-spacing 继承 0.3pt），
+   与渲染态块同尺度，自增高写回的高度才不会与下方内容错位。 */
+.document-scroll__content--editing > .block-editor__input {
+  position: absolute;
+  z-index: 30;
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  border-left: 2px solid var(--brand);
+  /* 端头 2px：与大纲激活指示条同一语汇（接近方头，不是输入控件的 6px 圆角） */
+  border-radius: 2px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--near-black);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.55;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 块标记的承载容器（代码块 / 数学块 / 交互块的外包层）：不生成布局盒，
+   使包裹层在视觉与测量上都等同原块本身（裁定 F12/F18）。
+   本规则内不得出现任何尺寸 / 边框 / 内外边距声明。 */
+.markdown-body--editing .vellum-unit-wrap {
+  display: contents;
+}
+
+/* 编辑轻提示条（HTML 只读 / 交互块只读 / 记录中禁用 / 保存失败）：
+   墨色字 + 实色标签底，与「墨迹未干」印章同为悬浮提示。
+   淡入只是视觉；消失由 hook 的 2.4s 定时器负责（裁定 F31），
+   不得以 CSS 为消失机制（不写 fill-mode: forwards 之类把元素永久藏起来的规则）。 */
+.editor-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 18%;
+  transform: translateX(-50%);
+  z-index: 40;
+  padding: 6px 14px;
+  border-radius: 3px;
+  background: var(--tag-bg);
+  color: var(--near-black);
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  animation: editor-toast-in 0.18s ease-out;
+}
+
+@keyframes editor-toast-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-toast {
+    animation: none;
+  }
+}
+
 /* ===== Pi 对话记录与沙箱交互块 ===== */
 
 /* --- mdlog 对话回合版式（D · 书札卷轴）：仅受信 mdlog 文档（mdlog:v1 指纹）挂载 --- */

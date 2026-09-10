@@ -310,3 +310,60 @@ describe("kami.css mdlog widget and live indicator tokens", () => {
     }
   });
 });
+
+describe("kami.css editing view (block-level inline editing)", () => {
+  it("编辑态区段位于首个 .mdlog-widget 之前，且自身不含该字样", () => {
+    const editorSection = css.indexOf(".block-editor__input");
+    const mdlogSection = css.indexOf(".mdlog-widget");
+
+    expect(editorSection).toBeGreaterThan(-1);
+    expect(editorSection).toBeLessThan(mdlogSection);
+
+    // 区段以注释头起算：从「/* ===== 编辑视图」到首个 .mdlog-widget 之间不得出现 mdlog 字样
+    // （kami.css.test.ts 的 mdlog 设计约束用例从首个 .mdlog-widget 扫到文件尾，
+    //   编辑态规则跑到它之后就会被卷入那套扫描）
+    const editorBlock = css.slice(css.indexOf("/* ===== 编辑视图"), mdlogSection);
+    expect(editorBlock).not.toContain(".mdlog-widget");
+  });
+
+  it("编辑态宿主提供定位上下文", () => {
+    expect(css).toMatch(/\.document-scroll__content--editing\s*\{[^}]*position:\s*relative/);
+    expect(css).toMatch(/\.block-editor__input\s*\{[^}]*position:\s*absolute/);
+  });
+
+  it("F23：覆盖层写成直接子元素选择器，不依赖 .markdown-body 后代选择器", () => {
+    // 覆盖层刻意不进 .markdown-body（否则 .markdown-body textarea 的 0,1,1 会压过它），
+    // 选择器必须是 .document-scroll__content--editing 的直接子元素（0,2,0）
+    expect(css).toMatch(/\.document-scroll__content--editing\s*>\s*\.block-editor__input\s*\{/);
+    expect(css).not.toMatch(/\.markdown-body[^{}]*\.block-editor__input/);
+
+    const rule = css.match(/\.document-scroll__content--editing\s*>\s*\.block-editor__input\s*\{[^}]*\}/s)?.[0] ?? "";
+    // 与 .markdown-body textarea 冲突的属性都要显式覆写，避免样式漂移
+    expect(rule).toMatch(/border:\s*0/);
+    expect(rule).toMatch(/background:\s*transparent/);
+    expect(rule).toMatch(/box-shadow:\s*none/);
+    // 圆角不得沿用阅读态输入控件的 6px，退回 kami 的指示条端头尺度（2px）
+    expect(rule).toMatch(/border-radius:\s*2px/);
+  });
+
+  it("F12/F18：包裹层 display: contents 且不带任何尺寸/边框/内外边距", () => {
+    const rule = css.match(/\.markdown-body--editing\s+\.vellum-unit-wrap\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(rule).toMatch(/display:\s*contents/);
+
+    // display: contents 的元素不生成布局盒；一旦给它尺寸/边框/内外边距，
+    // T3 的「隐藏原块 + 锁高 + 自增高」与包裹层的退布局承诺都会失真（裁定 F12/F18）
+    for (const prop of ["width", "height", "margin", "padding", "border", "min-height", "max-height"]) {
+      expect(rule, `包裹层不得声明 ${prop}`).not.toMatch(new RegExp(`(?:^|[;{\\s])${prop}\\s*:`));
+    }
+  });
+
+  it("F31：提示条只做视觉淡入，消失机制不写在 CSS 里", () => {
+    const rule = css.match(/\.editor-toast\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(rule).toMatch(/pointer-events:\s*none/);
+    // 消失由 hook 的 2.4s 定时器负责；forwards / 基础态 opacity:0 会让元素被 CSS 永久藏住
+    expect(rule).not.toMatch(/fill-mode/);
+    expect(rule).not.toMatch(/forwards/);
+    expect(rule).not.toMatch(/opacity:\s*0\s*;/);
+    expect(rule).not.toMatch(/display:\s*none/);
+  });
+});

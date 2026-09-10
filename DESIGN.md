@@ -53,6 +53,17 @@ typography:
     fontFamily: JetBrains Mono, SF Mono, monospace
     fontSize: 9px
     fontWeight: 500
+  edit-source:
+    fontFamily: JetBrains Mono, SF Mono, Fira Code, Consolas, Monaco, monospace
+    fontSize: 14px
+    fontWeight: 400
+    lineHeight: 1.55
+  ui-mono:
+    fontFamily: JetBrains Mono, SF Mono, Fira Code, Consolas, Monaco, monospace
+    fontSize: 10px
+    fontWeight: 500
+    lineHeight: 1.5
+    letterSpacing: 0.4px
 rounded:
   xs: 2px
   sm: 3px
@@ -119,6 +130,17 @@ components:
   window-close-active:
     backgroundColor: "{colors.danger-active}"
     textColor: "#ffffff"
+  block-editor:
+    textColor: "{colors.near-black}"
+    typography: "{typography.edit-source}"
+    rounded: "{rounded.xs}"
+    padding: 0px 2px
+  editor-toast:
+    backgroundColor: "{colors.tag-bg}"
+    textColor: "{colors.near-black}"
+    typography: "{typography.ui-mono}"
+    rounded: "{rounded.sm}"
+    padding: 6px 14px
 ---
 
 ## Overview
@@ -153,6 +175,7 @@ components:
 - 标题只用 font-weight 500（今楷 W05），不用粗黑；层级靠字号递减：h1 30px（窄屏 25px）→ h2 21px → h3 17px。层级只靠字号与间距，不用前导短线/侧栏装饰（2026-09 起跟随上游去掉 h1 题签）。
 - `strong` 同样只用 500，与标题字重一致，拒绝粗重的块状强调。
 - 等宽字用于代码（12px）、行号与计数（10–12px）、kbd 快捷键标记（9px 大写感）。
+- 就地编辑面（`edit-source`）用等宽字 14px / 1.55：**与正文同字号同行高，只换字族**——被编辑块的源码覆盖层因此与渲染态块同一尺度，草稿变长时自增高写回的高度不会与下文脱节。提示条小字（`ui-mono`）10px / 500，是等宽字里最小的一级 UI 文案。
 - 特殊排印：目录 header 与印章提示使用 4–5px 的超宽字距（letter-spacing），模仿篆刻与题跋的仪式感。
 - 字体栈回退到思源宋体 / Noto Serif CJK / 宋体，保证无字体文件时仍是衬线中文。
 
@@ -195,6 +218,8 @@ components:
 - **链接：** 靛青 + 1px 下划线（55% 透明度，offset 3px），悬停时下划线转实；外链自动追加「↗」掩码图标，锚链接除外。
 - **印章提示（reload-note）：** 1.8px 靛青描边、4px 字距的朱文印章样式，2.8s 内按下-定住-消散，不遮挡交互。
 - **搜索高亮：** mark 用 18% 靛青底，当前匹配加深到 32% 并加 1px 光晕，2px 圆角。
+- **就地编辑覆盖层（block-editor）：** 透明底、无容器描边与圆角，只以一道 2px 靛青左边轨（`colors.primary`，端头 `rounded.xs` = 2px，与大纲激活指示条同一语汇）标记「正在就地编辑这一块」；等宽 14px / 1.55（`edit-source`）与正文同尺度，随草稿自增高。它与正文容器**并列**而非嵌套，所以不受正文输入控件样式（ivory 底 + 内描边 + 6px 圆角）影响——两者是「纸上的临时墨迹」与「浮起容器」的区别。
+- **编辑提示条（editor-toast）：** tag-bg 实色标签底 + 墨色等宽小字（`ui-mono`），3px 圆角，中央下方浮起且 `pointer-events: none`；只做淡入一种动画，消失由 2.4s 计时器（而非 CSS）负责，与「墨迹未干」印章同为不挡手的悬浮提示。
 
 ## Do's and Don'ts
 
