@@ -339,11 +339,13 @@ describe("kami.css editing view (block-level inline editing)", () => {
 
     const rule = css.match(/\.document-scroll__content--editing\s*>\s*\.block-editor__input\s*\{[^}]*\}/s)?.[0] ?? "";
     // 与 .markdown-body textarea 冲突的属性都要显式覆写，避免样式漂移
-    expect(rule).toMatch(/border:\s*0/);
-    expect(rule).toMatch(/background:\s*transparent/);
+    // （设计定稿 2026-09-10：覆盖层由「无线框 + 左竖线」改为「纸签底 + 实线外框」，
+    //  故这里断言的是新形态：背景/边框/圆角均由本规则显式给出）
+    expect(rule).toMatch(/background:\s*var\(--ivory\)/);
+    expect(rule).toMatch(/border:\s*1px solid var\(--brand\)/);
     expect(rule).toMatch(/box-shadow:\s*none/);
-    // 圆角不得沿用阅读态输入控件的 6px，退回 kami 的指示条端头尺度（2px）
-    expect(rule).toMatch(/border-radius:\s*2px/);
+    // 圆角取 kami 的轻尺度（仍不得沿用阅读态输入控件的 6px）
+    expect(rule).toMatch(/border-radius:\s*3px/);
   });
 
   it("F12/F18：包裹层 display: contents 且不带任何尺寸/边框/内外边距", () => {
@@ -379,5 +381,28 @@ describe("kami.css editing view (block-level inline editing)", () => {
     expect(rule).not.toMatch(/animation/);
     expect(rule).not.toMatch(/fill-mode|forwards|display:\s*none/);
     expect(rule).toMatch(/pointer-events:\s*none/);
+  });
+
+  it("编辑态三态视觉契约（2026-09-10 设计定稿）：只读粗虚线框 / 可编辑 hover 纸签底 / 覆盖层实框", () => {
+    // 只读块：加粗灰色虚线框 + not-allowed，且不得再有任何文字提示样式常驻
+    const roRule = css.match(/\.markdown-body--editing \[data-vellum-locked\]\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(roRule).not.toBe("");
+    expect(roRule).toMatch(/border:\s*2px dashed/);
+    expect(roRule).toMatch(/cursor:\s*not-allowed/);
+
+    // display:contents 的包裹层（代码块 / 交互块 / 数学块）：外框画在子元素上
+    const wrapRule = css.match(/\.markdown-body--editing \.vellum-unit-wrap\[data-vellum-locked\]\s*>\s*\*\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(wrapRule).not.toBe("");
+    expect(wrapRule).toMatch(/border:\s*2px dashed/);
+
+    // 覆盖层：纸签底 + 实线外框（与只读虚线成对区分），且不再有左侧竖线
+    const inputRule = css.match(/\.document-scroll__content--editing > \.block-editor__input\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(inputRule).not.toBe("");
+    expect(inputRule).toMatch(/background:\s*var\(--ivory\)/);
+    expect(inputRule).toMatch(/border:\s*1px solid var\(--brand\)/);
+    expect(inputRule).not.toMatch(/border-left/);
+
+    // 未保存提示：**无**（全自动保存的设计定稿——不保留任何未保存指示）
+    expect(css).not.toMatch(/\.top-bar__dirty/);
   });
 });

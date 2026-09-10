@@ -205,3 +205,17 @@
 ### 9.5 修改后的验证基线
 
 `npm test` **31 文件 / 427 用例**全绿（新增图标语义用例）、`npx tsc --noEmit` exit 0、`cargo test` **63**（CSP 断言已同步）、`npm run tauri build` 成功。
+
+### 9.6 编辑界面设计定稿（2026-09-10，用户逐项确认）
+
+| 项目 | 定稿 | 实现落点 |
+|---|---|---|
+| 可编辑块（hover） | 纸签底色（象牙 80%）+ 发丝轮廓 | `kami.css` `.markdown-body--editing > [data-vellum-unit]:not([data-vellum-locked]):hover` |
+| 可编辑块（编辑中） | **纸签底 + 实线外框**（`background: var(--ivory)` + `border: 1px solid var(--brand)`，圆角 3px） | `.document-scroll__content--editing > .block-editor__input`（原「无线框 + 左竖线 2px」作废） |
+| 只读块（HTML / 交互块） | **加粗灰色虚线框**（`2px dashed #b9b6a9`）+ `cursor: not-allowed`，**零文字提示** | `.markdown-body--editing [data-vellum-locked]` 与 `.vellum-unit-wrap[data-vellum-locked] > *`（后者覆盖代码块/交互块/数学块：标记落在 `display: contents` 包裹层上） |
+| 只读块点击 | 不弹任何提示（原「HTML 区块为只读」/「交互块只读」文案连同 `notifyLocked` 一并删除，`App` 不再传 `onLockedUnitClick`） | `App.tsx` / `useDocumentEditor.ts` |
+| 未保存提示 | **无**（全自动保存：提交即落盘；返回与关窗均静默落墨，不询问） | 曾试做的顶栏墨点与 `dirty` 状态已按定稿移除 |
+| 视图切换图标 | 阅读态「笔」/ 编辑态「书」（Obsidian 语义）+ 提示语随状态 | `TopBar.tsx`（`data-icon="pen|book"` 由测试锁定） |
+| 过渡与高度 | 推移（无独立落款动画）；H1 贴合内容（行高按块实测） | 见 9.4 / `BlockEditor` 的 `--blk-line` |
+
+视觉契约由 `kami.css.test.ts` 新增用例「编辑态三态视觉契约」锁定（只读粗虚线 / 覆盖层实框 / **不得存在** `.top-bar__dirty`）。

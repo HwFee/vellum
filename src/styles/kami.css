@@ -1243,29 +1243,48 @@ mark.search-match--current {
 /* 就地编辑覆盖层：受控 textarea，高度由组件显式写回（裁定 F19）。
    选择器写成宿主容器的直接子元素（特异性 0,2,0）——必须压过阅读态输入控件的
    内描边/圆角/底色；覆盖层刻意不进正文容器（裁定 F23），这里把冲突属性显式归零，
-   防止未来接线漂移。字体度量取正文实际值（14px / 1.55，letter-spacing 继承 0.3pt），
-   与渲染态块同尺度，自增高写回的高度才不会与下方内容错位。 */
+   防止未来接线漂移。字体度量取正文实际值（14px；行高由组件按块实测的 --blk-line 提供）。
+   形态（2026-09-10 定稿）：**纸签底 + 实线外框**，与只读块的灰色虚线框成对区分。 */
 .document-scroll__content--editing > .block-editor__input {
   position: absolute;
   z-index: 30;
   margin: 0;
-  padding: 0 2px;
-  border: 0;
-  border-left: 2px solid var(--brand);
-  /* 端头 2px：与大纲激活指示条同一语汇（接近方头，不是输入控件的 6px 圆角） */
-  border-radius: 2px;
-  background: transparent;
+  padding: 2px 10px;
+  border: 1px solid var(--brand);
+  border-radius: 3px;
+  background: var(--ivory);
   box-shadow: none;
   color: var(--near-black);
   font: inherit;
   font-family: var(--mono);
   font-size: 14px;
-  line-height: 1.55;
   resize: none;
   overflow: hidden;
   outline: none;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* 只读块（HTML / 交互块）在编辑视图里的唯一提示：**加粗灰色虚线框 + not-allowed 指针**，
+   零文字浮层（2026-09-10 定稿）。与可编辑块 hover/编辑中的实线框成对区分。
+   两条件并列：① 标记落在块元素自身（HTML 块）；② 标记落在 display:contents 的
+   `.vellum-unit-wrap` 上（代码块 / 交互块 / 数学块），此时外框要画在它的子元素上。 */
+.markdown-body--editing [data-vellum-locked] {
+  border: 2px dashed #b9b6a9;
+  border-radius: 3px;
+  cursor: not-allowed;
+}
+.markdown-body--editing .vellum-unit-wrap[data-vellum-locked] > * {
+  border: 2px dashed #b9b6a9;
+  border-radius: 3px;
+  cursor: not-allowed;
+}
+
+/* 可编辑块的 hover 提示（编辑视图）：纸签底色，轮廓仍为发丝线——
+   与只读块的粗虚线、编辑中的实线框三者互不混淆。 */
+.markdown-body--editing > [data-vellum-unit]:not([data-vellum-locked]):hover {
+  background: color-mix(in srgb, var(--ivory) 80%, transparent);
+  border-radius: 3px;
 }
 
 /* 块标记的承载容器（代码块 / 数学块 / 交互块的外包层）：不生成布局盒，

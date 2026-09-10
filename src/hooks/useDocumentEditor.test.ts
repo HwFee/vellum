@@ -177,14 +177,6 @@ describe("useDocumentEditor", () => {
     expect(result.current.heavyDoc).toBe(true);
   });
 
-  it("只读块点击给出原因文案", () => {
-    const { result } = setup();
-    act(() => {
-      result.current.notifyLocked("html");
-    });
-    expect(result.current.toast?.message).toContain("HTML");
-  });
-
   it("编辑中被外部改写：取消编辑并提示", async () => {
     const { result } = setup();
     act(() => {
@@ -335,9 +327,9 @@ describe("useDocumentEditor", () => {
     try {
       const { result } = setup();
       act(() => {
-        result.current.notifyLocked("html");
+        result.current.notifyInterrupted("记录已开始，编辑已取消");
       });
-      expect(result.current.toast?.message).toContain("HTML");
+      expect(result.current.toast?.message).toContain("记录已开始");
 
       act(() => {
         vi.advanceTimersByTime(2399);
@@ -358,19 +350,19 @@ describe("useDocumentEditor", () => {
     try {
       const { result } = setup();
       act(() => {
-        result.current.notifyLocked("html");
+        result.current.notifyInterrupted("记录已开始，编辑已取消");
       });
       act(() => {
         vi.advanceTimersByTime(2000);
       });
       act(() => {
-        result.current.notifyLocked("widget");
+        result.current.notifyInterrupted("文件已被外部修改 · 编辑已取消");
       });
       act(() => {
         vi.advanceTimersByTime(2000);
       });
       // 距第二条提示仅 2000ms：不得被上一条的计时器提前清掉
-      expect(result.current.toast?.message).toContain("交互块");
+      expect(result.current.toast?.message).toContain("外部修改");
 
       act(() => {
         vi.advanceTimersByTime(400);
@@ -384,7 +376,7 @@ describe("useDocumentEditor", () => {
   it("dismissToast 立即清掉提示", () => {
     const { result } = setup();
     act(() => {
-      result.current.notifyLocked("html");
+      result.current.notifyInterrupted("记录已开始，编辑已取消");
     });
     expect(result.current.toast).not.toBeNull();
     act(() => {

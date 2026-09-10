@@ -543,9 +543,8 @@ export default function App() {
     void editorRef.current?.toggleView();
   }, []);
 
-  const handleLockedUnitClick = useCallback((reason: "html" | "widget") => {
-    editorRef.current?.notifyLocked(reason);
-  }, []);
+  // 只读块（HTML / 交互块）在编辑视图里由「加粗灰色虚线框 + not-allowed 指针」表达，
+  // 不再弹文字提示（2026-09-10 设计定稿：零文字浮层）——因此这里没有 locked 点击处理器。
 
   // 切换文档时恢复上次阅读位置（无记录则回到顶部）。
   // 恢复时机放在 MarkdownDocument 内容渲染进 DOM 之后（onRendered），而非 state 变 ready 时：
@@ -948,7 +947,6 @@ export default function App() {
                       onMatchCountChange={handleMatchCountChange}
                       editable={editor.viewMode === "editing"}
                       onActivateUnit={handleActivateUnit}
-                      onLockedUnitClick={handleLockedUnitClick}
                     />
                   </Suspense>
                   {mdlogState !== null && (

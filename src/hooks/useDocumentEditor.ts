@@ -214,13 +214,6 @@ export function useDocumentEditor({
     setViewMode("editing");
   }, [commitActive, mdlogActive, showToast, units.length, viewMode]);
 
-  const notifyLocked = useCallback(
-    (reason: "html" | "widget") => {
-      showToast(reason === "html" ? "HTML 区块为只读" : "交互块只读，点击可交互");
-    },
-    [showToast]
-  );
-
   const updateDraft = useCallback((text: string) => {
     setDraft(text);
   }, []);
@@ -237,7 +230,6 @@ export function useDocumentEditor({
     activateUnit,
     updateDraft,
     commitActive,
-    notifyLocked,
     notifyInterrupted,
     resetSession,
     dismissToast,
