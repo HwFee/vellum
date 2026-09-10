@@ -140,6 +140,7 @@ npm run tauri        # Tauri CLI
 - `CustomScrollbar` 非常轻量，不需要优化
 - 字体文件在 `public/fonts/`（~17MB），是应用资源
 - 强调定界符贴 CJK/标点的兼容由**渲染层软件兜底**：`remark-cjk-friendly` + `remark-cjk-friendly-gfm-strikethrough`（在 `REMARK_PLUGINS` 中位于 remarkMath 之前），并有渲染级回归测试锁定（`MarkdownDocument.test.tsx`）；`vellum-mdlog` 技能侧的写法要求仅为跨渲染器可移植性建议，不再是硬禁令
+- **打包前必须确认没有 Vellum 实例在跑**（`Get-Process vellum` 为空）：release 二进制被占用时 `npm run tauri build` 会在链接阶段报 `failed to remove file ... vellum.exe / os error 5 拒绝访问`，且**前端产物已构建完成**，很容易误以为是代码错。先 `taskkill /IM vellum.exe /F` 再打包。
 - **生产构建专属坑（真机才会暴露，jsdom 与 dev 模式下全绿）**：
   - capabilities 必须有 `core:window:allow-destroy`：`onCloseRequested` 的 JS 包装层在处理器**不拦截**时会调 `destroy()`，只声明 `allow-close` 是不够的——缺权限则**窗口永远关不掉**（真机 Console：`Command plugin:window|destroy not allowed by ACL`）。同理关闭处理器必须有异常兜底（任何意外都放行关闭，否则一次抛错就把窗口永久留住）
   - CSP 必须含 `connect-src ipc: http://ipc.localhost`：缺它会回落到 `default-src 'self'` 把 IPC 拦掉，`plugin:store`（阅读位置 / 侧栏状态 / 上次打开）与 `plugin:event`（`file-changed` / `mdlog-state-changed` / `pending-open-paths`）在整个生产构建里**全程走 postMessage 降级通道并持续报错**（`main.rs` 有断言 CSP 字符串全等的测试，改 CSP 必须同步改它）
