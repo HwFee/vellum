@@ -124,15 +124,14 @@ describe("BlockEditor", () => {
     globalThis.ResizeObserver = OriginalResizeObserver;
   });
 
-  it("宿主容器缺失时早退：不隐藏原块、不写内联样式、覆盖层不定位（裁定 F21②）", () => {
+  it("宿主容器缺失时早退：不隐藏原块、不写内联样式、**不渲染覆盖层**（裁定 F21②）", () => {
     const target = mountFixture();
     render(<Harness onCommit={vi.fn()} />);
 
     // 宁可不进编辑，也不能让用户看到「块消失 + 编辑器跑到别处」
     expect(target.getAttribute("style")).toBeNull();
-    const input = screen.getByRole("textbox");
-    expect(input.style.cssText).toBe("");
-    expect(input.style.top).toBe("");
+    // 盒未就绪时不渲染覆盖层（否则它会以静态位置停在内容末尾，focus 会把整篇滚到底）
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 
   it("隐藏原块并锁定原高，自增高把 scrollHeight 写回原块，卸载时逐项还原", () => {
@@ -325,8 +324,21 @@ describe("BlockEditor", () => {
 
     rerender(<Harness unitIndex={99} onCommit={vi.fn()} />);
 
-    expect(screen.getByRole("textbox").style.cssText).toBe("");
+    // 盒被清空 ⇒ 覆盖层直接不渲染（不得停在内容末尾的静态位置——那正是「点第一块却跳到底部」的根因）
+    expect(screen.queryByRole("textbox")).toBeNull();
     expect(first.style.visibility).toBe("");
+  });
+
+  it("聚焦时禁用滚动（focus({ preventScroll: true })）——否则未定位的覆盖层会把整篇滚到底", () => {
+    mountHostFixture(`<p data-vellum-unit="0">正文</p>`);
+    const focusSpy = vi.spyOn(HTMLTextAreaElement.prototype, "focus");
+
+    render(<Harness onCommit={vi.fn()} />);
+
+    const calls = focusSpy.mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[calls.length - 1]?.[0]).toEqual({ preventScroll: true });
+    focusSpy.mockRestore();
   });
 
   it("unitIndex 切换时先还原上一块的内联样式，再隐藏新块（审查 Minor-7）", () => {

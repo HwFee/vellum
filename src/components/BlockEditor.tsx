@@ -76,19 +76,21 @@ export function BlockEditor({
   }, []);
 
   // ① 定位 + 占位：隐藏原块、锁定原高、算覆盖层盒。
+  // 本 effect **不依赖覆盖层已挂载**（覆盖层要等 box 才渲染，见 JSX）：否则会死锁——
+  // 没有 box 就不渲染 textarea，而 effect 又要求 textarea 存在才继续。
   // 依赖只有 unitIndex —— 若把 initialCaret 也算进来，效果会重跑并把「已隐藏」的状态
   // 当成原状记下来，卸载时就还原不回原样了。
   useLayoutEffect(() => {
     committedRef.current = false; // 新激活周期：提交闸门复位（裁定 F22）
     const target = resolveTarget(unitIndex);
-    const textarea = textareaRef.current;
     // 降级路径共用：覆盖层不留任何内联样式（含自增高写过的高度）
     const dropOverlay = () => {
+      const textarea = textareaRef.current;
       if (textarea) textarea.style.height = "";
       setBox(null);
     };
 
-    if (!target || !textarea) {
+    if (!target) {
       // 标记丢失（如热重载后）时不得沿用上一个块的盒（裁定 F21③）
       dropOverlay();
       return;
@@ -108,13 +110,6 @@ export function BlockEditor({
     const targetRect = target.getBoundingClientRect();
     targetRef.current = target;
     lockedHeightRef.current = targetRect.height;
-    // 行高按**该块渲染态实测值**对齐（不写死）：段落 / 标题 / 列表项的行高各不相同，
-    // 不按块测量就会让盒高与首行基线一起漂移（单行块表现为「字往上跳 + 下面留白」）。
-    // 由 CSS 提供 fallback，这里的内联值优先。
-    const renderedLineHeight = window.getComputedStyle(target).lineHeight;
-    if (renderedLineHeight && renderedLineHeight !== "normal") {
-      textarea.style.lineHeight = renderedLineHeight;
-    }
     target.style.visibility = "hidden";
     target.style.overflow = "hidden";
     target.style.height = `${targetRect.height}px`;
@@ -138,13 +133,23 @@ export function BlockEditor({
     };
   }, [unitIndex]);
 
-  // ② 自增高：必须在 ① 的 box 已经写进 DOM 之后测量（裁定 F19 / 审查 Minor-9），
+  // ② 覆盖层度量：必须在 ① 的 box 已写进 DOM、且覆盖层已挂载之后（裁定 F19 / 审查 Minor-9），
   // 否则读到的是 textarea 还在普通流、宽度未定时的换行结果。
+  // 行高也在这里按**该块渲染态实测值**对齐（不写死）：段落 / 标题 / 列表项行高各不相同，
+  // 不按块测量就会让盒高与首行基线一起漂移（单行块表现为「字往上跳 + 下面留白」）；
+  // 必须先设行高再量高，否则量到的是旧度量的高度。
   useLayoutEffect(() => {
     if (!box) return;
+    const textarea = textareaRef.current;
+    const target = targetRef.current;
+    if (textarea && target) {
+      const renderedLineHeight = window.getComputedStyle(target).lineHeight;
+      if (renderedLineHeight && renderedLineHeight !== "normal") {
+        textarea.style.lineHeight = renderedLineHeight;
+      }
+    }
     syncHeight();
     const observer = new ResizeObserver(syncHeight);
-    const textarea = textareaRef.current;
     if (textarea) observer.observe(textarea);
     return () => observer.disconnect();
   }, [box, syncHeight]);
@@ -152,13 +157,17 @@ export function BlockEditor({
   // 挂载/换块时定位光标；不在 value 变化时重定位，否则打字会跳光标。
   // 裁定 F5b：不设「挂载期失焦守卫」—— 焦点就在这里一次性设置，不产生多余 blur，
   // 而守卫会把真实失焦（提交路径之一）一起吞掉。
+  // 依赖包含 box：覆盖层在 box 就绪前不渲染（见 JSX），故必须在盒应用后（重跑）才能 focus。
+  // **preventScroll 是必须的**：若在盒尚未应用时 focus，textarea 还停在内容末尾的静态位置，
+  // 浏览器会为把焦点元素滚入视野而**把整篇滚到底**（真机复现：点第一块 → scrollTop 直达底部；
+  // 且该位置会被阅读位置记忆记住，下次打开也在底部）。
   useEffect(() => {
     const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.focus();
+    if (!textarea || !box) return;
+    textarea.focus({ preventScroll: true });
     const caret = Math.max(0, Math.min(initialCaret, textarea.value.length));
     textarea.setSelectionRange(caret, caret);
-  }, [unitIndex, initialCaret]);
+  }, [unitIndex, initialCaret, box]);
 
   /// Esc / Ctrl+S / 失焦共用的一次性提交信号（裁定 F22）：上层提交是异步的，
   /// 组件在上层完成前仍挂载，没有闸门时一次编辑会走两遍提交。
@@ -167,6 +176,10 @@ export function BlockEditor({
     committedRef.current = true;
     onCommit();
   }, [onCommit]);
+
+  // 盒未就绪（解析失败 / 宿主缺失）时**不渲染**覆盖层：若把 textarea 先挂进文档，
+  // 它是绝对定位但无 top/left，会停在内容末尾的静态位置，任何 focus 都会把整篇滚到底。
+  if (!box) return null;
 
   return (
     <textarea
@@ -179,9 +192,7 @@ export function BlockEditor({
       rows={1}
       value={value}
       spellCheck={false}
-      style={
-        box ? { top: box.top, left: box.left, width: box.width, minHeight: box.minHeight } : undefined
-      }
+      style={{ top: box.top, left: box.left, width: box.width, minHeight: box.minHeight }}
       onChange={(event) => {
         onChange(event.target.value);
         syncHeight();
