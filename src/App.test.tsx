@@ -22,13 +22,30 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(() => Promise.resolve(() => {})),
 }));
 
+// 窗口实例与关窗处理器需可被用例断言：mock 工厂在 import 期执行，
+// 故用 vi.hoisted 提前建桶（否则工厂运行时常量还在 TDZ）
+const windowMock = vi.hoisted(() => ({
+  closeHandlers: [] as Array<(event: { preventDefault: () => void }) => void | Promise<void>>,
+  instances: [] as Array<{ close: ReturnType<typeof vi.fn> }>,
+}));
+
 vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: vi.fn(() => ({
-    minimize: vi.fn(),
-    toggleMaximize: vi.fn(),
-    close: vi.fn(),
-    show: vi.fn(() => Promise.resolve()),
-  })),
+  getCurrentWindow: vi.fn(() => {
+    const instance = {
+      minimize: vi.fn(),
+      toggleMaximize: vi.fn(),
+      close: vi.fn(),
+      show: vi.fn(() => Promise.resolve()),
+      onCloseRequested: vi.fn(
+        (handler: (event: { preventDefault: () => void }) => void | Promise<void>) => {
+          windowMock.closeHandlers.push(handler);
+          return Promise.resolve(() => {});
+        }
+      ),
+    };
+    windowMock.instances.push(instance);
+    return instance;
+  }),
 }));
 
 const lastOpenedGet = vi.fn(() => Promise.resolve<string | undefined>(undefined));
@@ -85,6 +102,8 @@ beforeEach(() => {
   lastOpenedGet.mockResolvedValue(undefined);
   vi.mocked(listen).mockReset();
   vi.mocked(listen).mockResolvedValue(() => {});
+  windowMock.closeHandlers.length = 0;
+  windowMock.instances.length = 0;
 });
 
 afterEach(() => {
@@ -1572,4 +1591,304 @@ describe("App outline integration", () => {
       backendInvoke.mock.calls.filter(([command]) => command === "register_widget")
     ).toHaveLength(1);
   });
+});
+
+// ===== 块级就地编辑接线（Task 6） =====
+
+function blockEditorInput(): HTMLTextAreaElement | null {
+  return document.querySelector<HTMLTextAreaElement>("textarea.block-editor__input");
+}
+
+/// 该事件的监听在挂载时注册（不是本次测试设的 mockImplementation），
+/// 因此必须从 listen 的调用记录里取处理器 —— 否则拿到 undefined，用例会变成
+/// 「回调从未触发」的空断言。
+function fileChangedHandler(): (payload: unknown) => void {
+  const call = vi.mocked(listen).mock.calls.find(([event]) => event === "file-changed");
+  expect(call).toBeTruthy();
+  return call![1] as (payload: unknown) => void;
+}
+
+async function enterEditingView(): Promise<void> {
+  fireEvent.keyDown(window, { key: "e", ctrlKey: true });
+  await waitFor(() => expect(document.querySelector("[data-vellum-unit]")).not.toBeNull());
+}
+
+async function activateBlockText(text: string): Promise<HTMLTextAreaElement> {
+  fireEvent.click(screen.getByText(text));
+  return waitFor(() => {
+    const textarea = blockEditorInput();
+    expect(textarea).not.toBeNull();
+    return textarea!;
+  });
+}
+
+test("Ctrl+E 进入编辑视图，点击块激活就地编辑，提交后落盘", async () => {
+  await loadDocument();
+  await enterEditingView();
+
+  // 编辑视图标记：正文 article 与覆盖层宿主都要带编辑态类名
+  expect(document.querySelector(".markdown-body--editing")).not.toBeNull();
+  expect(document.querySelector(".document-scroll__content--editing")).not.toBeNull();
+
+  const textarea = await activateBlockText("Body text.");
+  // 草稿即块原文（覆盖层宿主是 .document-scroll__content 的直接子元素）
+  expect(textarea.value).toBe("Body text.");
+  expect(textarea.parentElement).toHaveClass("document-scroll__content");
+
+  fireEvent.change(textarea, { target: { value: "Body text edited." } });
+  fireEvent.keyDown(textarea, { key: "Escape" });
+
+  await waitFor(() =>
+    expect(backendInvoke).toHaveBeenCalledWith("save_document", {
+      path: loadedDoc.path,
+      content: expect.stringContaining("Body text edited."),
+    })
+  );
+  // 提交后覆盖层卸载，正文更新
+  await waitFor(() => expect(blockEditorInput()).toBeNull());
+  expect(screen.getByText("Body text edited.")).toBeInTheDocument();
+});
+
+test("mdlog 记录中不得进入编辑视图", async () => {
+  backendInvoke.mockImplementation(async (command: string) => {
+    if (command === "load_document") return loadedDoc;
+    if (command === "read_mdlog_state") {
+      return { lastWriteAt: 1, heartbeatAt: Date.now(), expiresAt: Date.now() + 60_000 };
+    }
+    return undefined;
+  });
+  vi.mocked(open).mockResolvedValueOnce(loadedDoc.path);
+
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+  await waitFor(() => expect(screen.getByText("记录中 · PI")).toBeInTheDocument());
+
+  fireEvent.keyDown(window, { key: "e", ctrlKey: true });
+
+  expect(document.querySelector("textarea.block-editor__input")).toBeNull();
+  expect(document.querySelector(".markdown-body--editing")).toBeNull();
+  expect(screen.getByText("记录中 · 断开连接后才能修改")).toBeInTheDocument();
+
+  // 记录中点击正文块同样不得激活覆盖层
+  fireEvent.click(screen.getByText("Body text."));
+  expect(document.querySelector("textarea.block-editor__input")).toBeNull();
+});
+
+test("全局 Ctrl+S 拦截 WebView 默认保存并在有活动块时提交", async () => {
+  await loadDocument();
+
+  // 阅读视图（无活动块）：仍须吞掉 WebView 自带的「保存网页」对话框
+  expect(fireEvent.keyDown(window, { key: "s", ctrlKey: true })).toBe(false);
+  expect(backendInvoke).not.toHaveBeenCalledWith("save_document", expect.anything());
+
+  await enterEditingView();
+  const textarea = await activateBlockText("Body text.");
+  fireEvent.change(textarea, { target: { value: "Body text via keyboard." } });
+
+  // 焦点不在编辑框、按在 window 上也要能提交（F6：全局兜底）
+  expect(fireEvent.keyDown(window, { key: "s", ctrlKey: true })).toBe(false);
+  await waitFor(() =>
+    expect(backendInvoke).toHaveBeenCalledWith("save_document", {
+      path: loadedDoc.path,
+      content: expect.stringContaining("Body text via keyboard."),
+    })
+  );
+});
+
+test("自己的写入回声不触发「墨迹未干」印章", async () => {
+  await loadDocument();
+  const fileChanged = fileChangedHandler();
+
+  await enterEditingView();
+  const textarea = await activateBlockText("Body text.");
+  fireEvent.change(textarea, { target: { value: "Body text edited." } });
+  fireEvent.keyDown(textarea, { key: "Escape" });
+  await waitFor(() =>
+    expect(backendInvoke).toHaveBeenCalledWith("save_document", {
+      path: loadedDoc.path,
+      content: expect.stringContaining("Body text edited."),
+    })
+  );
+
+  // 模拟我方写入引发的 watcher 回声：磁盘内容与最近一次落盘内容一致
+  backendInvoke.mockImplementation((command: string) =>
+    command === "load_document"
+      ? Promise.resolve({ ...loadedDoc, markdown: "# Intro\n\n## Section\n\nBody text edited." })
+      : Promise.resolve(undefined)
+  );
+  await act(async () => {
+    fileChanged({ payload: {} });
+  });
+
+  expect(screen.queryByText("墨迹未干")).toBeNull();
+  expect(document.querySelector(".document-content")).not.toHaveClass("fresh-ink");
+});
+
+test("外部变更不误判为回声：照常热重载并提示编辑已取消", async () => {
+  await loadDocument();
+  const fileChanged = fileChangedHandler();
+
+  await enterEditingView();
+  const textarea = await activateBlockText("Body text.");
+  fireEvent.change(textarea, { target: { value: "Body text edited." } });
+  fireEvent.keyDown(textarea, { key: "Escape" });
+  await waitFor(() =>
+    expect(backendInvoke).toHaveBeenCalledWith("save_document", {
+      path: loadedDoc.path,
+      content: expect.stringContaining("Body text edited."),
+    })
+  );
+
+  // 磁盘内容与我方最近写入不同 ⇒ 外部变更：必须热重载（印章照闪）
+  backendInvoke.mockImplementation((command: string) =>
+    command === "load_document"
+      ? Promise.resolve({
+          ...loadedDoc,
+          markdown: "# Intro\n\n## Section\n\nBody text from elsewhere.",
+        })
+      : Promise.resolve(undefined)
+  );
+  await act(async () => {
+    fileChanged({ payload: {} });
+  });
+
+  await waitFor(() =>
+    expect(screen.getByText("Body text from elsewhere.")).toBeInTheDocument()
+  );
+  expect(screen.getByText("文件已被外部修改 · 编辑已取消")).toBeInTheDocument();
+  expect(screen.getByText("墨迹未干")).toBeInTheDocument();
+});
+
+test("保存失败后退回阅读视图不留下孤悬覆盖层，草稿可再进编辑视图找回", async () => {
+  await loadDocument();
+  await enterEditingView();
+  const textarea = await activateBlockText("Body text.");
+  fireEvent.change(textarea, { target: { value: "Body text edited." } });
+
+  // 落盘失败 ⇒ hook 回退内存并重新激活同一块（裁定 F24），但 toggleView 仍会退回阅读视图（I3）
+  backendInvoke.mockImplementationOnce(() => Promise.reject("磁盘只读"));
+  fireEvent.keyDown(window, { key: "e", ctrlKey: true });
+
+  await waitFor(() => expect(screen.getByText("保存失败：磁盘只读")).toBeInTheDocument());
+  // 界面保持一致：覆盖层与编辑态类名一起消失（units 已为空，留着覆盖层就没有定位基准）
+  expect(blockEditorInput()).toBeNull();
+  expect(document.querySelector(".document-scroll__content--editing")).toBeNull();
+  expect(screen.getByText("Body text.")).toBeInTheDocument();
+
+  // 但草稿没有丢：再进编辑视图即原样带回
+  await enterEditingView();
+  const restored = await waitFor(() => {
+    const element = blockEditorInput();
+    expect(element).not.toBeNull();
+    return element!;
+  });
+  expect(restored.value).toBe("Body text edited.");
+});
+
+test("编辑中 mdlog 变活跃：草稿尽力写入剪贴板、中断编辑并退回阅读视图", async () => {
+  const writeText = vi.fn(() => Promise.resolve());
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText },
+  });
+
+  await loadDocument();
+  await enterEditingView();
+  const textarea = await activateBlockText("Body text.");
+  fireEvent.change(textarea, { target: { value: "Body text edited." } });
+
+  // 记录建立：sidecar 状态经事件上报（不必等轮询到期）
+  backendInvoke.mockImplementation(async (command: string) => {
+    if (command === "load_document") return loadedDoc;
+    if (command === "read_mdlog_state") {
+      return { lastWriteAt: 1, heartbeatAt: Date.now(), expiresAt: Date.now() + 60_000 };
+    }
+    return undefined;
+  });
+  const stateChangedCall = vi
+    .mocked(listen)
+    .mock.calls.find(([event]) => event === "mdlog-state-changed");
+  await act(async () => {
+    (stateChangedCall![1] as (payload: unknown) => void)({ payload: {} });
+  });
+
+  await waitFor(() => expect(screen.getByText("记录中 · PI")).toBeInTheDocument());
+  expect(screen.getByText(/编辑已取消/)).toBeInTheDocument();
+  expect(writeText).toHaveBeenCalledWith("Body text edited.");
+  expect(blockEditorInput()).toBeNull();
+  expect(document.querySelector(".document-scroll__content--editing")).toBeNull();
+  expect(document.querySelector(".markdown-body--editing")).toBeNull();
+
+  delete (navigator as unknown as { clipboard?: unknown }).clipboard;
+});
+
+test("关窗请求：有未提交草稿时先落盘再关闭，无活动块时放行", async () => {
+  // 提交会触发重渲染（顶栏等再次 getCurrentWindow），故按全部实例统计 close 调用
+  const closeCalls = () =>
+    windowMock.instances.reduce((total, instance) => total + instance.close.mock.calls.length, 0);
+
+  await loadDocument();
+
+  // 无活动块：放行原生关闭（不拦截、不发起第二次关闭）
+  const idleEvent = { preventDefault: vi.fn() };
+  expect(windowMock.closeHandlers.length).toBeGreaterThan(0);
+  await act(async () => {
+    await windowMock.closeHandlers[windowMock.closeHandlers.length - 1]!(idleEvent);
+  });
+  expect(idleEvent.preventDefault).not.toHaveBeenCalled();
+  expect(closeCalls()).toBe(0);
+
+  // 有未提交草稿：拦下本次关闭 → 提交落盘 → 提交完成后重新发起关闭
+  await enterEditingView();
+  const textarea = await activateBlockText("Body text.");
+  fireEvent.change(textarea, { target: { value: "Body text edited." } });
+
+  const event = { preventDefault: vi.fn() };
+  await act(async () => {
+    await windowMock.closeHandlers[windowMock.closeHandlers.length - 1]!(event);
+  });
+  expect(event.preventDefault).toHaveBeenCalledTimes(1);
+  await waitFor(() =>
+    expect(backendInvoke).toHaveBeenCalledWith("save_document", {
+      path: loadedDoc.path,
+      content: expect.stringContaining("Body text edited."),
+    })
+  );
+  await waitFor(() => expect(closeCalls()).toBe(1));
+});
+
+test("切换文档前先提交活动块：草稿落回原文档，不写进新文档", async () => {
+  await loadDocument();
+  await enterEditingView();
+  const textarea = await activateBlockText("Body text.");
+  fireEvent.change(textarea, { target: { value: "Body text edited." } });
+
+  // 未经失焦的切换（OS 关联 / 第二实例深链走 loadPath）：jsdom 的 click 不会移焦，
+  // 因此这条用例只可能由 loadPath 的「先提交」满足
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/other.md");
+  backendInvoke.mockImplementation(async (command: string) => {
+    if (command === "load_document") {
+      return {
+        path: "C:/notes/other.md",
+        fileName: "other.md",
+        parentPath: "C:/notes",
+        markdown: "# Other\n\nBody text elsewhere.",
+      };
+    }
+    return undefined;
+  });
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Other" })).toBeInTheDocument());
+
+  expect(backendInvoke).toHaveBeenCalledWith("save_document", {
+    path: loadedDoc.path,
+    content: expect.stringContaining("Body text edited."),
+  });
+  const savedPaths = backendInvoke.mock.calls
+    .filter(([command]) => command === "save_document")
+    .map(([, args]) => (args as { path: string }).path);
+  expect(savedPaths).toEqual([loadedDoc.path]);
+  // 覆盖层随提交清场，新文档以阅读渲染呈现
+  expect(blockEditorInput()).toBeNull();
+  expect(screen.getByText("Body text elsewhere.")).toBeInTheDocument();
 });

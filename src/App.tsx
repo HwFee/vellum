@@ -3,12 +3,14 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { BlockEditor } from "./components/BlockEditor";
 import { CustomScrollbar } from "./components/CustomScrollbar";
 import { EmptyState } from "./components/EmptyState";
 import { ErrorState } from "./components/ErrorState";
 import { JumpToBottom } from "./components/JumpToBottom";
 import { OutlinePanel } from "./components/OutlinePanel";
 import { TopBar } from "./components/TopBar";
+import { useDocumentEditor } from "./hooks/useDocumentEditor";
 import { useIsNarrow } from "./hooks/useIsNarrow";
 import { useOutlineOpen } from "./hooks/useOutlineOpen";
 import { useOutlineSync } from "./hooks/useOutlineSync";
@@ -49,6 +51,11 @@ export default function App() {
   const contentRef = useRef<HTMLDivElement>(null);
   const documentContentRef = useRef<HTMLDivElement>(null);
   const currentPathRef = useRef<string | null>(null);
+  // 最近一次我方写入的内容（LF 归一）：file-changed 回声据此比对（规格 §7.2）
+  const lastSavedMarkdownRef = useRef<string | null>(null);
+  // 编辑会话（在 activeDocument 之后创建）：回调与 effect 经此读到最新一份，
+  // 既避免闭包过期，也让传给 memo 化 MarkdownDocument 的回调保持引用稳定
+  const editorRef = useRef<ReturnType<typeof useDocumentEditor> | null>(null);
   const pendingScrollRef = useRef<number | null>(null);
   // 热重载视口锚点：重载前记录的视口首个可见块元素及其相对偏移，
   // 渲染提交后按元素新位置补偿 scrollTop（内容不动），元素丢失时退回 pendingScrollRef 像素兜底
@@ -128,10 +135,28 @@ export default function App() {
     setMatchCount(count);
   }, []);
 
-  // ⌘K / Ctrl+K 聚焦搜索框
+  // 全局快捷键：⌘K / Ctrl+K 聚焦搜索框，Ctrl+E 切换编辑视图，Ctrl+S 提交当前块。
+  // 依赖里只有侧栏开关（其余经 editorRef/callback ref 读取），热重载与每次按键都不重新订阅。
   useEffect(() => {
-    function handleSearchShortcut(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+    function handleGlobalShortcut(event: KeyboardEvent) {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      const key = event.key.toLowerCase();
+
+      // Ctrl+S（裁定 F6）：阅读视图下也必须吞掉 WebView 自带的「保存网页」默认行为；
+      // 无活动块时 commitActive 为 no-op
+      if (key === "s") {
+        event.preventDefault();
+        void editorRef.current?.commitActive();
+        return;
+      }
+
+      if (key === "e") {
+        event.preventDefault();
+        void editorRef.current?.toggleView();
+        return;
+      }
+
+      if (key === "k") {
         event.preventDefault();
         if (!isOutlineOpen) {
           setIsOutlineOpen(true);
@@ -140,8 +165,8 @@ export default function App() {
         setTimeout(() => searchInputRef.current?.focus(), 60);
       }
     }
-    window.addEventListener("keydown", handleSearchShortcut);
-    return () => window.removeEventListener("keydown", handleSearchShortcut);
+    window.addEventListener("keydown", handleGlobalShortcut);
+    return () => window.removeEventListener("keydown", handleGlobalShortcut);
   }, [isOutlineOpen, setIsOutlineOpen]);
 
   const scheduleRecheck = useCallback((liveState: MdlogState | null) => {
@@ -186,6 +211,10 @@ export default function App() {
   }
 
   async function loadPath(path: string) {
+    // 切换文档前先提交活动块（规格 §6.3）：经 OS 关联/第二实例深链切文档时没有失焦事件，
+    // 不先提交就会把上一篇的草稿按「同序号块」拼进新文档（写到错的文件里）。
+    // 提交口失败时 hook 会保留草稿与活动块，此处只是尽力提交。
+    await editorRef.current?.commitActive();
     // 同路径重新打开（第二实例深链 drain_pending_open_paths 命中当前文档，或用户再次
     // 选中同一文件）：绝不能走 loading 帧——ready 分支整体卸载会销毁所有 widget iframe
     // 并丢失正在进行的交互状态。改走静默热重载（reloadCurrent 内部复用当前路径，
@@ -251,7 +280,8 @@ export default function App() {
   }
 
   /// 热重载：静默重新读取当前文档，不闪烁 loading 态、不弹错误、保留滚动位置。
-  async function reloadCurrent() {
+  /// preloaded：调用方已读到的磁盘内容（回声抑制的预读），避免同一事件读盘两次
+  async function reloadCurrent(preloaded?: LoadedDocument) {
     const path = currentPathRef.current;
     if (!path) return;
     // 布局过渡窗内延迟合并提交：窗内多次追加只保留最后一次重载，
@@ -267,7 +297,7 @@ export default function App() {
     }
     const requestId = ++loadRequestRef.current;
     try {
-      const document = await invoke<LoadedDocument>("load_document", { path });
+      const document = preloaded ?? (await invoke<LoadedDocument>("load_document", { path }));
       if (loadRequestRef.current !== requestId) return;
       const container = scrollRef.current;
       // mdlog 记录期间模型每次追加都会触发热重载：禁止吸底跟随，
@@ -310,6 +340,7 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
+    let unlistenClose: (() => void) | undefined;
     let shown = false;
 
     async function revealWindow() {
@@ -346,6 +377,21 @@ export default function App() {
       }
       unlisten = unlistenFn;
 
+      // 关窗前先提交活动块（规格 §6.3）：有未提交草稿时拦下本次关闭，提交完成后再关；
+      // 无活动块则放行原生关闭。经 editorRef 读最新会话，避免闭包过期
+      const closeUnlisten = await getCurrentWindow().onCloseRequested(async (event) => {
+        const current = editorRef.current;
+        if (!current || !current.activeUnit) return;
+        event.preventDefault();
+        await current.commitActive();
+        void getCurrentWindow().close();
+      });
+      if (cancelled) {
+        closeUnlisten();
+      } else {
+        unlistenClose = closeUnlisten;
+      }
+
       await drainPendingPaths();
       if (!openRequestSeenRef.current && !startupLoaded.current) {
         startupLoaded.current = true;
@@ -375,17 +421,40 @@ export default function App() {
     return () => {
       cancelled = true;
       unlisten?.();
+      unlistenClose?.();
     };
   }, []);
 
-  // 监听后端文件变更事件，触发静默热重载
+  // 监听后端文件变更事件：先分流「我方写入回声 / 外部变更」，再决定是否热重载
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
 
+    /// 外部变更分流（规格 §7.2）：file-changed 到达时先读盘，并与「最近一次我方写入」
+    /// 按归一 EOL 比对——相等即自己的回声，整体忽略（不更新状态、不递增 reloadTick、
+    /// 不闪印章、不做滚动补偿）；不等则属外部变更，中断当前编辑后走既有热重载路径。
+    /// 经 editorRef 读最新会话：否则首次渲染的闭包会把中断当成无事发生（M11）。
+    async function reloadIfExternal() {
+      const path = currentPathRef.current;
+      if (!path) return;
+      try {
+        const latest = await invoke<LoadedDocument>("load_document", { path });
+        // 预读期间可能已切换文档/卸载：作废本次分流
+        if (cancelled || currentPathRef.current !== path) return;
+        const normalized = latest.markdown.replace(/\r\n/g, "\n");
+        if (lastSavedMarkdownRef.current !== null && normalized === lastSavedMarkdownRef.current) {
+          return; // 自己的写入回声：整体忽略
+        }
+        editorRef.current?.notifyInterrupted("文件已被外部修改 · 编辑已取消");
+        await reloadCurrent(latest);
+      } catch {
+        // 读失败：保留旧内容
+      }
+    }
+
     async function bindReload() {
       const unlistenFn = await listen("file-changed", () => {
-        void reloadCurrent();
+        void reloadIfExternal();
       });
       if (cancelled) {
         unlistenFn();
@@ -403,6 +472,47 @@ export default function App() {
   }, []);
 
   const activeDocument = state.status === "ready" ? state.document : undefined;
+
+  /// 文档 markdown 的唯一写入点：提交新内容与失败回退都经此，保持引用稳定
+  const applyMarkdown = useCallback((next: string) => {
+    setState((previous) =>
+      previous.status === "ready"
+        ? { ...previous, document: { ...previous.document, markdown: next } }
+        : previous
+    );
+  }, []);
+
+  /// 落盘（提交即落盘，规格 §7.1）：写成功后记录本次内容，作为 watcher 回声的比对基准。
+  /// 比对按 LF 归一口径（规格 §7.2），故记录前先归一 —— 否则 CRLF 文档下自己的回声
+  /// 永远匹配不上，每次提交都会白闪一次「墨迹未干」并触发整篇重读。
+  const saveMarkdown = useCallback(async (next: string) => {
+    const path = currentPathRef.current;
+    if (!path) throw new Error("No document is loaded");
+    await invoke("save_document", { path, content: next });
+    lastSavedMarkdownRef.current = next.replace(/\r\n/g, "\n");
+  }, []);
+
+  const editor = useDocumentEditor({
+    markdown: activeDocument?.markdown ?? "",
+    mdlogActive: isMdlogActive,
+    onMarkdownChange: applyMarkdown,
+    save: saveMarkdown,
+  });
+  editorRef.current = editor;
+
+  // 传给 memo 化 MarkdownDocument 的回调必须引用稳定（性能结构约束）：
+  // 用空依赖 + editorRef 读最新会话，避免每次按键/每次状态变化都换新引用
+  const handleActivateUnit = useCallback((index: number, caretOffset: number) => {
+    editorRef.current?.activateUnit(index, caretOffset);
+  }, []);
+
+  const handleToggleEdit = useCallback(() => {
+    void editorRef.current?.toggleView();
+  }, []);
+
+  const handleLockedUnitClick = useCallback((reason: "html" | "widget") => {
+    editorRef.current?.notifyLocked(reason);
+  }, []);
 
   // 切换文档时恢复上次阅读位置（无记录则回到顶部）。
   // 恢复时机放在 MarkdownDocument 内容渲染进 DOM 之后（onRendered），而非 state 变 ready 时：
@@ -623,6 +733,18 @@ export default function App() {
     prevIsMdlogActiveRef.current = isMdlogActive;
   }, [isMdlogActive]);
 
+  // mdlog 记录变活跃 ⇒ 编辑门禁全关（规格 §6.4）：先中断当前块编辑（草稿尽力写入剪贴板），
+  // 再退回阅读视图。经 editorRef 读最新会话，effect 只随门禁边沿触发
+  useEffect(() => {
+    if (!isMdlogActive) return;
+    const current = editorRef.current;
+    if (!current) return;
+    current.notifyInterrupted("记录已开始 · 编辑已取消");
+    if (current.viewMode === "editing") {
+      void current.toggleView();
+    }
+  }, [isMdlogActive]);
+
   // 窄屏下按 Escape 关闭大纲面板
   useEffect(() => {
     if (!isNarrow || !isOutlineOpen) return;
@@ -706,6 +828,9 @@ export default function App() {
         onOpen={handleOpen}
         isOutlineOpen={isOutlineOpen}
         onToggleOutline={toggleOutline}
+        isEditing={editor.viewMode === "editing"}
+        canEdit={!isMdlogActive}
+        onToggleEdit={handleToggleEdit}
       />
       <div className={`app-shell__body ${isOutlineOpen ? "app-shell__body--outline-open" : ""}`}>
         {/* 热重载提示（二）：印章，悬浮于窗口中下方、不随文档滚动；key 变化即重播 */}
@@ -714,6 +839,13 @@ export default function App() {
             墨迹未干
           </div>
         )}
+        {/* 编辑提示条（HTML/交互块只读、记录中禁用、保存失败）：与「墨迹未干」同一视觉语言，
+            由 App 层统一渲染 —— 不放进 memo 化的解析层，避免把提示状态带进正文渲染 */}
+        {editor.toast ? (
+          <div key={editor.toast.id} className="editor-toast" role="status">
+            {editor.toast.message}
+          </div>
+        ) : null}
         <aside className={`outline-sidebar ${isOutlineOpen ? "outline-sidebar--open" : ""}`}>
           <OutlinePanel
             headings={headings}
@@ -742,7 +874,13 @@ export default function App() {
           />
         )}
         <div ref={scrollRef} className="document-scroll" tabIndex={0}>
-          <div ref={contentRef} className="document-scroll__content">
+          <div
+            ref={contentRef}
+            className={
+              "document-scroll__content" +
+              (editor.viewMode === "editing" ? " document-scroll__content--editing" : "")
+            }
+          >
             <div ref={documentContentRef} className="document-content">
               {state.status === "empty" ? <EmptyState onOpen={handleOpen} /> : null}
               {state.status === "loading" ? (
@@ -762,6 +900,9 @@ export default function App() {
                       searchQueryPending={searchQueryPending}
                       activeMatchIndex={activeMatchIndex}
                       onMatchCountChange={handleMatchCountChange}
+                      editable={editor.viewMode === "editing"}
+                      onActivateUnit={handleActivateUnit}
+                      onLockedUnitClick={handleLockedUnitClick}
                     />
                   </Suspense>
                   {mdlogState !== null && (
@@ -770,6 +911,21 @@ export default function App() {
                 </>
               ) : null}
             </div>
+            {/* 就地编辑覆盖层：必须是 .document-scroll__content 的直接子元素（T3 的定位基准），
+                且与正文同级并列 —— 不放进 .markdown-body，避开其 textarea 规则的样式覆盖（裁定 F23）。
+                覆盖层与编辑态类名同一门槛（视图标志 + 活动块）：落盘失败后 toggleView 仍会退回阅读
+                视图（T4 未修 I3），但活动块已重新激活且草稿保留 —— 此时不能留下无标记可依的孤悬
+                覆盖层（units 为空、定位基准缺失），草稿由再按 Ctrl+E 原样带回 */}
+            {editor.viewMode === "editing" && editor.activeUnit ? (
+              <BlockEditor
+                unitIndex={editor.activeUnit.index}
+                value={editor.draft}
+                initialCaret={editor.initialCaret}
+                onChange={editor.updateDraft}
+                onCommit={() => void editor.commitActive()}
+                onCancel={() => void editor.commitActive()}
+              />
+            ) : null}
           </div>
         </div>
       </div>

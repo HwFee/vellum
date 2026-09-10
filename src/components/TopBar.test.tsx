@@ -25,4 +25,25 @@ describe("TopBar", () => {
     fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
     expect(handleToggle).toHaveBeenCalledTimes(1);
   });
+
+  it("toggles the edit view and reflects the editing state", () => {
+    const handleToggleEdit = vi.fn();
+    render(<TopBar onOpen={vi.fn()} isEditing canEdit onToggleEdit={handleToggleEdit} />);
+
+    const button = screen.getByRole("button", { name: "切换编辑视图" });
+    expect(button).toHaveAttribute("aria-pressed", "true");
+    expect(button).not.toBeDisabled();
+
+    fireEvent.click(button);
+    expect(handleToggleEdit).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables the edit toggle while mdlog logging is active", () => {
+    render(<TopBar onOpen={vi.fn()} canEdit={false} onToggleEdit={vi.fn()} />);
+
+    const button = screen.getByRole("button", { name: "切换编辑视图" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-pressed", "false");
+    expect(button).toHaveAttribute("title", "记录中 · 断开连接后才能修改");
+  });
 });
