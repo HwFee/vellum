@@ -73,46 +73,6 @@ export function useDocumentEditor({
     [markdown, mdlogActive, showToast, units]
   );
 
-  const commitActive = useCallback(async () => {
-    if (!activeUnit) return;
-    const original = toDraftText(markdown.slice(activeUnit.start, activeUnit.end));
-    if (draft === original) {
-      closeActive();
-      return;
-    }
-
-    const next = spliceUnit(markdown, activeUnit, draft);
-
-    // flushSync 让整篇重解析同步完成，才能量到真实的提交耗时（重文档标记的依据）
-    const startedAt = performance.now();
-    flushSync(() => onMarkdownChange(next));
-    const renderMs = performance.now() - startedAt;
-    if (renderMs > heavyCommitMs) setHeavyDoc(true);
-
-    closeActive();
-    try {
-      await save(next);
-    } catch (error) {
-      // 保存失败：草稿留在框里（重新激活同一块并保留草稿），让用户可重试
-      setDraft(draft);
-      setActiveUnitIndex(activeUnit.index);
-      showToast(`保存失败：${String(error)}`);
-    }
-  }, [activeUnit, closeActive, draft, heavyCommitMs, markdown, onMarkdownChange, save, showToast]);
-
-  const toggleView = useCallback(async () => {
-    if (viewMode === "editing") {
-      await commitActive();
-      setViewMode("reading");
-      return;
-    }
-    if (mdlogActive) {
-      showToast("记录中 · 断开连接后才能修改");
-      return;
-    }
-    setViewMode("editing");
-  }, [commitActive, mdlogActive, showToast, viewMode]);
-
   /// 中断路径共用：尽力把草稿写进剪贴板，然后取消编辑
   const notifyInterrupted = useCallback(
     (message: string) => {
@@ -126,6 +86,73 @@ export function useDocumentEditor({
     },
     [activeUnitIndex, closeActive, draft, showToast]
   );
+
+  const commitActive = useCallback(async () => {
+    // 提交口门禁（裁定 F25）：只拦入口不够 —— 激活块之后记录才建立时，
+    // Ctrl+S / 失焦 / toggleView 都会走到这里，必须同样禁止写入。
+    if (mdlogActive) {
+      notifyInterrupted("记录已开始，编辑已取消");
+      return;
+    }
+    if (!activeUnit) return;
+    const original = toDraftText(markdown.slice(activeUnit.start, activeUnit.end));
+    if (draft === original) {
+      closeActive();
+      return;
+    }
+
+    // 失败分支要按「本次提交前的块」重激活，故在此冻结索引与 caret
+    const unitIndex = activeUnit.index;
+    const caret = initialCaret;
+    const next = spliceUnit(markdown, activeUnit, draft);
+
+    // flushSync 让整篇重解析同步完成，才能量到真实的提交耗时（重文档标记的依据）
+    const startedAt = performance.now();
+    flushSync(() => onMarkdownChange(next));
+    const renderMs = performance.now() - startedAt;
+    // heavyDoc 有意保持粘性（裁定 F26）：它是「文档规模」属性而非瞬时值，
+    // 本会话内不回退 —— 观测到超阈值提交一次后即不再反复探测。
+    if (renderMs > heavyCommitMs) setHeavyDoc(true);
+
+    closeActive();
+    try {
+      await save(next);
+    } catch (error) {
+      // 失败路径（裁定 F24）：先把父级内存回退到本次提交前的 markdown，
+      // 让内存与磁盘重新一致（提交即落盘、落盘失败即回退），
+      // 再重新激活同一块并保留草稿与用户原点击的 caret，供其直接重试。
+      flushSync(() => onMarkdownChange(markdown));
+      setActiveUnitIndex(unitIndex);
+      setDraft(draft);
+      setInitialCaret(caret);
+      showToast(`保存失败：${String(error)}`);
+    }
+  }, [
+    activeUnit,
+    closeActive,
+    draft,
+    heavyCommitMs,
+    initialCaret,
+    markdown,
+    mdlogActive,
+    notifyInterrupted,
+    onMarkdownChange,
+    save,
+    showToast,
+  ]);
+
+  const toggleView = useCallback(async () => {
+    if (viewMode === "editing") {
+      await commitActive();
+      setViewMode("reading");
+      return;
+    }
+    if (mdlogActive) {
+      showToast("记录中 · 断开连接后才能修改");
+      return;
+    }
+    setViewMode("editing");
+  }, [commitActive, mdlogActive, showToast, viewMode]);
 
   const notifyLocked = useCallback(
     (reason: "html" | "widget") => {

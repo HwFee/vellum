@@ -1,8 +1,36 @@
 import { act, renderHook } from "@testing-library/react";
+import { useCallback, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { useDocumentEditor } from "./useDocumentEditor";
 
 const markdown = "# 标题\n\n第一段。\n\n第二段。\n";
+
+/// 可控父级：onMarkdownChange 真的改写喂回 hook 的 markdown 并触发重渲染，
+/// 复现真机接线（T6）下「flushSync 让父级同步吸收新 markdown」的语义 ——
+/// 审查 C1 的两个故障分支（结构变化时重复落盘 / 同内容时静默永不落盘）
+/// 只在父级 markdown 真的前进时出现，固定 prop 的 harness 看不见。
+function useControlledEditor(
+  initialMarkdown: string,
+  save: (next: string) => Promise<void>,
+  onChange?: (next: string) => void
+) {
+  const [markdownText, setMarkdownText] = useState(initialMarkdown);
+  const [mdlogActive, setMdlogActive] = useState(false);
+  const handleMarkdownChange = useCallback(
+    (next: string) => {
+      onChange?.(next);
+      setMarkdownText(next);
+    },
+    [onChange]
+  );
+  const editor = useDocumentEditor({
+    markdown: markdownText,
+    mdlogActive,
+    onMarkdownChange: handleMarkdownChange,
+    save,
+  });
+  return { editor, markdown: markdownText, setMdlogActive };
+}
 
 function setup(overrides: Partial<Parameters<typeof useDocumentEditor>[0]> = {}) {
   const onMarkdownChange = vi.fn();
@@ -120,6 +148,116 @@ describe("useDocumentEditor", () => {
 
     expect(result.current.toast?.message).toContain("保存失败");
     expect(result.current.draft).toBe("改过的第一段。");
+  });
+
+  // 裁定 F24（审查 C1）：失败路径必须先回退父级内存，再重激活同块并保留草稿与 caret（M8）
+  it("保存失败：先把父级 markdown 回退，再保留草稿与 caret", async () => {
+    const save = vi.fn(async (_next: string) => {}).mockRejectedValueOnce(new Error("拒绝写入"));
+    const onChange = vi.fn();
+    const changed = "# 标题\n\n改过的第一段。\n\n第二段。\n";
+
+    const { result } = renderHook(() => useControlledEditor(markdown, save, onChange));
+
+    act(() => {
+      result.current.editor.activateUnit(1, 5);
+    });
+    act(() => {
+      result.current.editor.updateDraft("改过的第一段。");
+    });
+    await act(async () => {
+      await result.current.editor.commitActive();
+    });
+
+    // 提交即落盘：内存先行到 next；落盘失败即回退 —— 且顺序必须是「先 next 再原 markdown」
+    expect(onChange.mock.calls.map((call) => call[0])).toEqual([changed, markdown]);
+    // 内存不长期领先磁盘
+    expect(result.current.markdown).toBe(markdown);
+    // 重新激活同一块，草稿仍是用户的修改文本（不是原文）
+    expect(result.current.editor.activeUnit?.index).toBe(1);
+    expect(result.current.editor.draft).toBe("改过的第一段。");
+    expect(result.current.editor.initialCaret).toBe(5);
+    expect(result.current.editor.toast?.message).toContain("保存失败");
+  });
+
+  it("保存失败后再次提交：只落盘一次且内容不重复", async () => {
+    const save = vi.fn(async (_next: string) => {}).mockRejectedValueOnce(new Error("拒绝写入"));
+    const firstCommit = "# 标题\n\n改过的第一段。\n\n新段。\n\n第二段。\n";
+
+    const { result } = renderHook(() => useControlledEditor(markdown, save));
+
+    act(() => {
+      result.current.editor.activateUnit(1, 0);
+    });
+    act(() => {
+      // 草稿改变了块结构（多出一个段落）—— 重试若按「新文本的同名索引」切片会重复写入
+      result.current.editor.updateDraft("改过的第一段。\n\n新段。");
+    });
+    await act(async () => {
+      await result.current.editor.commitActive();
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.editor.commitActive();
+    });
+
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(save.mock.calls[1][0]).toBe(firstCommit);
+    expect(save.mock.calls[1][0]).not.toContain("新段。\n\n新段。");
+    expect(result.current.editor.activeUnit).toBeNull();
+    expect(result.current.markdown).toBe(firstCommit);
+  });
+
+  it("保存失败后同内容重试仍会重新落盘，不静默吞掉", async () => {
+    const save = vi.fn(async (_next: string) => {}).mockRejectedValueOnce(new Error("拒绝写入"));
+    const changed = "# 标题\n\n改过的第一段。\n\n第二段。\n";
+
+    const { result } = renderHook(() => useControlledEditor(markdown, save));
+
+    act(() => {
+      result.current.editor.activateUnit(1, 0);
+    });
+    act(() => {
+      result.current.editor.updateDraft("改过的第一段。");
+    });
+    await act(async () => {
+      await result.current.editor.commitActive();
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.editor.commitActive();
+    });
+
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(save.mock.calls[1][0]).toBe(changed);
+    expect(result.current.editor.activeUnit).toBeNull();
+  });
+
+  // 裁定 F25（审查 I2）：mdlog 门禁必须落在提交口，而不只是 activateUnit / toggleView 入口
+  it("记录建立后提交被拦截：不落盘并取消编辑", async () => {
+    const save = vi.fn(async (_next: string) => {});
+    const onChange = vi.fn();
+
+    const { result } = renderHook(() => useControlledEditor(markdown, save, onChange));
+
+    act(() => {
+      result.current.editor.activateUnit(1, 0);
+    });
+    act(() => {
+      result.current.editor.updateDraft("改过的第一段。");
+    });
+    act(() => {
+      result.current.setMdlogActive(true);
+    });
+    await act(async () => {
+      await result.current.editor.commitActive();
+    });
+
+    expect(save).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+    expect(result.current.editor.activeUnit).toBeNull();
+    expect(result.current.editor.toast?.message).toContain("记录已开始");
   });
 
   // 跨任务一致性（裁定 F9b/F14）：上游 MD 点击回调按 LF 归一后的文本算 caret，
