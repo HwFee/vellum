@@ -25,11 +25,11 @@ npm run tauri        # Tauri CLI
 
 ### 仓库结构
 
-全局技能仓库：`C:/Users/17445/Desktop/HwFee-skills/.agents/skills/`
+全局技能仓库：`C:/Users/17445/Desktop/HwFee-skills/skills/`
 
-每个项目通过**符号链接**引用仓库中的技能，**不拷贝**。
+每个项目通过**目录联接**引用仓库中的技能，**不拷贝**（本地 `.pi/skills/<skill-name>` 均为联接，永不入库）。
 
-> **例外说明**：`vellum-mdlog` 为项目专属技能，以真实目录存放于 `.pi/skills/` 并随仓库版本化，**不迁入全局仓库**、**不使用符号联接**。理由：该技能包含针对 Vellum 交互沙箱协议、kami 设计 token 与 CommonMark 围栏规范的强绑定契约，随 Vellum 仓库一同分发版本管理，确保外部开发者 clone 本仓库后无需额外联接即可开箱即用。
+> 2026-09-10 记录：`vellum-mdlog` 已迁入全局仓库，本地仅保留目录联接。此前随本仓库版本化的真实目录（`.pi/skills/vellum-mdlog/`）已移除——此前「项目专属、不迁库、开箱即用」的例外不再成立，外部 clone 本仓库后需按「安装新技能」第 5 步重建联接。
 
 ### 安装新技能
 
@@ -41,11 +41,11 @@ npm run tauri        # Tauri CLI
    ```
 4. 将安装的技能目录**移动**到全局仓库：
    ```bash
-   mv .agents/skills/<skill-name> /c/Users/17445/Desktop/HwFee-skills/.agents/skills/
+   mv .agents/skills/<skill-name> /c/Users/17445/Desktop/HwFee-skills/skills/
    ```
 5. 从仓库创建目录联接（Windows 上 `ln -s` 不可靠，用 `mklink /J`）：
    ```bash
-   cmd //c "mklink /J .agents\\skills\\<skill-name> C:\\Users\\17445\\Desktop\\HwFee-skills\\.agents\\skills\\<skill-name>"
+   cmd //c "mklink /J .pi\\skills\\<skill-name> C:\\Users\\17445\\Desktop\\HwFee-skills\\skills\\<skill-name>"
    ```
 
 ### 已安装的技能（本项目）
@@ -58,7 +58,7 @@ npm run tauri        # Tauri CLI
 | `tauri-v2` | Tauri 2 架构、IPC 通信、插件与原生桌面事件开发规范 |
 | `web-artifacts-builder` | 交互式 HTML / React / 可视化 Artifacts 沙箱构建规范 |
 | `superpowers` | 工程化研发方法论套件（头脑风暴、TDD、系统化调试、执行计划、工作流规约） |
-| `vellum-mdlog` | Vellum 交互式 mdlog 日志生成与 `vellum-widget` 交互块编写规范（项目专属技能，随仓库版本化）；其「强调定界符跨汉字+括号」写法要求已于 2026-09 起降级为可移植性建议——渲染层由 remark-cjk-friendly 软件兼容（见「注意事项」） |
+| `vellum-mdlog` | Vellum 交互式 mdlog 日志生成与 `vellum-widget` 交互块编写规范（2026-09-10 起迁入全局仓库，本地为目录联接）；其「强调定界符跨汉字+括号」写法要求已于 2026-09 起降级为可移植性建议——渲染层由 remark-cjk-friendly 软件兼容（见「注意事项」） |
 
 ## 性能优化
 

@@ -39,6 +39,12 @@ nul
 
 # Project-local agent skills are junctions to the shared skill repo
 .agents/
+.pi/skills/
 
 # Local run logs / review prompts, never versioned
 outputs/
+
+# pi local runtime: session logs, delegate state, generated images
+.pi/delegate/
+.pi/tasks/
+.pi/generated-images/
