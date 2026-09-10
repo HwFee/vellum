@@ -23,25 +23,96 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 // 窗口实例与关窗处理器需可被用例断言：mock 工厂在 import 期执行，
-// 故用 vi.hoisted 提前建桶（否则工厂运行时常量还在 TDZ）
-const windowMock = vi.hoisted(() => ({
-  closeHandlers: [] as Array<(event: { preventDefault: () => void }) => void | Promise<void>>,
-  instances: [] as Array<{ close: ReturnType<typeof vi.fn> }>,
-}));
+// 故用 vi.hoisted 提前建桶（否则工厂运行时常量还在 TDZ）。
+//
+// 关窗语义必须与真机一致（@tauri-apps/api/window.js 的 onCloseRequested 包装层）：
+// close()/系统关闭按钮都会发出**可拦截的** closeRequested，处理器全部 resolve 后，
+// 若没有任何一处 preventDefault，包装层调用 destroy() 真正销毁窗口。
+// 审查 C1（落盘失败时「拦截 → close() → 再拦截」死循环）正是在
+// 「close() 是空 vi.fn()、不重发事件」的假语义下逃逸的，故这里必须回放处理器。
+type CloseHandler = (event: { preventDefault: () => void }) => void | Promise<void>;
+
+const windowMock = vi.hoisted(() => {
+  // 递归上限：把无限重试变成可断言的失败（recursion），而不是让用例挂死
+  const MAX_REPLAYS = 4;
+
+  const mock = {
+    closeHandlers: [] as CloseHandler[],
+    instances: [] as Array<{
+      close: ReturnType<typeof vi.fn>;
+      destroy: ReturnType<typeof vi.fn>;
+    }>,
+    /// 关窗请求被处理的次数（>1 即「close 重试」）
+    replays: 0,
+    /// 窗口真正被销毁的次数（未拦截的关窗各计一次）
+    destroyed: 0,
+    /// 是否触发了递归 close（C1 的死循环特征）
+    recursion: false,
+    /// 在途关窗链：fire-and-forget 的递归 close 也会挂进来，settle() 据此等到静止
+    chain: Promise.resolve() as Promise<void>,
+
+    async replay(): Promise<void> {
+      mock.replays += 1;
+      if (mock.replays > MAX_REPLAYS) {
+        mock.recursion = true;
+        return;
+      }
+      let prevented = false;
+      const event = {
+        preventDefault: () => {
+          prevented = true;
+        },
+      };
+      for (const handler of [...mock.closeHandlers]) {
+        await handler(event);
+      }
+      if (!prevented) {
+        mock.destroyed += 1;
+      }
+    },
+
+    /// 发出一次关窗请求（等价真机 close() / 系统关闭按钮）
+    requestClose(): Promise<void> {
+      mock.chain = mock.chain.then(() => mock.replay());
+      return mock.chain;
+    },
+
+    /// 等到所有在途关窗处理静止（含处理器内部 fire-and-forget 的递归 close）
+    async settle(): Promise<void> {
+      for (let i = 0; i < 64; i += 1) {
+        const current = mock.chain;
+        await current;
+        if (mock.chain === current) return;
+      }
+    },
+
+    reset() {
+      mock.closeHandlers.length = 0;
+      mock.instances.length = 0;
+      mock.replays = 0;
+      mock.destroyed = 0;
+      mock.recursion = false;
+      mock.chain = Promise.resolve();
+    },
+  };
+  return mock;
+});
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: vi.fn(() => {
     const instance = {
       minimize: vi.fn(),
       toggleMaximize: vi.fn(),
-      close: vi.fn(),
+      close: vi.fn(() => windowMock.requestClose()),
+      destroy: vi.fn(() => {
+        windowMock.destroyed += 1;
+        return Promise.resolve();
+      }),
       show: vi.fn(() => Promise.resolve()),
-      onCloseRequested: vi.fn(
-        (handler: (event: { preventDefault: () => void }) => void | Promise<void>) => {
-          windowMock.closeHandlers.push(handler);
-          return Promise.resolve(() => {});
-        }
-      ),
+      onCloseRequested: vi.fn((handler: CloseHandler) => {
+        windowMock.closeHandlers.push(handler);
+        return Promise.resolve(() => {});
+      }),
     };
     windowMock.instances.push(instance);
     return instance;
@@ -102,8 +173,7 @@ beforeEach(() => {
   lastOpenedGet.mockResolvedValue(undefined);
   vi.mocked(listen).mockReset();
   vi.mocked(listen).mockResolvedValue(() => {});
-  windowMock.closeHandlers.length = 0;
-  windowMock.instances.length = 0;
+  windowMock.reset();
 });
 
 afterEach(() => {
@@ -1330,7 +1400,9 @@ test("end-to-end: live mdlog lifecycle from bottom stickiness to disconnection r
   await waitFor(() => expect(screen.getByText("Manual edit by user.")).toBeInTheDocument());
   expect(screen.getByText("墨迹未干")).toBeInTheDocument();
 
-  // P5: 若印章正在显示时文件变为活跃 mdlog 并触发新 reloadTick，早退前必须立即隐藏印章，防止常驻
+  // P5: 若印章正在显示时文件变为活跃 mdlog 并触发新 reloadTick，早退前必须立即隐藏印章，防止常驻。
+  //（裁定 F30 后，与内存一致的内容会被当作「无变更」整体忽略、不产生 reloadTick，
+  //  故这里让磁盘内容真的变一下——等价于 mdlog 重连后的首次追加。）
   await act(async () => {
     liveState = {
       lastWriteAt: 1_000_000,
@@ -1342,6 +1414,7 @@ test("end-to-end: live mdlog lifecycle from bottom stickiness to disconnection r
     }
   });
 
+  currentDocMarkdown = "# Session Log\n\nManual edit by user.\n\nNew session turn.";
   await act(async () => {
     (fileChangedCall![1] as (payload: unknown) => void)({ payload: {} });
   });
@@ -1622,6 +1695,16 @@ async function activateBlockText(text: string): Promise<HTMLTextAreaElement> {
   });
 }
 
+/// App 自己调用 getCurrentWindow().close() 的次数。裁定 F33 要求成功路径不自行 close()
+/// （不 preventDefault 时 JS 包装层会 await 处理器后自行 destroy）；
+/// 失败路径更不能 close() —— 那正是 C1 的死循环。
+function selfCloseCalls(): number {
+  return windowMock.instances.reduce(
+    (total, instance) => total + instance.close.mock.calls.length,
+    0
+  );
+}
+
 test("Ctrl+E 进入编辑视图，点击块激活就地编辑，提交后落盘", async () => {
   await loadDocument();
   await enterEditingView();
@@ -1669,9 +1752,44 @@ test("mdlog 记录中不得进入编辑视图", async () => {
   expect(document.querySelector(".markdown-body--editing")).toBeNull();
   expect(screen.getByText("记录中 · 断开连接后才能修改")).toBeInTheDocument();
 
-  // 记录中点击正文块同样不得激活覆盖层
+  // 记录中点击正文块同样不得激活覆盖层。原断言（覆盖层仍为 null）是恒真的：
+  // editable=false 时正文根本没挂 data-vellum-unit，点击本来就不可能走到激活路径。
+  // 改为直接断言「块标记未挂载」—— 这才是顶栏禁用之外的门禁证据。
+  expect(document.querySelector("[data-vellum-unit]")).toBeNull();
   fireEvent.click(screen.getByText("Body text."));
   expect(document.querySelector("textarea.block-editor__input")).toBeNull();
+});
+
+test("mdlog 记录中无活动块时 Ctrl+S 不弹「记录已开始」", async () => {
+  backendInvoke.mockImplementation(async (command: string) => {
+    if (command === "load_document") return loadedDoc;
+    if (command === "read_mdlog_state") {
+      return { lastWriteAt: 1, heartbeatAt: Date.now(), expiresAt: Date.now() + 60_000 };
+    }
+    return undefined;
+  });
+  vi.mocked(open).mockResolvedValueOnce(loadedDoc.path);
+
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+  await waitFor(() => expect(screen.getByText("记录中 · PI")).toBeInTheDocument());
+
+  // F6 的全局兜底让 commitActive 在阅读态可达；无活动块时必须是静默 no-op
+  expect(fireEvent.keyDown(window, { key: "s", ctrlKey: true })).toBe(false);
+  expect(screen.queryByText(/记录已开始/)).toBeNull();
+  expect(document.querySelector(".editor-toast")).toBeNull();
+  expect(backendInvoke).not.toHaveBeenCalledWith("save_document", expect.anything());
+});
+
+test("空态按 Ctrl+E 不进入编辑视图（顶栏不呈按下态）", () => {
+  render(<App />);
+  fireEvent.keyDown(window, { key: "e", ctrlKey: true });
+
+  expect(document.querySelector(".document-scroll__content--editing")).toBeNull();
+  expect(screen.getByRole("button", { name: "切换编辑视图" })).toHaveAttribute(
+    "aria-pressed",
+    "false"
+  );
 });
 
 test("全局 Ctrl+S 拦截 WebView 默认保存并在有活动块时提交", async () => {
@@ -1724,6 +1842,85 @@ test("自己的写入回声不触发「墨迹未干」印章", async () => {
   expect(document.querySelector(".document-content")).not.toHaveClass("fresh-ink");
 });
 
+test("mdlog 记录中外部追加：静默热重载，不弹「文件已被外部修改」（裁定 F32）", async () => {
+  let currentDocMarkdown = "# Log\n\n第一段。";
+  backendInvoke.mockImplementation(async (command: string) => {
+    if (command === "load_document") {
+      return {
+        path: "C:/logs/pi.md",
+        fileName: "pi.md",
+        parentPath: "C:/logs",
+        markdown: currentDocMarkdown,
+      };
+    }
+    if (command === "read_mdlog_state") {
+      return { lastWriteAt: 1, heartbeatAt: Date.now(), expiresAt: Date.now() + 60_000 };
+    }
+    return undefined;
+  });
+  vi.mocked(open).mockResolvedValueOnce("C:/logs/pi.md");
+
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+  await waitFor(() => expect(screen.getByText("记录中 · PI")).toBeInTheDocument());
+
+  // 模型追加 ⇒ 常态的 file-changed：无人编辑，不得弹「编辑已取消」
+  const fileChanged = fileChangedHandler();
+  currentDocMarkdown = "# Log\n\n第一段。\n\n追加段。";
+  await act(async () => {
+    fileChanged({ payload: {} });
+  });
+
+  await waitFor(() => expect(screen.getByText("追加段。")).toBeInTheDocument());
+  expect(screen.queryByText("文件已被外部修改 · 编辑已取消")).toBeNull();
+  expect(document.querySelector(".editor-toast")).toBeNull();
+});
+
+test("外部改动回退：不再因旧落盘快照被当回声吞掉（裁定 F30）", async () => {
+  await loadDocument();
+  const fileChanged = fileChangedHandler();
+
+  await enterEditingView();
+  const textarea = await activateBlockText("Body text.");
+  fireEvent.change(textarea, { target: { value: "Body text edited." } });
+  fireEvent.keyDown(textarea, { key: "Escape" });
+  await waitFor(() =>
+    expect(backendInvoke).toHaveBeenCalledWith("save_document", {
+      path: loadedDoc.path,
+      content: expect.stringContaining("Body text edited."),
+    })
+  );
+
+  // ① 外部把文件改成别的内容 ⇒ 照常热重载
+  backendInvoke.mockImplementation((command: string) =>
+    command === "load_document"
+      ? Promise.resolve({
+          ...loadedDoc,
+          markdown: "# Intro\n\n## Section\n\nBody text from elsewhere.",
+        })
+      : Promise.resolve(undefined)
+  );
+  await act(async () => {
+    fileChanged({ payload: {} });
+  });
+  await waitFor(() => expect(screen.getByText("Body text from elsewhere.")).toBeInTheDocument());
+
+  // ② 外部又把文件改回「我方上次写入的内容」。按固定快照（lastSavedMarkdownRef）判回声的实现
+  //    会把它当成自己的回声整体忽略，视图永久停在 elsewhere；与内存 markdown 比对则认出
+  //    这是外部变更（内存 ≠ 磁盘），照常热重载。
+  backendInvoke.mockImplementation((command: string) =>
+    command === "load_document"
+      ? Promise.resolve({ ...loadedDoc, markdown: "# Intro\n\n## Section\n\nBody text edited." })
+      : Promise.resolve(undefined)
+  );
+  await act(async () => {
+    fileChanged({ payload: {} });
+  });
+
+  await waitFor(() => expect(screen.getByText("Body text edited.")).toBeInTheDocument());
+  expect(screen.queryByText("Body text from elsewhere.")).toBeNull();
+});
+
 test("外部变更不误判为回声：照常热重载并提示编辑已取消", async () => {
   await loadDocument();
   const fileChanged = fileChangedHandler();
@@ -1738,6 +1935,11 @@ test("外部变更不误判为回声：照常热重载并提示编辑已取消",
       content: expect.stringContaining("Body text edited."),
     })
   );
+
+  // 裁定 F32：中断提示只在确有编辑会话时出现 —— 重新激活一块并改草稿，
+  // 模拟「编辑进行中文件被外部改写」
+  const resumed = await activateBlockText("Body text edited.");
+  fireEvent.change(resumed, { target: { value: "Body text in progress." } });
 
   // 磁盘内容与我方最近写入不同 ⇒ 外部变更：必须热重载（印章照闪）
   backendInvoke.mockImplementation((command: string) =>
@@ -1822,39 +2024,62 @@ test("编辑中 mdlog 变活跃：草稿尽力写入剪贴板、中断编辑并�
   delete (navigator as unknown as { clipboard?: unknown }).clipboard;
 });
 
-test("关窗请求：有未提交草稿时先落盘再关闭，无活动块时放行", async () => {
-  // 提交会触发重渲染（顶栏等再次 getCurrentWindow），故按全部实例统计 close 调用
-  const closeCalls = () =>
-    windowMock.instances.reduce((total, instance) => total + instance.close.mock.calls.length, 0);
-
+test("关窗请求：有未提交草稿时先落盘，提交完成后由包装层销毁窗口", async () => {
   await loadDocument();
 
-  // 无活动块：放行原生关闭（不拦截、不发起第二次关闭）
-  const idleEvent = { preventDefault: vi.fn() };
+  // 无活动块：不拦截 ⇒ 包装层自行 destroy
   expect(windowMock.closeHandlers.length).toBeGreaterThan(0);
   await act(async () => {
-    await windowMock.closeHandlers[windowMock.closeHandlers.length - 1]!(idleEvent);
+    await windowMock.requestClose();
+    await windowMock.settle();
   });
-  expect(idleEvent.preventDefault).not.toHaveBeenCalled();
-  expect(closeCalls()).toBe(0);
+  expect(windowMock.replays).toBe(1);
+  expect(windowMock.destroyed).toBe(1);
+  // 成功路径不自行 close()（F33）：窗口销毁由包装层负责
+  expect(selfCloseCalls()).toBe(0);
 
-  // 有未提交草稿：拦下本次关闭 → 提交落盘 → 提交完成后重新发起关闭
+  // 有未提交草稿：拦下本次关闭的判定必须在提交之后 —— 提交成功则不拦截，包装层销毁窗口
   await enterEditingView();
   const textarea = await activateBlockText("Body text.");
   fireEvent.change(textarea, { target: { value: "Body text edited." } });
 
-  const event = { preventDefault: vi.fn() };
   await act(async () => {
-    await windowMock.closeHandlers[windowMock.closeHandlers.length - 1]!(event);
+    await windowMock.requestClose();
+    await windowMock.settle();
   });
-  expect(event.preventDefault).toHaveBeenCalledTimes(1);
-  await waitFor(() =>
-    expect(backendInvoke).toHaveBeenCalledWith("save_document", {
-      path: loadedDoc.path,
-      content: expect.stringContaining("Body text edited."),
-    })
+  expect(backendInvoke).toHaveBeenCalledWith("save_document", {
+    path: loadedDoc.path,
+    content: expect.stringContaining("Body text edited."),
+  });
+  expect(windowMock.replays).toBe(2);
+  expect(windowMock.destroyed).toBe(2);
+  expect(selfCloseCalls()).toBe(0);
+});
+
+test("关窗时落盘失败：窗口保持打开且不重试关闭（审查 C1）", async () => {
+  await loadDocument();
+  await enterEditingView();
+  const textarea = await activateBlockText("Body text.");
+  fireEvent.change(textarea, { target: { value: "Body text edited." } });
+
+  // 落盘必然失败（文件只读/被占用/目录被删等）：草稿必须留在框里让用户处理，
+  // 且绝不能自行 close() —— 真机上 close() 会重发 closeRequested，形成无限提交循环。
+  backendInvoke.mockImplementation((command: string) =>
+    command === "save_document" ? Promise.reject("磁盘只读") : Promise.resolve(undefined)
   );
-  await waitFor(() => expect(closeCalls()).toBe(1));
+
+  await act(async () => {
+    await windowMock.requestClose();
+    await windowMock.settle();
+  });
+
+  expect(windowMock.replays).toBe(1);
+  expect(windowMock.recursion).toBe(false);
+  expect(windowMock.destroyed).toBe(0);
+  // 失败路径绝不自行 close()（F33）：重发 closeRequested 就是 C1 的死循环
+  expect(selfCloseCalls()).toBe(0);
+  expect(screen.getByText("保存失败：磁盘只读")).toBeInTheDocument();
+  expect(blockEditorInput()?.value).toBe("Body text edited.");
 });
 
 test("切换文档前先提交活动块：草稿落回原文档，不写进新文档", async () => {

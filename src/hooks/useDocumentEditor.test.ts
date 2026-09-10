@@ -260,6 +260,94 @@ describe("useDocumentEditor", () => {
     expect(result.current.editor.toast?.message).toContain("记录已开始");
   });
 
+  // 裁定 F31（审查 I2）：提示条是 position: fixed 的覆盖层，必须有自动消失路径，
+  // 否则「保存失败 / 记录中禁用 / HTML 只读」会一直压在正文上，直到下一条提示顶掉。
+  it("提示条 2.4 秒后自动消失", () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = setup();
+      act(() => {
+        result.current.notifyLocked("html");
+      });
+      expect(result.current.toast?.message).toContain("HTML");
+
+      act(() => {
+        vi.advanceTimersByTime(2399);
+      });
+      expect(result.current.toast).not.toBeNull();
+
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(result.current.toast).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("新提示重置计时：每条提示都看满 2.4 秒", () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = setup();
+      act(() => {
+        result.current.notifyLocked("html");
+      });
+      act(() => {
+        vi.advanceTimersByTime(2000);
+      });
+      act(() => {
+        result.current.notifyLocked("widget");
+      });
+      act(() => {
+        vi.advanceTimersByTime(2000);
+      });
+      // 距第二条提示仅 2000ms：不得被上一条的计时器提前清掉
+      expect(result.current.toast?.message).toContain("交互块");
+
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+      expect(result.current.toast).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("dismissToast 立即清掉提示", () => {
+    const { result } = setup();
+    act(() => {
+      result.current.notifyLocked("html");
+    });
+    expect(result.current.toast).not.toBeNull();
+    act(() => {
+      result.current.dismissToast();
+    });
+    expect(result.current.toast).toBeNull();
+  });
+
+  // 审查 Minor 2：全局 Ctrl+S 兜底（F6）让 commitActive 在阅读态可达，
+  // 门禁不能对「本来就没有活动块」的提交弹「编辑已取消」——用户从未进入编辑态。
+  it("记录中且无活动块时提交是 no-op，不弹提示", async () => {
+    const { result, save } = setup({ mdlogActive: true });
+    await act(async () => {
+      await result.current.commitActive();
+    });
+    expect(save).not.toHaveBeenCalled();
+    expect(result.current.toast).toBeNull();
+  });
+
+  // 审查 Minor 1：空态/加载态没有块单元，Ctrl+E 不得进入编辑视图
+  //（否则顶栏呈按下态、宿主还会挂上 T7 会加 position: relative 的 --editing 类）。
+  it("无块单元时不进入编辑视图", async () => {
+    const { result } = setup({ markdown: "" });
+    expect(result.current.units).toHaveLength(0);
+    await act(async () => {
+      await result.current.toggleView();
+    });
+    expect(result.current.viewMode).toBe("reading");
+    expect(result.current.toast).toBeNull();
+  });
+
   // 跨任务一致性（裁定 F9b/F14）：上游 MD 点击回调按 LF 归一后的文本算 caret，
   // 本 hook 取草稿必须同样归一，否则多行 CRLF 块的光标落点会系统性偏移。
   it("CRLF 文档的草稿按 LF 归一，且未改动时不误提交", async () => {

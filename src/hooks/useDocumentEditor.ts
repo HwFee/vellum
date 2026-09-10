@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { buildEditUnits, spliceUnit, type EditUnit } from "../lib/editUnits";
 
@@ -15,6 +15,10 @@ export type UseDocumentEditorOptions = {
 };
 
 const DEFAULT_HEAVY_COMMIT_MS = 800;
+
+/// 提示条的自动消失时长（裁定 F31，spec §9）：它是 position: fixed 的覆盖层，
+/// 不能永久压在正文上，也不能以 CSS 动画作为唯一的消失机制。
+const TOAST_DURATION_MS = 2400;
 
 /// 草稿与 caret 必须基于同一份 LF 归一文本（裁定 F9b/F14）：
 /// 上游（MarkdownDocument 的点击回调）已按归一后的文本算 caret，此处切片必须同样归一，
@@ -40,6 +44,7 @@ export function useDocumentEditor({
   const [heavyDoc, setHeavyDoc] = useState(false);
   const [toast, setToast] = useState<EditorToast | null>(null);
   const toastIdRef = useRef(0);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const units = useMemo<EditUnit[]>(() => buildEditUnits(markdown), [markdown]);
   const activeUnit =
@@ -47,10 +52,35 @@ export function useDocumentEditor({
       ? null
       : (units.find((unit) => unit.index === activeUnitIndex) ?? null);
 
-  const showToast = useCallback((message: string) => {
-    toastIdRef.current += 1;
-    setToast({ id: toastIdRef.current, message });
+  const clearToastTimer = useCallback(() => {
+    if (toastTimerRef.current !== null) {
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
   }, []);
+
+  /// 手动关闭（测试与未来的关闭交互用）：与自动消失走同一清理路径
+  const dismissToast = useCallback(() => {
+    clearToastTimer();
+    setToast(null);
+  }, [clearToastTimer]);
+
+  const showToast = useCallback(
+    (message: string) => {
+      toastIdRef.current += 1;
+      setToast({ id: toastIdRef.current, message });
+      // 每条提示都有完整的 2.4s 可见时长：新增提示时重置计时（旧计时器作废）
+      clearToastTimer();
+      toastTimerRef.current = setTimeout(() => {
+        toastTimerRef.current = null;
+        setToast(null);
+      }, TOAST_DURATION_MS);
+    },
+    [clearToastTimer]
+  );
+
+  // 卸载时清掉未到期的计时器（否则会在已卸载的组件上 setState）
+  useEffect(() => clearToastTimer, [clearToastTimer]);
 
   const closeActive = useCallback(() => {
     setActiveUnitIndex(null);
@@ -87,18 +117,25 @@ export function useDocumentEditor({
     [activeUnitIndex, closeActive, draft, showToast]
   );
 
-  const commitActive = useCallback(async () => {
+  /// 提交当前块。返回值是「本次调用后是否已无待落盘草稿」：
+  /// true = 会话已收起（无活动块 / 无改动 / 已落盘 / 被 mdlog 门禁中断）；
+  /// false = 落盘失败，草稿仍留在框里等用户处理（F24）。
+  /// 关窗前提交（审查 C1 / 裁定 F33）必须据此决定是否拦截 —— 直接读消费者侧的
+  /// editorRef 拿到的是上一轮渲染的快照，在 await 之后可能尚未跟进（实测两个方向都会错）。
+  const commitActive = useCallback(async (): Promise<boolean> => {
+    // 无活动块先短路（审查 Minor 2）：F6 的全局 Ctrl+S 兜底让本函数在阅读态可达，
+    // 此时没有任何编辑会话可中断，不得弹「记录已开始，编辑已取消」。
+    if (!activeUnit) return true;
     // 提交口门禁（裁定 F25）：只拦入口不够 —— 激活块之后记录才建立时，
     // Ctrl+S / 失焦 / toggleView 都会走到这里，必须同样禁止写入。
     if (mdlogActive) {
       notifyInterrupted("记录已开始，编辑已取消");
-      return;
+      return true;
     }
-    if (!activeUnit) return;
     const original = toDraftText(markdown.slice(activeUnit.start, activeUnit.end));
     if (draft === original) {
       closeActive();
-      return;
+      return true;
     }
 
     // 失败分支要按「本次提交前的块」重激活，故在此冻结索引与 caret
@@ -117,6 +154,7 @@ export function useDocumentEditor({
     closeActive();
     try {
       await save(next);
+      return true;
     } catch (error) {
       // 失败路径（裁定 F24）：先把父级内存回退到本次提交前的 markdown，
       // 让内存与磁盘重新一致（提交即落盘、落盘失败即回退），
@@ -126,6 +164,7 @@ export function useDocumentEditor({
       setDraft(draft);
       setInitialCaret(caret);
       showToast(`保存失败：${String(error)}`);
+      return false;
     }
   }, [
     activeUnit,
@@ -151,8 +190,11 @@ export function useDocumentEditor({
       showToast("记录中 · 断开连接后才能修改");
       return;
     }
+    // 空态/加载态（无块单元）不进编辑视图（审查 Minor 1）：否则顶栏呈按下态，
+    // 宿主还会挂上 T7 会加 position: relative 的 --editing 类，而没有任何块可编辑。
+    if (units.length === 0) return;
     setViewMode("editing");
-  }, [commitActive, mdlogActive, showToast, viewMode]);
+  }, [commitActive, mdlogActive, showToast, units.length, viewMode]);
 
   const notifyLocked = useCallback(
     (reason: "html" | "widget") => {
@@ -179,5 +221,6 @@ export function useDocumentEditor({
     commitActive,
     notifyLocked,
     notifyInterrupted,
+    dismissToast,
   };
 }

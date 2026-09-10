@@ -51,8 +51,10 @@ export default function App() {
   const contentRef = useRef<HTMLDivElement>(null);
   const documentContentRef = useRef<HTMLDivElement>(null);
   const currentPathRef = useRef<string | null>(null);
-  // 最近一次我方写入的内容（LF 归一）：file-changed 回声据此比对（规格 §7.2）
-  const lastSavedMarkdownRef = useRef<string | null>(null);
+  // 当前内存里的 markdown（file-changed 回声判据的对照物，裁定 F30）。
+  // 分流函数在挂载时注册一次，直接读 state 会拿到过期闭包值，故经 ref 读取最新内容；
+  // 判据不依赖任何赋值时机，也没有需要失效的快照。
+  const currentMarkdownRef = useRef("");
   // 编辑会话（在 activeDocument 之后创建）：回调与 effect 经此读到最新一份，
   // 既避免闭包过期，也让传给 memo 化 MarkdownDocument 的回调保持引用稳定
   const editorRef = useRef<ReturnType<typeof useDocumentEditor> | null>(null);
@@ -377,14 +379,24 @@ export default function App() {
       }
       unlisten = unlistenFn;
 
-      // 关窗前先提交活动块（规格 §6.3）：有未提交草稿时拦下本次关闭，提交完成后再关；
-      // 无活动块则放行原生关闭。经 editorRef 读最新会话，避免闭包过期
+      // 关窗前先提交活动块（规格 §6.3）：有未提交草稿时拦下本次关闭，提交完成后再看结果。
+      // 绝不能「先 preventDefault、再自行 close()」—— close() 会重发可拦截的 closeRequested
+      //（window.d.ts:745；tauri-runtime-wry 的 WindowMessage::Close 也走同一处理器），
+      // 落盘失败时 hook 会重新激活同一块并保留草稿（F24），于是形成
+      // 「拦截 → 提交失败 → close → 再拦截」的无限重试（审查 C1）。
+      // 正确姿势：提交之后按「活动块是否真的清掉」决定要不要拦（commitActive 的返回值
+      // 就是这个问题 —— 消费者的 editorRef 是上一轮渲染的快照，不能用来判定）；
+      // 不拦时的窗口销毁由 JS 包装层自己做（onCloseRequested → destroy，
+      // 且它会 await 本处理器，故晚到的 preventDefault 依然生效）。
       const closeUnlisten = await getCurrentWindow().onCloseRequested(async (event) => {
         const current = editorRef.current;
-        if (!current || !current.activeUnit) return;
-        event.preventDefault();
-        await current.commitActive();
-        void getCurrentWindow().close();
+        if (!current?.activeUnit) return;
+        // 提交成功（含 mdlog 门禁把会话中断掉）⇒ 不拦，包装层 destroy；
+        // 落盘失败 ⇒ 草稿仍在框里，拦下本次关闭让用户处理，绝不重试关闭。
+        const cleared = await current.commitActive();
+        if (!cleared) {
+          event.preventDefault();
+        }
       });
       if (cancelled) {
         closeUnlisten();
@@ -430,8 +442,9 @@ export default function App() {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
 
-    /// 外部变更分流（规格 §7.2）：file-changed 到达时先读盘，并与「最近一次我方写入」
-    /// 按归一 EOL 比对——相等即自己的回声，整体忽略（不更新状态、不递增 reloadTick、
+    /// 外部变更分流（规格 §7.2）：file-changed 到达时先读盘，并与**当前内存 markdown**
+    /// 按归一 EOL 比对（裁定 F30）——相等即无实际外部变更（可能是我方写入的 watcher
+    /// 回声；F24 保证内存不长期领先磁盘），整体忽略（不更新状态、不递增 reloadTick、
     /// 不闪印章、不做滚动补偿）；不等则属外部变更，中断当前编辑后走既有热重载路径。
     /// 经 editorRef 读最新会话：否则首次渲染的闭包会把中断当成无事发生（M11）。
     async function reloadIfExternal() {
@@ -442,10 +455,14 @@ export default function App() {
         // 预读期间可能已切换文档/卸载：作废本次分流
         if (cancelled || currentPathRef.current !== path) return;
         const normalized = latest.markdown.replace(/\r\n/g, "\n");
-        if (lastSavedMarkdownRef.current !== null && normalized === lastSavedMarkdownRef.current) {
-          return; // 自己的写入回声：整体忽略
+        if (normalized === currentMarkdownRef.current.replace(/\r\n/g, "\n")) {
+          return; // 磁盘与内存一致：无变更可热重载，整体忽略
         }
-        editorRef.current?.notifyInterrupted("文件已被外部修改 · 编辑已取消");
+        // 提示只在确有编辑会话被中断时才弹（裁定 F32）：mdlog 记录中模型每次追加
+        // 都会走这条路径，而那时用户从未进过编辑态，不能刷「编辑已取消」。
+        if (editorRef.current?.activeUnit) {
+          editorRef.current.notifyInterrupted("文件已被外部修改 · 编辑已取消");
+        }
         await reloadCurrent(latest);
       } catch {
         // 读失败：保留旧内容
@@ -472,6 +489,7 @@ export default function App() {
   }, []);
 
   const activeDocument = state.status === "ready" ? state.document : undefined;
+  currentMarkdownRef.current = activeDocument?.markdown ?? "";
 
   /// 文档 markdown 的唯一写入点：提交新内容与失败回退都经此，保持引用稳定
   const applyMarkdown = useCallback((next: string) => {
@@ -482,14 +500,13 @@ export default function App() {
     );
   }, []);
 
-  /// 落盘（提交即落盘，规格 §7.1）：写成功后记录本次内容，作为 watcher 回声的比对基准。
-  /// 比对按 LF 归一口径（规格 §7.2），故记录前先归一 —— 否则 CRLF 文档下自己的回声
-  /// 永远匹配不上，每次提交都会白闪一次「墨迹未干」并触发整篇重读。
+  /// 落盘（提交即落盘，规格 §7.1）。不需要记录「最近一次我方写入」：
+  /// 回声判据改为与内存 markdown 比对（裁定 F30），固定快照会误吞真实外部变更、
+  /// 且在 await 之后才赋值会造成提交在途竞态。
   const saveMarkdown = useCallback(async (next: string) => {
     const path = currentPathRef.current;
     if (!path) throw new Error("No document is loaded");
     await invoke("save_document", { path, content: next });
-    lastSavedMarkdownRef.current = next.replace(/\r\n/g, "\n");
   }, []);
 
   const editor = useDocumentEditor({
@@ -734,14 +751,20 @@ export default function App() {
   }, [isMdlogActive]);
 
   // mdlog 记录变活跃 ⇒ 编辑门禁全关（规格 §6.4）：先中断当前块编辑（草稿尽力写入剪贴板），
-  // 再退回阅读视图。经 editorRef 读最新会话，effect 只随门禁边沿触发
+  // 再退回阅读视图。经 editorRef 读最新会话，effect 只随门禁边沿触发。
+  // 提示只保留一条（审查 Minor 3）：编辑视图下 toggleView → commitActive 的提交口门禁
+  // （F25）已经做了「写剪贴板 + 清场 + 提示」，此处不得再重复弹一次；
+  // 既不在编辑视图又没有活动块时本就无编辑会话可中断，静默（与裁定 F32 同口径）。
   useEffect(() => {
     if (!isMdlogActive) return;
     const current = editorRef.current;
     if (!current) return;
-    current.notifyInterrupted("记录已开始 · 编辑已取消");
     if (current.viewMode === "editing") {
       void current.toggleView();
+      return;
+    }
+    if (current.activeUnit) {
+      current.notifyInterrupted("记录已开始 · 编辑已取消");
     }
   }, [isMdlogActive]);
 
