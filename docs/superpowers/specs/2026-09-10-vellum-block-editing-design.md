@@ -144,6 +144,8 @@ next = markdown.slice(0, unit.start) + draft + markdown.slice(unit.end)
 - **外部变更（非我方回声）且框内无改动**：按「块序号 + 源码区间」尝试重新激活原块；定位失败则关闭编辑并提示
 - **外部变更且框内有改动**：保留草稿 + 提示「文件已被外部修改」+ 两个选择（保留我的改动 / 载入磁盘版本）
 
+> **修订（2026-09-10，Task 4）**：上一条简化为与「mdlog 变活跃」完全相同的路径 —— `notifyInterrupted`（尽力把草稿写入剪贴板 + 取消编辑 + 提示），不实现二选一横幅。理由：提交即落盘使草稿存活窗口极短，而二选一横幅需额外状态机与 UI（YAGNI）。可见 `docs/superpowers/plans/2026-09-10-vellum-block-editing.md` Task 4 Step 5。
+
 ## 7. 落盘与一致性
 
 ### 7.1 `save_document` 命令（Rust）
