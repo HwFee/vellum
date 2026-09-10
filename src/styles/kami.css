@@ -1275,6 +1275,25 @@ mark.search-match--current {
   display: contents;
 }
 
+/* 重文档轻提示（spec D5 / 裁定 F40）：实测提交耗时超过阈值后，在编辑视图内常驻。
+   与 .editor-toast 同一视觉语汇（墨色字 + 实色标签底），但它是「文档规模」属性，
+   不做淡入/不自动消失（消失只由退出编辑视图/重新加载应用决定）；
+   位置高于提示条（bottom 18%）以免两条叠字。 */
+.editor-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 26%;
+  transform: translateX(-50%);
+  z-index: 40;
+  padding: 6px 14px;
+  border-radius: 3px;
+  background: var(--tag-bg);
+  color: var(--near-black);
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
 /* 编辑轻提示条（HTML 只读 / 交互块只读 / 记录中禁用 / 保存失败）：
    墨色字 + 实色标签底，与「墨迹未干」印章同为悬浮提示。
    淡入只是视觉；消失由 hook 的 2.4s 定时器负责（裁定 F31），

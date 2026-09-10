@@ -48,6 +48,74 @@ describe("useDocumentEditor", () => {
     expect(result.current.viewMode).toBe("reading");
   });
 
+  it("提交在途时的重复调用直接返回：不重复 splice、不二次落盘（裁定 F38-B）", async () => {
+    let release!: () => void;
+    const save = vi.fn(
+      (_next: string) =>
+        new Promise<void>((resolve) => {
+          release = () => resolve();
+        })
+    );
+    const onChange = vi.fn();
+
+    const { result } = renderHook(() => useControlledEditor(markdown, save, onChange));
+
+    act(() => {
+      result.current.editor.activateUnit(1, 0);
+    });
+    act(() => {
+      // 草稿改变块结构：第二次提交拿「新 markdown 的同索引单元」当原文时比对不相等，
+      // 才会走到「再拼一遍、再落盘一次」那条路（否则会被前台的同文本短路掩盖）。
+      result.current.editor.updateDraft("改过的第一段。\n\n新段。");
+    });
+
+    let first!: Promise<boolean>;
+    let second!: Promise<boolean>;
+    // 两次调用必须在**同一次同步派发**里（真机双通道的真实时序）：第一次提交内部的
+    // flushSync 只把父级 markdown 推前、resetSession 的 setState 尚未提交，
+    // 第二次调用因此仍看得到活动块 —— 这正是 C2 的前提。
+    act(() => {
+      first = result.current.editor.commitActive();
+      // 在途重入（第二条 Ctrl+S 通道）：必须直接返回，不得再拼一遍、再落盘一次
+      second = result.current.editor.commitActive();
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await expect(second).resolves.toBe(true);
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      release();
+      await first;
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+    const saved = save.mock.calls[0][0];
+    expect(saved).toBe("# 标题\n\n改过的第一段。\n\n新段。\n\n第二段。\n");
+    expect(saved.match(/新段。/g)).toHaveLength(1);
+  });
+
+  it("resetSession 清空活动块、草稿与 caret（裁定 F39）", () => {
+    const { result } = setup();
+    act(() => {
+      result.current.activateUnit(1, 5);
+    });
+    act(() => {
+      result.current.updateDraft("改过的第一段。");
+    });
+    expect(result.current.activeUnit).not.toBeNull();
+
+    act(() => {
+      result.current.resetSession();
+    });
+
+    expect(result.current.activeUnit).toBeNull();
+    expect(result.current.draft).toBe("");
+    expect(result.current.initialCaret).toBe(0);
+  });
+
   it("mdlog 记录中拒绝进入编辑视图并提示", async () => {
     const { result } = setup({ mdlogActive: true });
     await act(async () => {

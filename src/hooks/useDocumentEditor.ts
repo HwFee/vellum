@@ -45,6 +45,13 @@ export function useDocumentEditor({
   const [toast, setToast] = useState<EditorToast | null>(null);
   const toastIdRef = useRef(0);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /// 提交闸门（终审 C2 / 裁定 F38-B）：一次提交从「拼接/落盘」到结果返回之间，
+  /// 同一会话的重复调用必须直接返回 —— 不得再 splice 一次、再落盘一次。
+  /// 真机里 `Ctrl+S` 在编辑框内会同时走两条通道（textarea 的 onKeyDown 与 window 的全局兜底），
+  /// 而第一次提交的 flushSync 会同步把父级 markdown 推前、`editorRef` 已换成新闭包，
+  /// 第二次调用会拿「新 markdown 的同索引单元」当原文比对 ⇒ 草稿改变块结构时重复拼入。
+  /// 组件侧的 `committedRef`（F22）只拦得住它自己那条通道，闸门必须落在会话状态机这一层。
+  const committingRef = useRef(false);
 
   const units = useMemo<EditUnit[]>(() => buildEditUnits(markdown), [markdown]);
   const activeUnit =
@@ -82,7 +89,12 @@ export function useDocumentEditor({
   // 卸载时清掉未到期的计时器（否则会在已卸载的组件上 setState）
   useEffect(() => clearToastTimer, [clearToastTimer]);
 
-  const closeActive = useCallback(() => {
+  /// 清空编辑会话（活动块 / 草稿 / caret）。两条语义共用同一实现：
+  /// ① 提交完成或中断时的内部收起；
+  /// ② 对外暴露的 `resetSession` —— 切换文档时必须调用（裁定 F39）：
+  ///    F24 的失败重激活会把会话连同草稿一起留在原地，跨过文档边界后
+  ///    就会被按「同序号块」拼进新文档（写到错的文件里）。
+  const resetSession = useCallback(() => {
     setActiveUnitIndex(null);
     setDraft("");
     setInitialCaret(0);
@@ -111,10 +123,10 @@ export function useDocumentEditor({
         return;
       }
       void navigator.clipboard?.writeText(draft).catch(() => {});
-      closeActive();
+      resetSession();
       showToast(message);
     },
-    [activeUnitIndex, closeActive, draft, showToast]
+    [activeUnitIndex, draft, resetSession, showToast]
   );
 
   /// 提交当前块。返回值是「本次调用后是否已无待落盘草稿」：
@@ -132,9 +144,12 @@ export function useDocumentEditor({
       notifyInterrupted("记录已开始，编辑已取消");
       return true;
     }
+    // 重入闸门（裁定 F38-B）：已有提交在途时直接返回，绝不重做一遍。
+    // 真机的双通道（textarea + window）正是从这条短路里被拦掉的。
+    if (committingRef.current) return true;
     const original = toDraftText(markdown.slice(activeUnit.start, activeUnit.end));
     if (draft === original) {
-      closeActive();
+      resetSession();
       return true;
     }
 
@@ -143,16 +158,17 @@ export function useDocumentEditor({
     const caret = initialCaret;
     const next = spliceUnit(markdown, activeUnit, draft);
 
-    // flushSync 让整篇重解析同步完成，才能量到真实的提交耗时（重文档标记的依据）
-    const startedAt = performance.now();
-    flushSync(() => onMarkdownChange(next));
-    const renderMs = performance.now() - startedAt;
-    // heavyDoc 有意保持粘性（裁定 F26）：它是「文档规模」属性而非瞬时值，
-    // 本会话内不回退 —— 观测到超阈值提交一次后即不再反复探测。
-    if (renderMs > heavyCommitMs) setHeavyDoc(true);
-
-    closeActive();
+    committingRef.current = true;
     try {
+      // flushSync 让整篇重解析同步完成，才能量到真实的提交耗时（重文档标记的依据）
+      const startedAt = performance.now();
+      flushSync(() => onMarkdownChange(next));
+      const renderMs = performance.now() - startedAt;
+      // heavyDoc 有意保持粘性（裁定 F26）：它是「文档规模」属性而非瞬时值，
+      // 本会话内不回退 —— 观测到超阈值提交一次后即不再反复探测。
+      if (renderMs > heavyCommitMs) setHeavyDoc(true);
+
+      resetSession();
       await save(next);
       return true;
     } catch (error) {
@@ -165,10 +181,11 @@ export function useDocumentEditor({
       setInitialCaret(caret);
       showToast(`保存失败：${String(error)}`);
       return false;
+    } finally {
+      committingRef.current = false;
     }
   }, [
     activeUnit,
-    closeActive,
     draft,
     heavyCommitMs,
     initialCaret,
@@ -176,6 +193,7 @@ export function useDocumentEditor({
     mdlogActive,
     notifyInterrupted,
     onMarkdownChange,
+    resetSession,
     save,
     showToast,
   ]);
@@ -221,6 +239,7 @@ export function useDocumentEditor({
     commitActive,
     notifyLocked,
     notifyInterrupted,
+    resetSession,
     dismissToast,
   };
 }

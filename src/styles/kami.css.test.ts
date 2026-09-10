@@ -366,4 +366,18 @@ describe("kami.css editing view (block-level inline editing)", () => {
     expect(rule).not.toMatch(/opacity:\s*0\s*;/);
     expect(rule).not.toMatch(/display:\s*none/);
   });
+
+  it("F40：重文档提示常驻且与提示条同一视觉语汇", () => {
+    const rule = css.match(/\.editor-hint\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(rule).not.toBe("");
+    // 与 .editor-toast 同一语汇：实色标签底 + 墨色字，字重不超过 kami 上限
+    expect(rule).toMatch(/background:\s*var\(--tag-bg\)/);
+    expect(rule).toMatch(/color:\s*var\(--near-black\)/);
+    expect(rule).toMatch(/font:\s*500/);
+    expect(rule).toMatch(/border-radius:\s*[2-6]px/);
+    // 常驻提示：不得靠动画/隐藏伪装成「会自动消失」，也不得抢交互
+    expect(rule).not.toMatch(/animation/);
+    expect(rule).not.toMatch(/fill-mode|forwards|display:\s*none/);
+    expect(rule).toMatch(/pointer-events:\s*none/);
+  });
 });

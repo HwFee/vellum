@@ -108,9 +108,12 @@ npm run tauri        # Tauri CLI
   - 编辑面沿用既有 `.document-scroll` 容器（textarea 自增高推流），**不得**新建内层滚动系统——滚动记忆 / 跳底 / 自定义滚动条 / 布局过渡窗全部复用
   - 提交（`useDocumentEditor.commitActive` → `onMarkdownChange` + `save_document`）**不递增 `reloadTick`、不播「墨迹未干」印章、不做滚动补偿**：印章语义是「外部改写了文件」；提交后 watcher 的回声由「磁盘 vs 内存 markdown（LF 归一）比对」抑制（`App.tsx` `reloadIfExternal`），相等即整体忽略
   - 块标记包裹层 `.vellum-unit-wrap` 必须 `display: contents`（不生成布局盒）：`BlockEditor` 的隐藏/锁高/自增高/测量因此**必须**作用在 `resolveTarget()` 选出的「首个有布局盒的元素」上，作用于包裹层本身会全部失效
-  - 覆盖层选择器必须是 `.document-scroll__content--editing > .block-editor__input`（特异度高于 `kami.css` 的 `.markdown-body textarea`），且覆盖层**不是** `.markdown-body` 后代（`kami.css.test.ts` 锁死，防接线漂移）
+  - 覆盖层选择器必须是 `.document-scroll__content--editing > .block-editor__input`（特异度高于 `kami.css` 的 `.markdown-body textarea`），且覆盖层**不是** `.markdown-body` 后代：CSS 侧由 `kami.css.test.ts` 锁死规则文本，DOM 侧由 `App.test.tsx` 断言直接父元素带 `--editing`（终审修复波 F41 补齐，两侧齐备才防接线漂移）
+  - `Ctrl+S` 双通道去重：编辑框 `onKeyDown` 只阻止默认行为、不停止冒泡，全局处理器必须 `if (event.defaultPrevented) return;`，且 `useDocumentEditor` 要有在途提交闸门（`committingRef`）——只做其中一处，结构变化草稿会被 splice 两遍并二次落盘
+  - 切换文档（`loadPath` 判定非同路径）必须调用 `editorRef.current?.resetSession()`：落盘失败时 F24 会把编辑会话留在原地，不清就会把上一份文档的草稿拼进新文档
+  - 结构性只读必须覆盖**全部**块级容器（`list` / `listItem` / `blockquote` / `footnoteDefinition`）；脚注定义要当可下钻容器（与引用同列），否则其中的块级 HTML / `vellum-widget` 源码会落到一个 `editable: true` 的块上。回归断言用「容器 × 锁定块」遍历式清单（`editUnits.test.ts`），不得只补容器例子
   - mdlog 记录中编辑门禁三重：顶栏/入口禁用（`toggleView`/`activateUnit`）＋ 提交口 `commitActive` 拦截 ＋ Rust `save_document` 存活闸门；**不得**只保留入口一处
-  - 入口 chunk（`dist/assets/index-*.js`）因本功能实测 143.76KB → 158.08KB（+14.32KB，gzip +4.57KB，来源：`npm run build` 产物对比 `848899c` 之前 `d9f8523` 的工作树）；此增量为 `useDocumentEditor` 引入 `buildEditUnits`（math 解析器进入口）所致。若后续继续增长，按裁定 F11 的退路把单元计算移回 lazy 侧
+  - 入口 chunk（`dist/assets/index-*.js`）因本功能实测 143.76KB → 158.08KB（+14.32KB，gzip +4.57KB，来源：`npm run build` 产物对比 `848899c` 之前 `d9f8523` 的工作树）；终审修复波后为 **158.53KB**（`index-BAtPp06D.js`，再 +0.45KB：脚注下钻 + 提交在途闸门/会话复位 + 重文档轻提示接线）。此增量为 `useDocumentEditor` 引入 `buildEditUnits`（math 解析器进入口）所致。若后续继续增长，按裁定 F11 的退路把单元计算移回 lazy 侧
 - 完整优化记录见 `OPTIMIZATION_HANDOFF.md`（含评估后放弃的方向）
 
 ### 文件索引

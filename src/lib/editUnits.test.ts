@@ -24,6 +24,10 @@ const MARKDOWN_CORPUS: Array<[string, string]> = [
   ["列表内引用", "- 项\n\n  > 引用\n"],
   ["引用内引用", "> > 深一层引用\n"],
   ["引用内 HTML", '> <div class="x">hi</div>\n'],
+  ["脚注定义内 HTML", '正文[^1]\n\n[^1]:\n    <div class="x">hi</div>\n'],
+  ["脚注定义内 widget 围栏", '正文[^1]\n\n[^1]:\n    ```vellum-widget\n    <div class="w">w</div>\n    ```\n'],
+  ["脚注定义内引用", '正文[^1]\n\n[^1]:\n    > 引用\n'],
+  ["引用内脚注定义", '> 正文[^1]\n>\n> [^1]:\n>     脚注正文\n'],
   ["引用内 widget 围栏", "> ```vellum-widget\n> <div>x</div>\n> ```\n"],
   ["列表项内 HTML", "- [ ] 待办\n\n  <div>raw</div>\n"],
   ["列表项内 widget 围栏", "- 项\n\n  ```vellum-widget\n  <div>y</div>\n  ```\n"],
@@ -204,6 +208,79 @@ describe("buildEditUnits", () => {
     expect(units[0].editable).toBe(true);
   });
 
+  // —— 裁定 F37（终审 C1）：脚注定义是可下钻容器，正文逐块可编辑、锁定子块各自只读 ——
+
+  it("脚注定义的正文按块下钻（与引用同列）且可编辑", () => {
+    const markdown = "正文[^1]\n\n[^1]:\n    first para\n\n    second para\n";
+    const units = buildEditUnits(markdown);
+    expect(units.map((u) => u.kind)).toEqual(["paragraph", "footnoteChild", "footnoteChild"]);
+    expect(units.every((u) => u.editable)).toBe(true);
+    // 切片自包含（含行首 4 空格缩进），整块重打不会逃出脚注
+    expect(markdown.slice(units[1].start, units[1].end)).toBe("    first para");
+    expect(markdown.slice(units[2].start, units[2].end)).toBe("    second para");
+    for (let i = 1; i < units.length; i += 1) {
+      expect(units[i].start).toBeGreaterThanOrEqual(units[i - 1].end);
+    }
+  });
+
+  // 遍历式守卫（裁定 F37）：不再逐容器补例子，而是对「容器类型 × 锁定块」的
+  // 交叉清单逐一验证 —— 覆盖某锁定块的**每一个**单元都必须不可编辑且 reason 正确。
+  // 断言按源码片段定位（不写死偏移）：新增容器类型漏进白名单时必红（C1 的脚注即此类）。
+  const LOCKED_INNER_BLOCKS = [
+    {
+      name: "块级 HTML",
+      /// 在 markdown 中的定位片段（跨行容器会给每行加前缀，故取单行片段）
+      locator: '<div class="x">hi</div>',
+      block: '<div class="x">hi</div>',
+      reason: "html" as const,
+    },
+    {
+      name: "vellum-widget 围栏",
+      locator: '<div class="w">w</div>',
+      block: '```vellum-widget\n<div class="w">w</div>\n```',
+      reason: "widget" as const,
+    },
+  ];
+
+  const innerIndent = (block: string, prefix: string) =>
+    block
+      .split("\n")
+      .map((line) => `${prefix}${line}`)
+      .join("\n");
+
+  const INNER_CONTAINERS: Array<{ name: string; embed: (block: string) => string }> = [
+    { name: "顶层", embed: (block) => `${block}\n` },
+    { name: "引用内", embed: (block) => `${innerIndent(block, "> ")}\n` },
+    { name: "列表项内", embed: (block) => `- 项\n\n${innerIndent(block, "  ")}\n` },
+    { name: "脚注定义内", embed: (block) => `正文[^1]\n\n[^1]:\n${innerIndent(block, "    ")}\n` },
+    { name: "脚注定义内引用内", embed: (block) => `正文[^1]\n\n[^1]:\n${innerIndent(block, "    > ")}\n` },
+    { name: "引用内脚注定义内", embed: (block) => `> 正文[^1]\n>\n> [^1]:\n${innerIndent(block, ">     ")}\n` },
+    { name: "列表项内脚注定义内", embed: (block) => `- 项[^1]\n\n  [^1]:\n${innerIndent(block, "      ")}\n` },
+  ];
+
+  /// 覆盖给定源码片段的全部单元（片段必须完整落在单元区间内）
+  function unitsCovering(markdown: string, locator: string) {
+    const start = markdown.indexOf(locator);
+    expect(start, `定位片段必须出现在用例 markdown 中：${locator}`).toBeGreaterThanOrEqual(0);
+    const end = start + locator.length;
+    return buildEditUnits(markdown).filter((unit) => unit.start <= start && unit.end >= end);
+  }
+
+  for (const container of INNER_CONTAINERS) {
+    for (const locked of LOCKED_INNER_BLOCKS) {
+      it(`${container.name}的${locked.name}结构性只读`, () => {
+        const markdown = container.embed(locked.block);
+        const covering = unitsCovering(markdown, locked.locator);
+        // 至少要有一个单元覆盖它（否则断言会退化成恒真）
+        expect(covering.length).toBeGreaterThan(0);
+        for (const unit of covering) {
+          expect(unit.editable).toBe(false);
+          expect(unit.reason).toBe(locked.reason);
+        }
+      });
+    }
+  }
+
   // —— 裁定 F9a：单元区间从所在行行首起算 ——
 
   it("多行引用单元的切片从行首起算，自包含（含首行 > 标记）", () => {
@@ -259,9 +336,12 @@ describe("buildEditUnits", () => {
     expect(definition[0].kind).toBe("other");
     expect(definition[0].editable).toBe(true);
 
+    // 裁定 F37 后脚注定义下钻：单段落脚注的单元是它的段落子块
     const footnote = buildEditUnits("[^1]: 脚注\n");
     expect(footnote).toHaveLength(1);
-    expect(footnote[0].kind).toBe("other");
+    expect(footnote[0].kind).toBe("footnoteChild");
+    expect(footnote[0].editable).toBe(true);
+    expect("[^1]: 脚注\n".slice(footnote[0].start, footnote[0].end)).toBe("[^1]: 脚注");
   });
 });
 

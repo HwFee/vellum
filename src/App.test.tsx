@@ -144,6 +144,23 @@ const loadedDoc = {
   markdown: "# Intro\n\n## Section\n\nBody text.",
 };
 
+// F40：`heavyDoc` 的界面接线用一条用例验证，但 800ms 阈值在 jsdom 里几乎不可能自然触发。
+// 处置是「包装真实 hook、只注入阈值」——绝不 mock 掉 hook 自身，
+// 否则这条用例测的就不是交付的会话状态机了（其余行为与真机逐字一致）。
+const heavyCommitMsOverride = vi.hoisted(() => ({ value: undefined as number | undefined }));
+vi.mock("./hooks/useDocumentEditor", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./hooks/useDocumentEditor")>();
+  return {
+    ...actual,
+    useDocumentEditor: (options: Parameters<typeof actual.useDocumentEditor>[0]) =>
+      actual.useDocumentEditor(
+        heavyCommitMsOverride.value === undefined
+          ? options
+          : { ...options, heavyCommitMs: heavyCommitMsOverride.value }
+      ),
+  };
+});
+
 async function loadDocument() {
   backendInvoke.mockResolvedValueOnce(loadedDoc);
   vi.mocked(open).mockResolvedValueOnce("C:/notes/readme.md");
@@ -173,6 +190,7 @@ beforeEach(() => {
   lastOpenedGet.mockResolvedValue(undefined);
   vi.mocked(listen).mockReset();
   vi.mocked(listen).mockResolvedValue(() => {});
+  heavyCommitMsOverride.value = undefined;
   windowMock.reset();
 });
 
@@ -1766,6 +1784,13 @@ function selfCloseCalls(): number {
   );
 }
 
+/// 落盘调用记录（F38：必须恰好一次且载荷不含重复段）
+function saveDocumentCalls(): Array<{ path: string; content: string }> {
+  return backendInvoke.mock.calls
+    .filter(([command]) => command === "save_document")
+    .map(([, args]) => args as { path: string; content: string });
+}
+
 test("Ctrl+E 进入编辑视图，点击块激活就地编辑，提交后落盘", async () => {
   await loadDocument();
   await enterEditingView();
@@ -1872,6 +1897,115 @@ test("全局 Ctrl+S 拦截 WebView 默认保存并在有活动块时提交", asy
       content: expect.stringContaining("Body text via keyboard."),
     })
   );
+});
+
+test("编辑框内 Ctrl+S 只提交一次：结构变化草稿不重复拼入、不二次落盘（F38）", async () => {
+  await loadDocument();
+  await enterEditingView();
+  const textarea = await activateBlockText("Body text.");
+  // 草稿改变块结构（补一个空行再写一句）正是终审 C2 的复现输入：
+  // 没有去重时，第二次提交拿「新 markdown 的同索引单元」当原文比对 ⇒ 不相等 ⇒ 把草稿再拼一遍。
+  fireEvent.change(textarea, { target: { value: "Body text.\n\nNew paragraph." } });
+  backendInvoke.mockClear();
+
+  // 焦点在编辑框内按 Ctrl+S（不是打在 window 上）：真机里事件从 textarea 冒泡到 window，
+  // 两条提交通道必须同时生效。
+  fireEvent.keyDown(textarea, { key: "s", ctrlKey: true });
+
+  await waitFor(() => expect(saveDocumentCalls()).toHaveLength(1));
+  // 再空转一轮，给「第二次提交」留出发生的机会（无闸门时它在同一次派发里同步发生）
+  await act(async () => {});
+
+  const saves = saveDocumentCalls();
+  expect(saves).toHaveLength(1);
+  expect(saves[0].path).toBe(loadedDoc.path);
+  expect(saves[0].content).toBe("# Intro\n\n## Section\n\nBody text.\n\nNew paragraph.");
+  expect(saves[0].content.match(/New paragraph\./g)).toHaveLength(1);
+});
+
+test("覆盖层的直接父元素是 .document-scroll__content--editing（F41：DOM 层位置守卫）", async () => {
+  await loadDocument();
+  await enterEditingView();
+  const textarea = await activateBlockText("Body text.");
+
+  // 位置无关的 querySelector 不能发现接线漂移：必须按 F23 的直接子元素关系断言，
+  // 否则覆盖层被挪进 .markdown-body（特异度 0,1,1 会压过 0,2,0）时测试依旧全绿。
+  expect(
+    document.querySelector(".document-scroll__content--editing > textarea.block-editor__input")
+  ).toBe(textarea);
+  expect(textarea.parentElement).toHaveClass("document-scroll__content--editing");
+  expect(textarea.closest(".markdown-body")).toBeNull();
+});
+
+test("落盘失败后切换文档：上一份文档的草稿不得带进新文档（F39）", async () => {
+  await loadDocument();
+  await enterEditingView();
+  const textarea = await activateBlockText("Body text.");
+  fireEvent.change(textarea, { target: { value: "旧文档的草稿。" } });
+
+  // 落盘必然失败（只读/被占用/目录被删）：F24 会把会话留在原地并保留草稿
+  backendInvoke.mockImplementation((command: string) =>
+    command === "save_document" ? Promise.reject("磁盘只读") : Promise.resolve(undefined)
+  );
+  fireEvent.keyDown(textarea, { key: "Escape" });
+  await waitFor(() => expect(screen.getByText("保存失败：磁盘只读")).toBeInTheDocument());
+  expect(blockEditorInput()?.value).toBe("旧文档的草稿。");
+
+  // 切换文档（失败时 loadPath 仍会继续加载新文档）；落盘继续失败，
+  // 故 F24 的「保留草稿 + 重新激活」会把会话一直带过文档边界 —— 正是终审 I1 的复现条件
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/other.md");
+  backendInvoke.mockImplementation(async (command: string) => {
+    if (command === "save_document") throw "磁盘只读";
+    if (command === "load_document") {
+      return {
+        path: "C:/notes/other.md",
+        fileName: "other.md",
+        parentPath: "C:/notes",
+        // 与 A 同构：同序号块存在，才会暴露「B 的块被隐藏、框里却是 A 的草稿」
+        markdown: "# Other\n\n## Section\n\nBody text elsewhere.",
+      };
+    }
+    return undefined;
+  });
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Other" })).toBeInTheDocument());
+
+  // 新文档不得带着上一份的草稿：覆盖层清场、没有块被隐藏
+  expect(blockEditorInput()).toBeNull();
+  expect(screen.getByText("Body text elsewhere.")).toBeVisible();
+  expect(document.querySelector('[data-vellum-unit][style*="visibility"]')).toBeNull();
+
+  // 后续提交触发（Esc/Ctrl+S/失焦）也不得把 A 的草稿拼进 B
+  backendInvoke.mockImplementation(async () => undefined);
+  fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+  await act(async () => {});
+  expect(saveDocumentCalls().filter((call) => call.path === "C:/notes/other.md")).toHaveLength(0);
+  // 此处两处失败尝试都只针对原文档（切文档前的尽力提交）
+  expect(saveDocumentCalls().filter((call) => call.path === loadedDoc.path)).toHaveLength(2);
+  expect(backendInvoke).toHaveBeenCalledWith("save_document", {
+    path: loadedDoc.path,
+    content: expect.stringContaining("旧文档的草稿。"),
+  });
+});
+
+test("重文档：提交耗时超阈值后在编辑视图内挂出常驻软提示（F40）", async () => {
+  // heavyCommitMs: 0 ⇒ 任何一次提交都判为「重文档」，不必真跑 800ms
+  heavyCommitMsOverride.value = 0;
+  await loadDocument();
+  await enterEditingView();
+
+  // 未观测到超阈值提交前不出现（软提示是实测结果，不是文档体积启发式）
+  expect(screen.queryByText(/本文档较大/)).toBeNull();
+
+  const textarea = await activateBlockText("Body text.");
+  fireEvent.change(textarea, { target: { value: "Body text heavy." } });
+  fireEvent.keyDown(textarea, { key: "Escape" });
+
+  const hint = await screen.findByText(/本文档较大/);
+  expect(hint).toHaveClass("editor-hint");
+  // 常驻：提交后覆盖层已卸载（不再有活动块），提示仍在编辑视图里
+  await waitFor(() => expect(blockEditorInput()).toBeNull());
+  expect(screen.getByText(/本文档较大/)).toBeInTheDocument();
 });
 
 test("自己的写入回声不触发「墨迹未干」印章", async () => {

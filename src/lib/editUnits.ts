@@ -17,6 +17,7 @@ export type EditUnitKind =
   | "heading"
   | "listItem"
   | "blockquoteChild"
+  | "footnoteChild"
   | "table"
   | "code"
   | "math"
@@ -53,15 +54,18 @@ function isCode(node: Node): node is Code {
   return node.type === "code";
 }
 
-const BLOCK_CONTAINERS = new Set(["list", "listItem", "blockquote"]);
+/// 块级容器（终审 C1 / 裁定 F37）：children 一定是块级节点，可以安全下钻。
+/// footnoteDefinition 与 blockquote 同列 —— 脚注正文**也是块级内容**，不下钻就会把整个脚注
+/// （含其中的块级 HTML / widget 围栏源码）当成一个可编辑块，使「结构性只读」被绕过。
+const BLOCK_CONTAINERS = new Set(["list", "listItem", "blockquote", "footnoteDefinition"]);
 
-/// 块级容器：children 一定是块级节点，可以安全下钻。
+/// 块级容器类型守卫（下钻安全性由上方 `BLOCK_CONTAINERS` 的清单保证）
 function isBlockContainer(node: Node): node is Parent {
   return BLOCK_CONTAINERS.has(node.type);
 }
 
 /// 结构性只读判定（裁定 F8）：节点自身或其**块级子树**里有块级 HTML / vellum-widget 围栏。
-/// 只在 list / listItem / blockquote 这些块级容器里下钻：
+/// 只在块级容器（list / listItem / blockquote / footnoteDefinition）里下钻：
 /// paragraph / heading / tableCell 里的 html 是行内 HTML（不改变块级结构），
 /// 若也当锁定会把「带 <span> 的段落」误判为只读。
 function lockedKindOf(node: Node): "html" | "widget" | null {
@@ -99,19 +103,36 @@ function kindOf(node: Node): EditUnitKind {
 }
 
 /// 收集参与切分的节点：顶层节点各成一块；list 下钻到 listItem；
-/// blockquote 下钻到直接子块（不再深钻）。
+/// blockquote / footnoteDefinition 下钻到直接子块（不再深钻）。
 /// 下钻时不能无条件用容器类型当 kind：子节点自身（或其块级子树）若是 HTML / widget，
-/// 必须沿用其锁定类型，否则「结构性只读」在引用/列表内会被绕过（裁定 F8）。
+/// 必须沿用其锁定类型，否则「结构性只读」在引用/列表/脚注内会被绕过（裁定 F8/F37）。
 function collectUnits(root: Root): Array<{ node: Node; kind: EditUnitKind }> {
   const collected: Array<{ node: Node; kind: EditUnitKind }> = [];
 
-  for (const node of root.children as Node[]) {
-    if (node.type === "list" || node.type === "blockquote") {
-      const container = node as Parent;
-      const fallbackKind: EditUnitKind = node.type === "list" ? "listItem" : "blockquoteChild";
-      for (const child of container.children) {
-        collected.push({ node: child, kind: lockedKindOf(child) ?? fallbackKind });
+  /// 把容器的直接块级子节点各自收成一块。子节点若是脚注定义（嵌套在引用/列表里的情形），
+  /// 同样继续下钻 —— 否则「脚注定义不可绕过」只对顶层成例成立，
+  /// 遍历式断言（裁定 F37）会红。
+  const drill = (container: Parent, fallbackKind: EditUnitKind) => {
+    for (const child of container.children as Node[]) {
+      if (child.type === "footnoteDefinition") {
+        drill(child as Parent, "footnoteChild");
+        continue;
       }
+      collected.push({ node: child, kind: lockedKindOf(child) ?? fallbackKind });
+    }
+  };
+
+  for (const node of root.children as Node[]) {
+    if (node.type === "list") {
+      drill(node as Parent, "listItem");
+      continue;
+    }
+    if (node.type === "blockquote") {
+      drill(node as Parent, "blockquoteChild");
+      continue;
+    }
+    if (node.type === "footnoteDefinition") {
+      drill(node as Parent, "footnoteChild");
       continue;
     }
     collected.push({ node, kind: kindOf(node) });

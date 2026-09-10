@@ -142,6 +142,10 @@ export default function App() {
   useEffect(() => {
     function handleGlobalShortcut(event: KeyboardEvent) {
       if (!(event.metaKey || event.ctrlKey)) return;
+      // 已被消费的按键不再处理（终审 C2 / 裁定 F38-A）：编辑框的 onKeyDown 对
+      // Ctrl+S 调过 preventDefault，事件继续冒泡到 window；这里无条件再调一次
+      // 就会形成双通道提交（而此时 editorRef 已被 flushSync 换成新闭包）。
+      if (event.defaultPrevented) return;
       const key = event.key.toLowerCase();
 
       // Ctrl+S（裁定 F6）：阅读视图下也必须吞掉 WebView 自带的「保存网页」默认行为；
@@ -225,6 +229,11 @@ export default function App() {
       await reloadCurrent();
       return;
     }
+    // 确认是「切换文档」后先清空编辑会话（终审 I1 / 裁定 F39）：落盘失败时 F24 会把
+    // 活动块与草稿留在原地（上面的尽力提交拿不到成功），不清就会在新文档的同序号块上
+    // 挂出旧草稿，任何后续提交触发都会把上一篇的文字写进新文件。
+    // 同路径重开不走这里（上面的分支已返回）：热重载不得丢掉正在编辑的草稿。
+    editorRef.current?.resetSession();
     // 切换文档前先保存上一篇的阅读位置
     persistCurrentScroll();
     // 切换文档时重置 mdlog 活跃路径与前置标志，避免切换过渡时误触发断开补写
@@ -867,6 +876,13 @@ export default function App() {
         {editor.toast ? (
           <div key={editor.toast.id} className="editor-toast" role="status">
             {editor.toast.message}
+          </div>
+        ) : null}
+        {/* 重文档软提示（spec D5 / 裁定 F40）：实测提交耗时超阈值后的常驻轻提示，
+            只在编辑视图内可见（阅读视图 DOM 不变）；它是文档规模属性，不自动消失 */}
+        {editor.viewMode === "editing" && editor.heavyDoc ? (
+          <div className="editor-hint" role="status">
+            本文档较大，提交可能有不到一秒的停顿
           </div>
         ) : null}
         <aside className={`outline-sidebar ${isOutlineOpen ? "outline-sidebar--open" : ""}`}>
