@@ -4,6 +4,12 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.5.0] - 2026-09-10
+
+### 变更
+
+- 设计语言对齐上游 kami v1.15.0（v1.14「Quieter Pages」减法规则落地）：正文 h1 去掉 3px 靛青题签、引用块去掉侧线改缩进赭灰、表格默认去掉斑马纹（行分隔先靠留白）；新增 `--inline-code-bg`（行内代码底色）、`--tag-bg` / `--brand-tint`（实色标签底）token；代码高亮配色收敛到 kami  token（keyword 靛青 / comment 石灰 / string 赭灰 / number 淡墨 / function-class 近墨，bold 上限 500）
+
 ## [1.4.0] - 2026-09-09
 
 ### 新增

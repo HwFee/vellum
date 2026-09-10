@@ -79,6 +79,71 @@ function resolveHighlightLanguage(language?: string): string {
   return LANGUAGE_ALIASES[language] ?? language;
 }
 
+// kami 语法高亮配色（对齐上游 design.md §Syntax Highlighting）：只用现有 token，
+// 无第二种彩色——keyword 靛青 / comment 石灰 / string 赭灰 / number 淡墨 /
+// function-class 近墨；diff 增删沿用暖色（删用朱红、增用赭灰），bold 收敛到 500。
+// 其余 oneLight 键（选区、行号、diff 背景等功能性 chrome）保持原样。
+const KAMI_PRISM_STYLE = {
+  ...oneLight,
+  comment: { color: "#6b6a64", fontStyle: "italic" as const },
+  prolog: { color: "#6b6a64" },
+  cdata: { color: "#6b6a64" },
+  punctuation: { color: "#3d3d3a" },
+  entity: { color: "#3d3d3a", cursor: "help" },
+  doctype: { color: "#3d3d3a" },
+  "attr-name": { color: "#3d3d3a" },
+  "class-name": { color: "#141413" },
+  boolean: { color: "#3d3d3a" },
+  constant: { color: "#3d3d3a" },
+  number: { color: "#3d3d3a" },
+  atrule: { color: "#1B365D" },
+  keyword: { color: "#1B365D" },
+  important: { color: "#1B365D" },
+  property: { color: "#3d3d3a" },
+  tag: { color: "#3d3d3a" },
+  symbol: { color: "#3d3d3a" },
+  selector: { color: "#141413" },
+  deleted: { color: "#a63a2b" },
+  string: { color: "#504e49" },
+  char: { color: "#504e49" },
+  builtin: { color: "#504e49" },
+  inserted: { color: "#504e49" },
+  regex: { color: "#504e49" },
+  "attr-value": { color: "#504e49" },
+  variable: { color: "#141413" },
+  operator: { color: "#3d3d3a" },
+  function: { color: "#141413" },
+  url: { color: "#1B365D" },
+  bold: { fontWeight: 500 },
+  ".language-css .token.selector": { color: "#141413" },
+  ".language-css .token.property": { color: "#3d3d3a" },
+  ".language-css .token.function": { color: "#141413" },
+  ".language-css .token.url > .token.function": { color: "#1B365D" },
+  ".language-css .token.url > .token.string.url": { color: "#504e49" },
+  ".language-css .token.important": { color: "#1B365D" },
+  ".language-css .token.atrule .token.rule": { color: "#1B365D" },
+  ".language-javascript .token.operator": { color: "#3d3d3a" },
+  ".language-javascript .token.template-string > .token.interpolation > .token.interpolation-punctuation.punctuation":
+    { color: "#3d3d3a" },
+  ".language-json .token.operator": { color: "#3d3d3a" },
+  ".language-json .token.null.keyword": { color: "#3d3d3a" },
+  ".language-markdown .token.url": { color: "#3d3d3a" },
+  ".language-markdown .token.url > .token.operator": { color: "#3d3d3a" },
+  ".language-markdown .token.url-reference.url > .token.string": { color: "#3d3d3a" },
+  ".language-markdown .token.url > .token.content": { color: "#141413" },
+  ".language-markdown .token.url > .token.url": { color: "#1B365D" },
+  ".language-markdown .token.url-reference.url": { color: "#1B365D" },
+  ".language-markdown .token.blockquote.punctuation": { color: "#6b6a64", fontStyle: "italic" as const },
+  ".language-markdown .token.hr.punctuation": { color: "#6b6a64", fontStyle: "italic" as const },
+  ".language-markdown .token.code-snippet": { color: "#504e49" },
+  ".language-markdown .token.bold .token.content": { color: "#141413" },
+  ".language-markdown .token.italic .token.content": { color: "#3d3d3a" },
+  ".language-markdown .token.strike .token.content": { color: "#3d3d3a" },
+  ".language-markdown .token.strike .token.punctuation": { color: "#3d3d3a" },
+  ".language-markdown .token.list.punctuation": { color: "#3d3d3a" },
+  ".language-markdown .token.title.important > .token.punctuation": { color: "#3d3d3a" },
+};
+
 // 高亮器的 customStyle 是静态对象，提升为模块常量避免每次渲染创建新引用
 const HIGHLIGHTER_CUSTOM_STYLE = {
   margin: 0,
@@ -172,7 +237,7 @@ export const CodeBlock = memo(function CodeBlock({ code, language }: CodeBlockPr
       <div className="code-block__body">
         <SyntaxHighlighter
           language={resolveHighlightLanguage(language)}
-          style={oneLight}
+          style={KAMI_PRISM_STYLE}
           PreTag="pre"
           customStyle={HIGHLIGHTER_CUSTOM_STYLE}
         >

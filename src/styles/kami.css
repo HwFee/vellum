@@ -25,12 +25,15 @@
 :root {
   --parchment: #f5f4ed;
   --ivory: #faf9f5;
+  --inline-code-bg: #f0eee6;
   --warm-sand: #e8e6dc;
   --near-black: #141413;
   --dark-warm: #3d3d3a;
   --olive: #504e49;
   --stone: #6b6a64;
   --brand: #1B365D;
+  --tag-bg: #E4ECF5;
+  --brand-tint: #EEF2F7;
   --border: #e8e6dc;
   --border-soft: #e5e3d8;
   --hairline: #dddacc;
@@ -801,9 +804,6 @@ mark.search-match--current {
 
 .markdown-body h1 {
   margin: 0 0 14px;
-  padding-left: 12px;
-  border-left: 3px solid var(--brand);
-  border-radius: 2px;
   color: var(--near-black);
   font-size: 30px;
   line-height: 1.2;
@@ -964,9 +964,8 @@ mark.search-match--current {
 }
 
 .markdown-body blockquote {
-  margin: 17px 0;
-  padding: 6px 0 6px 21px;
-  border-left: 3px solid var(--brand);
+  margin: 17px 0 17px 16px;
+  padding: 4px 0 4px 5px;
   color: var(--olive);
 }
 
@@ -977,7 +976,7 @@ mark.search-match--current {
 .markdown-body code {
   padding: 1px 5px;
   border-radius: 3px;
-  background: var(--ivory);
+  background: var(--inline-code-bg);
   color: var(--dark-warm);
   font-family: var(--mono);
   font-size: 12px;
@@ -1021,6 +1020,7 @@ mark.search-match--current {
   margin: 17px 0;
   border-collapse: collapse;
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
 .markdown-body th {
@@ -1035,10 +1035,6 @@ mark.search-match--current {
   padding: 7px 11px;
   border-bottom: 1px solid var(--border-soft);
   vertical-align: top;
-}
-
-.markdown-body tr:nth-child(even) td {
-  background: var(--ivory);
 }
 
 .markdown-body img {
