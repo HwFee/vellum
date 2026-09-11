@@ -1,11 +1,9 @@
 ---
 name: vellum-mdlog
 description: >-
-  Use for every response whenever the system prompt announces "mdlog live log: CONNECTED"
-  (a Vellum mdlog connection is active; replies stream verbatim into the linked Markdown
-  document), and whenever a diagram, flowchart, architecture sketch, or interactive visual
-  would explain more intuitively than plain text — any scenario, unprompted. Covers
-  vellum-widget blocks, static SVG figures, mdlog formatting rules, kami design tokens.
+  Use when the system prompt announces "mdlog live log: CONNECTED" (replies stream verbatim into
+  the linked Vellum document — every response follows this skill), or unprompted when a diagram,
+  flowchart, or vellum-widget interactive block explains the point better than prose.
 ---
 
 # vellum-mdlog：实时对话记录与交互块契约
@@ -94,7 +92,7 @@ description: >-
 - 衬线栈（与正文同栈，内外一致）：`font-family: "TsangerJinKai02", "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", Charter, Georgia, Palatino, serif;`（沙箱读不到宿主字体文件，中文优雅回退系统衬线）
 - 等宽栈：`font-family: "JetBrains Mono", "SF Mono", "Fira Code", Consolas, Monaco, "TsangerJinKai02", "Source Han Serif SC", monospace;`
 - 图标用发丝线原生 SVG 或精炼文本符号，不用 emoji；圆角 2–6px（卡片 4px）；`font-weight` ≤ 500；
-- 必含 `@media (prefers-reduced-motion: reduce)` 规则关停动画与过渡。
+- 必含 `@media (prefers-reduced-motion: reduce)` 规则关停动画与过渡。**动画要有帧预算**：真机实测（合成样本、240Hz 屏）一个视口内的动画 widget 可稳定吃掉 **0.4 核 CPU**，而全部停帧后降到 9ms/s——成本就在「看得见的动画」本身。因此：① 优先用 CSS `@keyframes` / `transition`（合成器侧，成本低）；② 必须用 rAF 时按 **≥33ms（≈30fps）** 节流，不要每帧重绘大 canvas（成本 ∝ 像素数 × 帧率，240Hz 下每帧重绘 600×110 canvas 实测约 0.4 核）；③ 动画区域尽量小。宿主已会自动停掉离屏 widget 的渲染（`visibility:hidden`），所以不必自己判断可见性，但也别指望「反正离屏不跑」——widget 一进视口成本就要算数。
 
 ### 契约 5：高度与标题上报
 
@@ -120,7 +118,8 @@ description: >-
 ```
 
 - 消息类型逐字 `"vellum-widget:resize"`；`title` 取 `document.title`（空缺时宿主显示「交互演示」）；
-- 宿主把高度夹在 `[80, 2000]` px：不足 80 按 80 渲染，超高内容在沙箱内部局部滚动。
+- 宿主把高度夹在 `[80, 6000]` px：不足 80 按 80 渲染，超 6000 按 6000 渲染（runaway 防护）。
+- **宿主会向沙箱注入根溢出保护（`html{overflow:hidden !important}`）：沙箱根文档永不成为滚动盒**。2026-09-11 真机 CDP 实测：子帧内只要有几 px 可滚动余量，滚轮手势会被 Chromium scroll-latch **整段**锁进子帧，且跨帧不做手势续滚——指针停在 widget 上时宿主页面完全滚不动（仅有 8px 余量、请求滚动 1200px，宿主位移 0）。因此：**不要指望「超高内容在沙箱内滚动」**（根文档已禁滚），widget 请把内容设计成一屏内可读；确实需要内部滚动时自备内层滚动容器（如 `div{height:260px;overflow-y:auto}`），并知道指针停在该容器上时那一段手势归它。
 - **canvas 必随宽重绘**：`canvas` 的位图缓冲不随 CSS 拉伸——窗口/正文列变宽时元素变宽但画面模糊走样。必须监听 `window` 的 `resize`，按新 `clientWidth` 重设 `canvas.width/height` 并重绘（模板 §2 的 `resizeCanvas` + `draw` 就是范式）。
 
 ### 契约 6：SVG 布局防重叠（静态图必守）

@@ -101,7 +101,10 @@ npm run tauri        # Tauri CLI
 - 热重载滚动恢复是「视口锚点元素优先、像素兜底」（`viewportAnchor.ts` 捕获 / App 恢复）：不要改回纯像素恢复——视口上方内容同步变高（流式代码块收合成 widget 等）时旧像素对应另一处内容会跳，且程序化像素覆盖会顶掉 Chromium 原生滚动锚定对异步 iframe 高度上报的补偿
 - mdlog 记录期间模型追加触发的热重载**禁止吸底跟随**（用户停在哪儿就保持在哪儿）；仅非记录态且距底 ≤80px 的热重载才吸底
 - widget 预载视距为上 400px / 下 1200px（滑到前 iframe 已渲染完毕，不再闪）；iframe 首个 resize 上报（或 load 后 500ms 兑底）前保持透明、就绪后淡入，高度变化走 CSS 过渡——不要把 rootMargin 改回小值，也不要去掉 `--ready` 淡入门禁
-- **静态 widget 的 iframe 必须带 `mdlog-widget__frame--static`（`pointer-events: none`）**：跨源沙箱子帧只要存在几 px 可滚动余量（高度过渡窗口、字体后加载、2000px 截断），滚轮手势就会被 Chromium scroll-latch 锁进子帧——整个手势期父容器收不到滚动（「指针在图上滚动卡住、图微移、停 1-2 秒自愈」的根因）。交互性由 `widgetInteractivity.ts` 保守判定（通信 IIFE 之外有脚本/控件/链接/canvas 才算交互），宁可多放行也不错杀；别给静态图去掉这个类
+- **沙箱根溢出保护（scroll-latch 的正面修复）**：`widget.rs` 的 `WIDGET_ROOT_SCROLL_GUARD` / `inject_root_scroll_guard` 给每个 widget 响应注入 `<style>html{overflow:hidden !important}</style>`——跨源子帧只要有几 px 可滚余量，滚轮手势就会被 Chromium scroll-latch **整段**吞掉且跨帧不续滚（「指针在 widget 上滚不动」的根因）。三条不可回退：① 出网前注入（`build_widget_response`，`WidgetRegistry` 保持纯存储）；② 样式必须落在文档内部（越过 `<!DOCTYPE` 会退回 quirks 模式）；③ 只作用 `html`、不碰 `body`（`body{height:100vh;overflow:auto}` 是合法自滚动形态）。实测数据见 `CHANGELOG.md` 未发布段，探针与踩坑见 `scripts/cdp-perf-scroll.mjs` 头部注释
+- 高度夹取 `[80, 6000]` px（不是 2000）：根文档禁滚后，夹取过紧等于直接裁掉高内容，别改回
+- **离屏 widget 停帧降载**：`WidgetSandbox` 的「渲染窗」观察器（`PARK_ROOT_MARGIN` **必须严格大于预载视距**，否则滑到前会出现空框）双向切 `--parked` = `visibility: hidden`，是跨源沙箱唯一可用的宿主侧降载手段；**禁止改成 `display:none`**（布局高塌成 0、顶动整篇，已由 `kami.css.test.ts` 锁死）。视口内动画的固有成本（跨源，宿主无权干预）由 widget 契约的帧预算约束
+- **静态 widget 的 iframe 仍必须带 `mdlog-widget__frame--static`（`pointer-events: none`）**：根溢出保护已覆盖交互 widget，这个类作为静态图的纵深防线保留（静态图不需要指针，穿透后连 hover 都不抢）。交互性由 `widgetInteractivity.ts` 保守判定（通信 IIFE 之外有脚本/控件/链接/canvas 才算交互），宁可多放行也不错杀；别给静态图去掉这个类
 - `read_mdlog_state` 的返回值必须 `?? null` 归一后再入 state：后端抖动给出 `undefined` 时 `undefined !== null` 会被误判为记录中，静默禁用吸底与热重载印章
 - 残留 `.mdlog` sidecar 自动清理：`read_mdlog_state` 命令层在判定记录死亡（pid 死 或 心跳超时且非时钟回拨）后 best-effort 删除 sidecar 文件（`should_cleanup_stale_sidecar` / `cleanup_stale_sidecar_if_dead`）；`read_mdlog_state_from_path` 保持纯函数无副作用，pi 扩展侧 `session_start` 的 sessionId 不匹配分支也会对 pid 已死的 sidecar 做同样清理
 - **块级就地编辑（2026-09-10 新增）不变量**：
@@ -113,7 +116,7 @@ npm run tauri        # Tauri CLI
   - 切换文档（`loadPath` 判定非同路径）必须调用 `editorRef.current?.resetSession()`：落盘失败时 F24 会把编辑会话留在原地，不清就会把上一份文档的草稿拼进新文档
   - 结构性只读必须覆盖**全部**块级容器（`list` / `listItem` / `blockquote` / `footnoteDefinition`）；脚注定义要当可下钻容器（与引用同列），否则其中的块级 HTML / `vellum-widget` 源码会落到一个 `editable: true` 的块上。回归断言用「容器 × 锁定块」遍历式清单（`editUnits.test.ts`），不得只补容器例子
   - mdlog 记录中编辑门禁三重：顶栏/入口禁用（`toggleView`/`activateUnit`）＋ 提交口 `commitActive` 拦截 ＋ Rust `save_document` 存活闸门；**不得**只保留入口一处
-  - 入口 chunk（`dist/assets/index-*.js`）因本功能实测 143.76KB → 158.08KB（+14.32KB，gzip +4.57KB，来源：`npm run build` 产物对比 `848899c` 之前 `d9f8523` 的工作树）；终审修复波后为 **158.53KB**（`index-BAtPp06D.js`，再 +0.45KB：脚注下钻 + 提交在途闸门/会话复位 + 重文档轻提示接线）。此增量为 `useDocumentEditor` 引入 `buildEditUnits`（math 解析器进入口）所致。若后续继续增长，按裁定 F11 的退路把单元计算移回 lazy 侧
+  - 入口 chunk（`dist/assets/index-*.js`）因本功能实测 143.76KB → 158.08KB（+14.32KB，gzip +4.57KB，来源：`npm run build` 产物对比 `848899c` 之前 `d9f8523` 的工作树）；终审修复波后为 **158.53KB**（`index-BAtPp06D.js`，再 +0.45KB：脚注下钻 + 提交在途闸门/会话复位 + 重文档轻提示接线）；**离屏 widget 停帧降载后为 158.99KB**（`index-BlB50Eub.js`，再 +0.46KB：渲染窗观察器与 `--parked` 类）。此增量为 `useDocumentEditor` 引入 `buildEditUnits`（math 解析器进入口）所致。若后续继续增长，按裁定 F11 的退路把单元计算移回 lazy 侧
 - 完整优化记录见 `OPTIMIZATION_HANDOFF.md`（含评估后放弃的方向）
 
 ### 文件索引
@@ -145,4 +148,5 @@ npm run tauri        # Tauri CLI
   - capabilities 必须有 `core:window:allow-destroy`：`onCloseRequested` 的 JS 包装层在处理器**不拦截**时会调 `destroy()`，只声明 `allow-close` 是不够的——缺权限则**窗口永远关不掉**（真机 Console：`Command plugin:window|destroy not allowed by ACL`）。同理关闭处理器必须有异常兜底（任何意外都放行关闭，否则一次抛错就把窗口永久留住）
   - CSP 必须含 `connect-src ipc: http://ipc.localhost`：缺它会回落到 `default-src 'self'` 把 IPC 拦掉，`plugin:store`（阅读位置 / 侧栏状态 / 上次打开）与 `plugin:event`（`file-changed` / `mdlog-state-changed` / `pending-open-paths`）在整个生产构建里**全程走 postMessage 降级通道并持续报错**（`main.rs` 有断言 CSP 字符串全等的测试，改 CSP 必须同步改它）
   - 真机验证入口：`scripts/cdp-verify.mjs`（以 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` 启动 release exe，再用 Node 原生 WebSocket 走 CDP 断言：CSP 违规数 / ACL 拒绝数 / 笔⇄书图标 / 单位块数量 / 点 ✕ 后 page target 归零）
+  - 真机滚动/锁存探针：`scripts/cdp-perf-scroll.mjs`（`npm run perf:scroll`）——合成手势逐 widget 判锁存 + 帧时序 / 进程级 CPU / 可选 trace 归因 + 每个沙箱子帧的根溢出保护断言；跑前必须 `taskkill /IM vellum.exe /F`（单实例插件会吞掉测量实例）。方法论与踩坑写在脚本头部注释
 - **`tauri/custom-protocol` feature 是生产上下文的开关**（tauri 2.11 的 `dev = !custom_protocol` 判定）：`Cargo.toml` 已显式声明，缺失它的构建会产出 dev 上下文 exe——窗口加载 `http://localhost:1420`、不嵌入前端资源，无 dev 服务器时显示「localhost 拒绝连接」。打包始终用 `npm run tauri build`（CLI 也会自动注入该 feature）；改 Rust 代码后验证可用裸 `cargo build --release`（manifest 已声明，结果一致）

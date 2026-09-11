@@ -4,6 +4,27 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [未发布] - 2026-09-11
+
+### 修复
+
+- **交互 widget 沙箱吞掉滚轮手势（「指针在 widget 上滚动卡住」的真正根因）**：跨源沙箱子帧内只要存在可滚动余量——哪怕只有几 px（iframe 高度过渡窗口、字体后加载撑高、绝对定位浮层）——滚轮手势会被 Chromium scroll-latch **整段**锁进子帧，且跨帧不做手势续滚，于是页面纹丝不动。修法：沙箱 HTML 由 Rust 在服务响应期注入 `<style>html{overflow:hidden !important}</style>`（`WIDGET_ROOT_SCROLL_GUARD` / `inject_root_scroll_guard`），根文档不再是滚动盒。真机实测（release exe + CDP 合成手势）：修复前 `churn` 家族 widget 上请求滚动 1200px、容器位移 **0**；修复后在**手动解除离屏停帧**的同一状态下位移 **1215/1200**；10/10 沙箱子帧 `html.overflowY=hidden`。指针事件与子帧内点击不受影响，契约测高逐值相等（独立 Chrome 对照实验）
+- 高度夹取上限 2000px → 6000px：根文档禁滚后，「超高内容在沙箱内部局部滚动」不再是回退手段，夹取过紧等于直接裁掉高内容
+
+### 性能
+
+- **离屏 widget 停帧降载**：`WidgetSandbox` 新增「渲染窗」观察器（`1200px 0px 2400px 0px`，严格大于预载视距 400/1200）双向切换 `--parked`，CSS 侧 `visibility: hidden`——跨源子帧的 rAF 与 CSS 动画完全停摆，而 **iframe 自身布局高度不变**（`display:none` 同样停帧但会把布局高塌成 0、顶动整篇文档，已实测排除并被 `kami.css.test.ts` 锁死）。进程级 CPU 实测（排除 DevTools 附挂干扰）：阅读位置（10 个存活沙箱、9 个离屏）**557ms/s → 409ms/s（−27%）**；全部离屏时 **523ms/s → 16ms/s**
+- 主线程滚动基线入库（真机 CDP）：整篇 9000px 长滚动与逐 widget 滚动手势下，帧时长 p50 4.2ms / p95 4.3ms、掉帧 0、长任务 0 —— 也就是说此前体感的「不流畅」并非掉帧，而是手势被沙箱吞掉（页面不动但帧率指标完全正常，最迷惑人的一类）
+- widget 契约（`.pi/skills/vellum-mdlog`）新增动画帧预算：实测一个视口内的 rAF-canvas 动画 widget 可稳定吃掉 0.4 核 CPU（停帧后降到 9ms/s），故要求 rAF 动画按 ≥33ms 节流、优先 CSS 动画；宿主只治得了离屏，视口内成本只能靠生成侧约束
+
+### 工具
+
+- 新增真机滚动探针 `scripts/cdp-perf-scroll.mjs`（`npm run perf:scroll`）：用 `Input.synthesizeScrollGesture` 投放**带手势语义**的滚动（离散 wheel 事件复现不出 scroll-latch）逐 widget 判定是否被吞，采集 rAF 帧时长 / longtask / LoAF / `Performance.getMetrics` / 进程级 CPU，可 `--trace` 做 devtools trace 归因，并对每个沙箱子帧断言根溢出保护已生效；`npm run verify:cdp` 别名指向原有 `cdp-verify.mjs`
+- 探针踩坑记录（写进脚本注释，防止后人重踩）：① `Target.setAutoAttach` 会把跨源子帧**挂起等调试器**，不显式 `Runtime.runIfWaitingForDebugger` 则子帧 JS/rAF 全停（实测 10 个动画沙箱 CPU 从 523ms/s 掉到 0、per-child ScriptDuration 恒为 0），据此得出的 CPU/子帧指标全是假的；② 自定义协议响应不受 Network 域缓存，`Network.getResponseBody` 取不到 widget HTML，真机断言必须改成进子帧读 `getComputedStyle(documentElement).overflowY`；③ 测量前必须 `taskkill /IM vellum.exe /F`，单实例插件会把新实例参数转发给已开窗口、测量直接作废
+
+- 退役三个「文档内容 grep 式」校验器：`verify-agents-md.mjs` / `verify-skill-contract.mjs` / `verify-skill-discovery.mjs`。它们把 AGENTS.md 与 SKILL.md 的措辞、词元、数值缓存成断言，文档一改就集体失真（实测三只全红：旧夹取 `[80, 2000]`、旧 frontmatter 触发模式、已撤销的「目录随仓库版本化」例外）——文档本身是唯一真相，校验器只是它的副本。保留 `verify-widget-template.mjs`（盯的是 `assets/widget-template.html` 这个真实资产的契约 IIFE 与字体栈，不是文案）
+- `.pi/skills/vellum-mdlog` 的 description 按 writing-for-agents 的指针写法重写：front-load `Use when`、两个触发分支各写一次（mdlog 连接 → 每条回复 / 无提示的图优于文字）、砍掉正文已承载的能力清单
+
 ## [1.6.0] - 2026-09-10
 
 ### 新增

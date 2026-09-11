@@ -8,6 +8,8 @@
     "build": "tsc && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
+    "perf:scroll": "node scripts/cdp-perf-scroll.mjs",
+    "verify:cdp": "node scripts/cdp-verify.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
