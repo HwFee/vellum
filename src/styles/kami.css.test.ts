@@ -277,8 +277,14 @@ describe("kami.css mdlog widget and live indicator tokens", () => {
     expect(motionRule).toBeTruthy();
   });
 
-  it("strictly obeys kami design constraints for mdlog rules: allowed radii, max weight 500, no raw colors", () => {
-    const startIndex = css.indexOf(".mdlog-widget");
+  it("停帧降载：离屏 widget iframe 用 visibility:hidden（绝不能用 display:none）", () => {
+    const rule = css.match(/\.mdlog-widget__frame--parked\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(rule).toMatch(/visibility:\s*hidden/);
+    // display:none 会把 iframe 布局高塌成 0 → 顶动整篇文档，实测过，别改回去
+    expect(rule).not.toMatch(/display:\s*none/);
+  });
+
+  it("strictly obeys kami design constraints for mdlog rules: allowed radii, max weight 500, no raw colors", () => {    const startIndex = css.indexOf(".mdlog-widget");
     expect(startIndex).toBeGreaterThan(0);
     const mdlogSection = css.slice(startIndex);
 

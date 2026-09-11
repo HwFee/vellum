@@ -20,6 +20,12 @@ export type WidgetSandboxProps = {
 // 预载视距：进入视口前提前挂载 iframe——下方 1200px（阅读方向，滑到时已渲染完毕，
 // 不再看到「闪一下」），上方 400px（回滑同理）。仍受 widgetRegistry 的 LRU 上限约束。
 const PRELOAD_ROOT_MARGIN = "400px 0px 1200px 0px";
+// 停帧视窗：比预载视距更大的一圈，滑出后给 iframe 加 --parked（visibility:hidden），
+// 让跨源子帧的 rAF 与 CSS 动画停摆、又不动自身布局高（display:none 会塌成 0 顶动整篇）。
+// 实测（Chrome 真机探针）：可见时 1.5s 内 384 次 rAF 回调，visibility:hidden 后 0 次、
+// CSS 动画迭代 0 次，而 iframe 布局高保持 300px 不变。
+// 必须严格大于预载视距：先解除停帧、再谈「滑到之前已渲染」，不会出现空框。
+const PARK_ROOT_MARGIN = "1200px 0px 2400px 0px";
 // iframe load 后未收到 resize 上报（非规范 widget 无通信 IIFE）的淡入兜底时长
 const READY_FALLBACK_MS = 500;
 
@@ -50,6 +56,10 @@ export const WidgetSandbox = memo(function WidgetSandbox({
   // 让下方挂载仲裁 effect 以新的 isAuthorized 重新求值（故必须列入 effect 依赖表）。
   const [grantRenderTick, setGrantRenderTick] = useState(0);
   const [isInViewport, setIsInViewport] = useState<boolean>(false);
+  // 离屏停帧：滑出渲染窗（PARK_ROOT_MARGIN，比预载视距更大）时为 true，
+  // 给 iframe 挂 --parked → visibility:hidden → 子帧 rAF/CSS 动画完全停摆。
+  // 沙箱是跨源 opaque origin，宿主读不到也控不了里面的动画，这是唯一的宿主侧降载手段。
+  const [isParked, setIsParked] = useState<boolean>(false);
   const [hasError, setHasError] = useState<boolean>(false);
 
   const prevHtmlRef = useRef(html);
@@ -171,6 +181,27 @@ export const WidgetSandbox = memo(function WidgetSandbox({
     return () => observer.disconnect();
   }, [instanceId]);
 
+  // 2.5 渲染窗监听：离屏 widget 停帧降载（双向切换）。只影响已挂载的 iframe，
+  // 停帧期间子帧仍保有布局（宽度随侧栏变化会正常重排、正常上报高度）。
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          setIsParked(!entry.isIntersecting);
+        }
+      },
+      { rootMargin: PARK_ROOT_MARGIN }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   // 3. 挂载条件仲裁与 register_widget 触发
   const isAuthorized = autoMount || activatedForHtmlRef.current === html;
   const shouldMount = isAuthorized && !isDormant;
@@ -226,7 +257,10 @@ export const WidgetSandbox = memo(function WidgetSandbox({
       }
 
       if (typeof data.height === "number" && !Number.isNaN(data.height)) {
-        const clamped = Math.min(2000, Math.max(80, data.height));
+        // 上限 6000px：宿主已在沙箱内注入 `html{overflow:hidden !important}`（根溢出保护），
+        // 根文档不再可滚，所以「超高内容在沙箱内部局部滚动」不再是回退手段——
+        // 夹取过紧会把高内容直接裁掉。放宽到 6000 兼顾 runaway 防护与真实高内容。
+        const clamped = Math.min(6000, Math.max(80, data.height));
         if (rafRef.current !== null) {
           cancelAnimationFrame(rafRef.current);
         }
@@ -312,7 +346,8 @@ export const WidgetSandbox = memo(function WidgetSandbox({
           ref={iframeRef}
           className={
             (isFrameReady ? "mdlog-widget__frame mdlog-widget__frame--ready" : "mdlog-widget__frame") +
-            (interactive ? "" : " mdlog-widget__frame--static")
+            (interactive ? "" : " mdlog-widget__frame--static") +
+            (isParked ? " mdlog-widget__frame--parked" : "")
           }
           src={widgetUrl}
           title={title}

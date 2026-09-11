@@ -11,9 +11,21 @@ vi.mock("@tauri-apps/api/core", () => ({
 describe("WidgetSandbox", () => {
   let observerCallback: IntersectionObserverCallback | null = null;
   let observerOptions: IntersectionObserverInit | undefined;
+  // 组件现在有两个观察器：预载（挂载仲裁）与渲染窗（离屏停帧降载）。
+  // 旧断言依赖 observerCallback 指向预载观察器 → 按 rootMargin 分派，
+  // 不能退回「最后创建的赢」（加第二个观察器会直接掀掉全部既有用例）。
+  let parkCallback: IntersectionObserverCallback | null = null;
+  let parkOptions: IntersectionObserverInit | undefined;
+
+  const PRELOAD_MARGIN = "400px 0px 1200px 0px";
+  const PARK_MARGIN = "1200px 0px 2400px 0px";
 
   beforeEach(() => {
     vi.clearAllMocks();
+    observerCallback = null;
+    observerOptions = undefined;
+    parkCallback = null;
+    parkOptions = undefined;
     if ("__clear" in widgetRegistry && typeof widgetRegistry.__clear === "function") {
       widgetRegistry.__clear();
     }
@@ -23,8 +35,13 @@ describe("WidgetSandbox", () => {
       callback: IntersectionObserverCallback,
       options?: IntersectionObserverInit
     ) {
-      observerCallback = callback;
-      observerOptions = options;
+      if (options?.rootMargin === PARK_MARGIN) {
+        parkCallback = callback;
+        parkOptions = options;
+      } else {
+        observerCallback = callback;
+        observerOptions = options;
+      }
       return {
         observe: vi.fn(),
         unobserve: vi.fn(),
@@ -40,7 +57,58 @@ describe("WidgetSandbox", () => {
   it("preloads the iframe well before it enters the viewport (top 400px / bottom 1200px)", () => {
     render(<WidgetSandbox html="<div>preload</div>" autoMount={true} />);
     // 预载视距：阅读方向预留约一屏多的提前量，滑到 widget 时 iframe 已渲染完毕
-    expect(observerOptions?.rootMargin).toBe("400px 0px 1200px 0px");
+    expect(observerOptions?.rootMargin).toBe(PRELOAD_MARGIN);
+  });
+
+  it("停帧视窗严格大于预载视窗（先解除停帧、再谈挂载，绝不出现空框）", () => {
+    render(<WidgetSandbox html="<div>margin</div>" autoMount={true} />);
+    expect(parkOptions?.rootMargin).toBe(PARK_MARGIN);
+    const park = PARK_MARGIN.split(" ").map((v) => Number.parseFloat(v));
+    const preload = PRELOAD_MARGIN.split(" ").map((v) => Number.parseFloat(v));
+    // 纵向（阅读方向）必须严格更大；横向两边都是 0（不做左右预载），相等即可
+    expect(park[0], "上边停帧视距必须大于预载视距").toBeGreaterThan(preload[0]);
+    expect(park[2], "下边停帧视距必须大于预载视距").toBeGreaterThan(preload[2]);
+    expect(park[1]).toBeGreaterThanOrEqual(preload[1]);
+    expect(park[3]).toBeGreaterThanOrEqual(preload[3]);
+  });
+
+  it("离屏 widget iframe 停帧降载：滑出渲染窗加 --parked，滑回即摘掉", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      id: "w-park",
+      url: "http://vellum-widget.localhost/w-park",
+    });
+    render(<WidgetSandbox html="<div>park</div>" autoMount={true} />);
+    await act(async () => {
+      observerCallback?.(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver
+      );
+    });
+    expect((screen.getByTitle("交互演示") as HTMLIFrameElement).className).not.toContain(
+      "mdlog-widget__frame--parked"
+    );
+
+    // 滑出渲染窗：加 --parked（CSS 侧是 visibility:hidden —— 子帧 rAF/CSS 动画停摆，
+    // 而 iframe 自身布局高度不变，文档不会被顶动）
+    act(() => {
+      parkCallback?.(
+        [{ isIntersecting: false } as IntersectionObserverEntry],
+        {} as IntersectionObserver
+      );
+    });
+    expect((screen.getByTitle("交互演示") as HTMLIFrameElement).className).toContain(
+      "mdlog-widget__frame--parked"
+    );
+
+    act(() => {
+      parkCallback?.(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver
+      );
+    });
+    expect((screen.getByTitle("交互演示") as HTMLIFrameElement).className).not.toContain(
+      "mdlog-widget__frame--parked"
+    );
   });
 
   it("keeps the iframe transparent until the first resize report, then fades in", async () => {
@@ -155,7 +223,7 @@ describe("WidgetSandbox", () => {
     expect(iframe.src).toBe("http://vellum-widget.localhost/w-2");
   });
 
-  it("handles postMessage resize with clamp [80, 2000] and title update", async () => {
+  it("handles postMessage resize with clamp [80, 6000] and title update", async () => {
     vi.mocked(invoke).mockResolvedValueOnce({
       id: "w-3",
       url: "http://vellum-widget.localhost/w-3",
@@ -211,7 +279,7 @@ describe("WidgetSandbox", () => {
     });
     expect(iframe.style.height).toBe("80px");
 
-    // 4. 超上限 clamp 至 2000px
+    // 4. 3000px 在放宽后的上限内，原样采用（根溢出保护后夹取过紧会直接裁掉高内容）
     act(() => {
       window.dispatchEvent(
         new MessageEvent("message", {
@@ -220,7 +288,18 @@ describe("WidgetSandbox", () => {
         })
       );
     });
-    expect(iframe.style.height).toBe("2000px");
+    expect(iframe.style.height).toBe("3000px");
+
+    // 5. 超上限 clamp 至 6000px（runaway widget 防护）
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "vellum-widget:resize", height: 9000 },
+          source: mockContentWindow,
+        })
+      );
+    });
+    expect(iframe.style.height).toBe("6000px");
   });
 
   it("renders fallback CodeBlock on invoke failure without crashing", async () => {

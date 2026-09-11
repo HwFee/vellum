@@ -1469,6 +1469,16 @@ mark.search-match--current {
   opacity: 1;
 }
 
+/* 离屏 widget 停帧降载（宿主侧唯一手段：沙箱是跨源 opaque origin，读不到也控不了
+   里面的动画）。visibility:hidden 让子帧的 rAF 与 CSS 动画完全停摆，而 iframe
+   自身布局高度不变——实测 data（Chrome）：可见 1.5s 内 384 次 rAF / CSS 动画 1 次迭代，
+   visibility:hidden 后 0 / 0，布局高保持 300px；display:none 同样停帧但布局高塔成 0，
+   会顶动整篇文档，已实测排除。停帧窗口由 WidgetSandbox 的渲染窗观察器双向切换
+   （严格大于预载视距，保证「先解除停帧、再谈滑到前已渲染」）。 */
+.mdlog-widget__frame--parked {
+  visibility: hidden;
+}
+
 /* 静态图（通信 IIFE 之外无交互逻辑）的 iframe 禁用指针事件：
    滚轮手势命中跨源沙箱子帧会被 Chromium scroll-latch 锁进子帧——子帧只要
    存在几 px 可滚动余量（高度过渡/字体后加载/2000px 截断），整个手势期父
