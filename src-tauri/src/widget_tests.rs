@@ -1,8 +1,8 @@
 use crate::widget::{
-    build_widget_response, cleanup_stale_sidecar_if_dead, judge_mdlog_alive,
-    read_mdlog_state_from_path, should_cleanup_stale_sidecar, MdlogSidecarData, MdlogStateResponse,
-    RegisterResult, WidgetRegistry, WidgetState, HEARTBEAT_TIMEOUT_MS, MAX_REGISTRY_CAPACITY,
-    MAX_WIDGET_HTML_BYTES,
+    build_widget_response, cleanup_stale_sidecar_if_dead, inject_root_scroll_guard,
+    judge_mdlog_alive, read_mdlog_state_from_path, should_cleanup_stale_sidecar, MdlogSidecarData,
+    MdlogStateResponse, RegisterResult, WidgetRegistry, WidgetState, HEARTBEAT_TIMEOUT_MS,
+    MAX_REGISTRY_CAPACITY, MAX_WIDGET_HTML_BYTES, WIDGET_ROOT_SCROLL_GUARD,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -89,7 +89,98 @@ fn build_widget_response_returns_200_with_all_4_security_headers() {
 
     assert_eq!(response.status().as_u16(), 200);
     assert_all_security_headers(&response);
-    assert_eq!(response.body(), b"<h1>Hello</h1>");
+    // 200 分支必须在出网前注入根溢出保护（scroll-latch 修复），原 HTML 原样保留
+    let body = String::from_utf8_lossy(response.body()).to_string();
+    assert!(body.starts_with(WIDGET_ROOT_SCROLL_GUARD));
+    assert!(body.ends_with("<h1>Hello</h1>"));
+}
+
+// ─────────────── 根溢出保护注入（scroll-latch 修复，见 WIDGET_ROOT_SCROLL_GUARD） ───────────────
+
+const GUARD: &str = WIDGET_ROOT_SCROLL_GUARD;
+
+/// 所有注入路径的共同铁律：样式永远不落在 `<!DOCTYPE` 之前（否则文档退回 quirks 模式）
+fn assert_guard_inside_document(html: &str, out: &str) {
+    let guard_at = out.find("<style>html{overflow:hidden").expect("guard injected");
+    if let Some(doctype_at) = html.to_ascii_lowercase().find("<!doctype") {
+        assert!(
+            guard_at > doctype_at,
+            "guard must not precede the doctype: {out}"
+        );
+    }
+}
+
+#[test]
+fn injects_guard_right_after_head_open_tag() {
+    let html = "<!DOCTYPE html>\n<html><head><title>t</title></head><body><p>x</p></body></html>";
+    let out = inject_root_scroll_guard(html);
+    assert_eq!(
+        out,
+        format!("<!DOCTYPE html>\n<html><head>{GUARD}<title>t</title></head><body><p>x</p></body></html>")
+    );
+    assert_guard_inside_document(html, &out);
+}
+
+#[test]
+fn injects_guard_after_open_tag_with_attributes() {
+    let out = inject_root_scroll_guard("<html><head lang=\"zh-CN\"><meta charset=\"utf-8\"></head><body></body></html>");
+    assert!(out.contains(&format!("<head lang=\"zh-CN\">{GUARD}<meta")), "{out}");
+}
+
+#[test]
+fn injects_guard_after_html_when_no_head() {
+    let out = inject_root_scroll_guard("<html><body><p>x</p></body></html>");
+    assert!(out.starts_with(&format!("<html>{GUARD}<body>")));
+}
+
+#[test]
+fn injects_guard_after_body_when_only_body() {
+    let out = inject_root_scroll_guard("<body class=\"a\"><p>x</p></body>");
+    assert!(out.starts_with(&format!("<body class=\"a\">{GUARD}<p>")));
+}
+
+#[test]
+fn treats_header_as_not_head_and_falls_back_to_body() {
+    // 没有 <html> 时才轮到 <body>：确认 <header> 不会被当成 <head>（标签名边界判定）
+    let html = "<!DOCTYPE html><body><header>h</header></body>";
+    let out = inject_root_scroll_guard(html);
+    assert!(out.contains(&format!("<body>{GUARD}<header>")), "{out}");
+    assert_eq!(out.matches("<style>").count(), 1);
+    assert_guard_inside_document(html, &out);
+}
+
+#[test]
+fn does_not_mistake_header_for_head_when_html_is_present() {
+    let out = inject_root_scroll_guard("<!DOCTYPE html><html><body><header>h</header></body></html>");
+    // 最长前缀匹配到 <html> 就注入，同样不能落进 <header ...> 里
+    assert!(out.starts_with(&format!("<!DOCTYPE html><html>{GUARD}<body><header>")), "{out}");
+    assert_eq!(out.matches("<style>").count(), 1);
+}
+
+#[test]
+fn prepends_guard_for_structural_less_fragment() {
+    let out = inject_root_scroll_guard("<div>fragment</div>");
+    assert_eq!(out, format!("{GUARD}<div>fragment</div>"));
+}
+
+#[test]
+fn places_guard_after_doctype_for_fragment_with_doctype() {
+    let html = "<!DOCTYPE html><p>fragment</p>";
+    let out = inject_root_scroll_guard(html);
+    assert_eq!(out, format!("<!DOCTYPE html>{GUARD}<p>fragment</p>"));
+    assert_guard_inside_document(html, &out);
+}
+
+#[test]
+fn build_widget_response_404_body_is_untouched_by_guard() {
+    let mut registry = WidgetRegistry::default();
+    let response = build_widget_response(
+        "GET",
+        "http://vellum-widget.localhost/missing",
+        &mut registry,
+    );
+    assert_eq!(response.status().as_u16(), 404);
+    assert_eq!(response.body(), b"Not Found");
 }
 
 #[test]

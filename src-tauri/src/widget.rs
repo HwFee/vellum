@@ -120,6 +120,72 @@ fn extract_widget_id(uri: &str) -> Option<&str> {
     }
 }
 
+/// 宿主注入的「沙箱根文档永不成为滚动盒」保护样式。
+///
+/// 为什么必须由宿主注入（2026-09-11 真机 CDP 实测，探针见 scripts/cdp-perf-scroll.mjs）：
+/// 跨源沙箱子帧内只要存在可滚动余量——哪怕只有 8px（iframe 高度过渡窗口、字体
+/// 后加载撑高、绝对定位浮层、高度夹取）——滚轮手势会被 Chromium scroll-latch
+/// **整段**锁进子帧，且跨帧不做手势续滚：子帧滚到自己的尽头后，父容器的滚动容器
+/// 在整个手势期内一动不动（「指针在图上/widget 里滚动卡住」的根因）。实测数据：
+/// 子帧仅有 8px 余量时请求滚动 1200px，父容器位移 0；注入本样式后父容器位移 1101px。
+///
+/// 静态图的 pointer-events:none 只覆盖了「无交互」那一半，交互 widget 必须靠本样式：
+/// 根文档不是滚动盒后，命中测试不再找到可滚目标，手势直接落在宿主滚动容器上；
+/// 指针事件完全不受影响（点击 / hover / canvas 拖拽照旧）。需要滚动的 widget
+/// 请自备内层滚动容器（那是作者蓄意行为，代价是那一段手势归它）。
+///
+/// 只作用于 `html`（不碰 `body`）：body 级自滚动（`body{height:100vh;overflow:auto}`）
+/// 是合法形态，保持可用；`!important` 用于压过 widget 自己的 `html{overflow:...}`。
+/// 注入位置必须在文档内部：放到 `<!DOCTYPE` 之前会让文档退回 quirks 模式。
+pub const WIDGET_ROOT_SCROLL_GUARD: &str = "<style>html{overflow:hidden !important}</style>";
+
+/// 返回 `tag` 起始标签 `>` 之后的下标；标签名后必须紧跟空白或 `>`/`/`，
+/// 避免 `<header>` 被误判为 `<head>`。找不到配对 `>` 时返回 None。
+fn find_tag_end(lower: &str, tag: &str) -> Option<usize> {
+    let mut from = 0;
+    while let Some(pos) = lower[from..].find(tag) {
+        let start = from + pos;
+        let after_name = start + tag.len();
+        let boundary = matches!(
+            lower.as_bytes().get(after_name).copied(),
+            Some(b' ') | Some(b'\t') | Some(b'\r') | Some(b'\n') | Some(b'>') | Some(b'/')
+        );
+        if boundary {
+            let gt = lower[after_name..].find('>')?;
+            return Some(after_name + gt + 1);
+        }
+        from = after_name;
+    }
+    None
+}
+
+/// 把根溢出保护样式注入文档内部：优先紧跟 `<head>`/`<html>`/`<body>` 起始标签，
+/// 都没有时退到 doctype 之后，最后才前置到文档开头。
+/// 保证不会插到 `<!DOCTYPE` 之前（否则文档退回 quirks 模式，widget 布局全变）。
+pub fn inject_root_scroll_guard(html: &str) -> String {
+    // 仅改 ASCII 字节，偏移与原文一一对应，可安全用于切片
+    let lower = html.to_ascii_lowercase();
+    for tag in ["<head", "<html", "<body"] {
+        if let Some(after_open) = find_tag_end(&lower, tag) {
+            return format!(
+                "{}{}{}",
+                &html[..after_open],
+                WIDGET_ROOT_SCROLL_GUARD,
+                &html[after_open..]
+            );
+        }
+    }
+    match find_tag_end(&lower, "<!doctype") {
+        Some(after_doctype) => format!(
+            "{}{}{}",
+            &html[..after_doctype],
+            WIDGET_ROOT_SCROLL_GUARD,
+            &html[after_doctype..]
+        ),
+        None => format!("{}{}", WIDGET_ROOT_SCROLL_GUARD, html),
+    }
+}
+
 /// 为 widget 协议响应附加严苛且统一的四条安全响应头。
 fn apply_security_headers(
     builder: tauri::http::response::Builder,
@@ -149,9 +215,14 @@ pub fn build_widget_response(
 
     let maybe_id = extract_widget_id(uri);
     match maybe_id.and_then(|id| registry.get(id)) {
-        Some(html) => apply_security_headers(Response::builder().status(StatusCode::OK))
-            .body(html.as_bytes().to_vec())
-            .unwrap(),
+        Some(html) => {
+            // 注册表保持原样（纯存储），保护样式在出网前注入，保证所有 widget
+            // 无论由谁写入都带根溢出保护
+            let guarded = inject_root_scroll_guard(html);
+            apply_security_headers(Response::builder().status(StatusCode::OK))
+                .body(guarded.into_bytes())
+                .unwrap()
+        }
         None => apply_security_headers(Response::builder().status(StatusCode::NOT_FOUND))
             .body(b"Not Found".to_vec())
             .unwrap(),
