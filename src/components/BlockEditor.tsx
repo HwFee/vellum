@@ -50,6 +50,8 @@ export function BlockEditor({
   onCommit,
 }: BlockEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  /// 页边标记 ¶（A2）：随覆盖层渲染，行高与块实测值对齐（见下方 effect ②）
+  const markRef = useRef<HTMLSpanElement>(null);
   const targetRef = useRef<HTMLElement | null>(null);
   /// 锁定的原块高度：自增高写回时的下限（草稿变短不能留下重叠空档）
   const lockedHeightRef = useRef(0);
@@ -146,6 +148,8 @@ export function BlockEditor({
       const renderedLineHeight = window.getComputedStyle(target).lineHeight;
       if (renderedLineHeight && renderedLineHeight !== "normal") {
         textarea.style.lineHeight = renderedLineHeight;
+        // 页边标记与首行同高：glyph 在行高盒内垂直居中，对齐块首行
+        if (markRef.current) markRef.current.style.lineHeight = renderedLineHeight;
       }
     }
     syncHeight();
@@ -182,7 +186,18 @@ export function BlockEditor({
   if (!box) return null;
 
   return (
-    <textarea
+    <>
+      {/* A2 页边标记：激活块的 brand ¶。与覆盖层同宿主同基准，
+          左缘再退 26px 进页边（与 hover/只读页边字符同一位宽）。 */}
+      <span
+        ref={markRef}
+        className="block-editor__mark"
+        aria-hidden="true"
+        style={{ top: box.top, left: box.left - 26 }}
+      >
+        ¶
+      </span>
+      <textarea
       ref={textareaRef}
       className="block-editor__input"
       // 调试属性：便于真机 DevTools / 手检时确认覆盖层对应哪个块，生产逻辑不消费。
@@ -209,5 +224,6 @@ export function BlockEditor({
       }}
       onBlur={requestCommit}
     />
+    </>
   );
 }

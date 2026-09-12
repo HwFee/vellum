@@ -21,6 +21,8 @@ import { loadLastOpened, saveLastOpened } from "./lib/lastOpened";
 import { loadScrollPosition, saveScrollPosition } from "./lib/scrollMemory";
 import { captureScrollPosition, restoreScrollPosition } from "./lib/scrollRestore";
 import { captureViewportAnchor, restoreViewportAnchor, type ViewportAnchor } from "./lib/viewportAnchor";
+import { startViewportPin, type ViewportPin } from "./lib/viewportPin";
+import { isScrollKey } from "./lib/scrollInput";
 import { animateScrollTo, cancelScrollAnimation } from "./lib/smoothScroll";
 import { isContainerNearBottom } from "./lib/scrollStick";
 import { computeRecheckDelay, type MdlogState } from "./lib/mdlogState";
@@ -87,6 +89,11 @@ export default function App() {
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
   // 最近一次用户滚动输入（滚轮/触摸/按键/滚动条拖拽）时间戳：热重载恢复据此避让
   const lastUserScrollAtRef = useRef(0);
+  // 宽度过渡期的视口钉住（侧栏开关/拖宽 ⇒ 正文宽度变化 ⇒ 整篇行重排）。
+  // 为什么必须自己钉：Chromium 原生滚动锚定不补偿行内尺寸变化驱动的重排（真机实测，
+  // 纯容器瞬时改宽也 ΔscrollTop = 0），不钉就会「关侧栏页面闪到别处、开回来再闪回」。
+  // 机制与分工见 lib/viewportPin.ts 头部注释。
+  const viewportPinRef = useRef<ViewportPin | null>(null);
 
   /** 进入/延长布局过渡窗；windowMs 后自动退出（连续调用续窗） */
   const noteLayoutShift = useCallback((windowMs = 450) => {
@@ -104,8 +111,34 @@ export default function App() {
     }, layoutShiftUntilRef.current - performance.now());
   }, []);
 
-  // 组件卸载时注销尚未完成的落位守护
-  useEffect(() => () => restoreCancelRef.current?.(), []);
+  // 组件卸载时注销尚未完成的落位守护与视口钉住
+  useEffect(
+    () => () => {
+      restoreCancelRef.current?.();
+      viewportPinRef.current?.stop();
+    },
+    []
+  );
+
+  /**
+   * 进入一次宽度过渡：开布局过渡窗（窗内热重载延迟合并提交、widget 高度过渡关停），
+   * 并捕获视口锚点、在窗内逐帧把内容钉回原位。
+   *
+   * 必须在**改宽度的事件处理器里、状态更新之前**调用：此刻 DOM 还是旧布局，
+   * 捕获到的锚点偏移才是「读者当前看到的位置」。窗长 450ms（默认值）覆盖侧栏
+   * 250ms 的 margin 过渡；拖宽时每次 pointermove 续窗，钉住随指针持续有效。
+   */
+  const beginWidthTransition = useCallback(() => {
+    const container = scrollRef.current;
+    const content = contentRef.current;
+    if (!container || !content) return;
+    noteLayoutShift();
+    viewportPinRef.current?.stop();
+    viewportPinRef.current = startViewportPin(container, content, {
+      until: () => layoutShiftUntilRef.current,
+      lastUserScrollAt: () => lastUserScrollAtRef.current,
+    });
+  }, [noteLayoutShift]);
 
   // ===== 搜索状态 =====
   const [searchQuery, setSearchQuery] = useState("");
@@ -137,6 +170,27 @@ export default function App() {
     setMatchCount(count);
   }, []);
 
+  // 侧栏开关的全部入口（顶栏按钮 / Ctrl+K / 窄屏 Escape 与遮罩 / 窄屏选章）
+  // 统一先走 beginWidthTransition：漏掉任何一处，该路径上的宽度回流就会闪。
+  const toggleOutlinePinned = useCallback(() => {
+    beginWidthTransition();
+    toggleOutline();
+  }, [beginWidthTransition, toggleOutline]);
+
+  const setOutlineOpenPinned = useCallback(
+    (open: boolean) => {
+      beginWidthTransition();
+      setIsOutlineOpen(open);
+    },
+    [beginWidthTransition, setIsOutlineOpen]
+  );
+
+  // 绘制前同步补偿第一帧：事件入口捕获的是旧布局，此处 DOM 已带上新类名/新宽度，
+  // 同步读 rect 会按新布局求值，从而在首帧就把视口内容钉回原位（否则每帧都可能闪）
+  useLayoutEffect(() => {
+    viewportPinRef.current?.applyNow();
+  }, [isOutlineOpen, outlineWidth]);
+
   // 全局快捷键：⌘K / Ctrl+K 聚焦搜索框，Ctrl+E 切换编辑视图，Ctrl+S 提交当前块。
   // 依赖里只有侧栏开关（其余经 editorRef/callback ref 读取），热重载与每次按键都不重新订阅。
   useEffect(() => {
@@ -165,7 +219,7 @@ export default function App() {
       if (key === "k") {
         event.preventDefault();
         if (!isOutlineOpen) {
-          setIsOutlineOpen(true);
+          setOutlineOpenPinned(true);
         }
         // 等侧栏展开后再聚焦
         setTimeout(() => searchInputRef.current?.focus(), 60);
@@ -173,7 +227,7 @@ export default function App() {
     }
     window.addEventListener("keydown", handleGlobalShortcut);
     return () => window.removeEventListener("keydown", handleGlobalShortcut);
-  }, [isOutlineOpen, setIsOutlineOpen]);
+  }, [isOutlineOpen, setOutlineOpenPinned]);
 
   const scheduleRecheck = useCallback((liveState: MdlogState | null) => {
     if (recheckTimerRef.current !== null) {
@@ -217,11 +271,11 @@ export default function App() {
   }
 
   async function loadPath(path: string) {
-    // 切换文档前先提交活动块（规格 §6.3）：经 OS 关联/第二实例深链切文档时没有失焦事件，
+    // 切换文档前先提交活动块（规格 §6.3）：经 OS 关联/再次启动切文档时没有失焦事件，
     // 不先提交就会把上一篇的草稿按「同序号块」拼进新文档（写到错的文件里）。
     // 提交口失败时 hook 会保留草稿与活动块，此处只是尽力提交。
     await editorRef.current?.commitActive();
-    // 同路径重新打开（第二实例深链 drain_pending_open_paths 命中当前文档，或用户再次
+    // 同路径重新打开（启动参数 drain_pending_open_paths 命中当前文档，或用户再次
     // 选中同一文件）：绝不能走 loading 帧——ready 分支整体卸载会销毁所有 widget iframe
     // 并丢失正在进行的交互状态。改走静默热重载（reloadCurrent 内部复用当前路径，
     // 保留滚动位置并以 reloadTick 驱动落墨/贴底仲裁）。
@@ -350,7 +404,6 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    let unlisten: (() => void) | undefined;
     let unlistenClose: (() => void) | undefined;
     let shown = false;
 
@@ -378,15 +431,8 @@ export default function App() {
     }
 
     async function bindStartup() {
-      // 先监听再 drain；通知若先到，只会追加一次串行 drain，路径不会因竞态丢失。
-      const unlistenFn = await listen("pending-open-paths", () => {
-        void drainPendingPaths();
-      });
-      if (cancelled) {
-        unlistenFn();
-        return;
-      }
-      unlisten = unlistenFn;
+      // 多实例（2026-09-12）：无单实例转发，每个进程只在启动时 drain 自己的命令行路径；
+      // 运行期不再有「pending-open-paths」事件（其唯一生产者是已移除的单实例插件）。
 
       // 关窗前先提交活动块（规格 §6.3）：有未提交草稿时拦下本次关闭，提交完成后再看结果。
       // 绝不能「先 preventDefault、再自行 close()」—— close() 会重发可拦截的 closeRequested
@@ -448,7 +494,6 @@ export default function App() {
 
     return () => {
       cancelled = true;
-      unlisten?.();
       unlistenClose?.();
     };
   }, []);
@@ -581,8 +626,8 @@ export default function App() {
   }, []);
 
   // 程序化滚动动画（恢复位置/大纲跳转/搜索跳转/跳底）期间用户主动滚动/按键，
-  // 立即取消动画让出控制权；同时记下输入时间戳，热重载恢复据此避让 300ms——
-  // 否则重载提交瞬间会把用户刚滚出去的距离当作「漂移」拽回（卡死/回弹观感）
+  // 立即取消动画让出控制权；同时记下输入时间戳，热重载恢复与宽度过渡期的视口钉住
+  // 据此避让 300ms——否则重载提交瞬间会把用户刚滚出去的距离当作「漂移」拽回
   useEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
@@ -590,16 +635,26 @@ export default function App() {
       lastUserScrollAtRef.current = performance.now();
       cancelScrollAnimation(container);
     };
+    // 按键只在**会滚动的键**上记为「滚动输入」（清单见 lib/scrollInput.ts，带单元测试）：
+    // 任何按键都记会把 Ctrl+K / Ctrl+E / Ctrl+S / Escape 这类快捷键误判成用户接管——
+    // Ctrl+K 开侧栏时钉住会被当场取消，宽度回流又没人补偿（快捷键路径重新出现跳动）。
+    // 取消动画仍然对所有按键生效（任何按键都说明用户接管了滚动意图），只是不污染时间戳。
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isScrollKey(event.key)) {
+        lastUserScrollAtRef.current = performance.now();
+      }
+      cancelScrollAnimation(container);
+    };
     container.addEventListener("wheel", onUserScrollInput, { passive: true });
     container.addEventListener("touchstart", onUserScrollInput, { passive: true });
     // 拖 thumb 直写 scrollTop 不产生原生输入事件，由 CustomScrollbar 派发此事件
     container.addEventListener("vellum:scrollbar-drag", onUserScrollInput);
-    window.addEventListener("keydown", onUserScrollInput);
+    window.addEventListener("keydown", onKeyDown);
     return () => {
       container.removeEventListener("wheel", onUserScrollInput);
       container.removeEventListener("touchstart", onUserScrollInput);
       container.removeEventListener("vellum:scrollbar-drag", onUserScrollInput);
-      window.removeEventListener("keydown", onUserScrollInput);
+      window.removeEventListener("keydown", onKeyDown);
     };
   }, []);
 
@@ -789,13 +844,13 @@ export default function App() {
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        setIsOutlineOpen(false);
+        setOutlineOpenPinned(false);
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isNarrow, isOutlineOpen, setIsOutlineOpen]);
+  }, [isNarrow, isOutlineOpen, setOutlineOpenPinned]);
 
   const headings = useMemo(
     () => (activeDocument ? extractOutline(activeDocument.markdown) : []),
@@ -812,7 +867,8 @@ export default function App() {
     const startX = event.clientX;
     const startWidth = outlineWidthRef.current;
     setIsSidebarResizing(true);
-    noteLayoutShift(300);
+    // 拖宽与开关同源（都改正文宽度 ⇒ 行重排），同样钉住视口
+    beginWidthTransition();
 
     const onMove = (moveEvent: PointerEvent) => {
       setOutlineWidth(startWidth + (moveEvent.clientX - startX));
@@ -827,28 +883,93 @@ export default function App() {
     document.addEventListener("pointerup", onUp);
   };
 
+  /// 缓动滚到容器内某处（与恢复位置同一套动画）；lockId 非空时锁定大纲高亮到该标题，
+  /// 动画自然结束或被用户滚动/按键打断时解除锁定。
+  const animateContainerTo = useCallback((target: number, lockId?: string) => {
+    const container = scrollRef.current;
+    if (!container) return;
+    if (Math.abs(target - container.scrollTop) < 1) return;
+    outlineNavTargetRef.current = lockId ?? null;
+    animateScrollTo(container, target, () => {
+      outlineNavTargetRef.current = null;
+    });
+  }, []);
+
+  /// 文档内锚点链接（Markdown 标准语法 `[文字](#id)`）。浏览器默认的 hash 跳转会改写
+  /// URL 与历史，且不参与我们的缓动滚动与大纲联动，所以全部接管：
+  /// - 目标元素在正文里 ⇒ 缓动滚到它（与点大纲同一条路径；标题会顺带锁定大纲高亮）
+  /// - 「文档顶部」约定 ⇒ 回顶部。HTML 规范里空片段与 `top` 本就表示文档顶部；`main`
+  ///   是 HTML 导出文档里最常见的包裹 id（`<main id="main">`——本应用外壳就是这层），
+  ///   用户那份报告里 7 处 `[返回顶部](#main)` 正属于这一类（文档自身没定义该 id，
+  ///   所以直接交给浏览器只会没反应）。
+  /// - 其余找不到的目标：不猜、不动，但仍阻止 hash 改写
+  const scrollToContentFragment = useCallback(
+    (rawId: string) => {
+      const container = scrollRef.current;
+      const content = contentRef.current;
+      if (!container) return;
+      let id = rawId;
+      try {
+        id = decodeURIComponent(rawId);
+      } catch {
+        // 非法百分号编码：按原样找
+      }
+      const found = id === "" ? null : document.getElementById(id);
+      const inContent = found && content?.contains(found) ? found : null;
+      if (inContent) {
+        animateContainerTo(
+          container.scrollTop +
+            inContent.getBoundingClientRect().top -
+            container.getBoundingClientRect().top,
+          headingsRef.current.some((heading) => heading.id === inContent.id)
+            ? inContent.id
+            : undefined
+        );
+        return;
+      }
+      const lower = id.toLowerCase();
+      if (id === "" || lower === "top" || lower === "main") {
+        animateContainerTo(0);
+      }
+    },
+    [animateContainerTo]
+  );
+
+  // 锚点点击接管（事件委托在滚动容器上）。编辑视图下返回：那里点击的目标是「进入块编辑」，
+  // 不能被链接抢走（块内链接仍可读，只是不跳转）
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const onClick = (event: MouseEvent) => {
+      // 只接管「干净的左键点击」：带修饰键/其它键的点击交给浏览器原行为，
+      // Shift+点击选字、Ctrl+点击等都不该被拽去跳锚点
+      if (event.defaultPrevented || event.button !== 0) return;
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      if (editorRef.current?.viewMode === "editing") return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const anchor = target.closest('a[href^="#"]');
+      if (!anchor) return;
+      event.preventDefault();
+      scrollToContentFragment((anchor.getAttribute("href") ?? "").slice(1));
+    };
+    container.addEventListener("click", onClick);
+    return () => container.removeEventListener("click", onClick);
+  }, [scrollToContentFragment]);
+
   const handleSelectHeading = (id: string) => {
     const element = document.getElementById(id);
     const container = scrollRef.current;
     if (element && container) {
-      // 与恢复位置同一套缓动动画；用户滚动/按键会经上面的监听取消动画，
-      // 避免原生 smooth 滚动与用户输入互相拉扯导致的闪动
-      const target =
+      animateContainerTo(
         container.scrollTop +
-        element.getBoundingClientRect().top -
-        container.getBoundingClientRect().top;
-      // 动画期间锁定 activeHeadingId 为点击目标：否则正文途经的中间标题会让大纲
-      // 跟随动画先滚去中间位置、到位后再折返（先上后下的跳动）。动画自然结束或
-      // 被用户滚动/按键打断时解除锁定，恢复正常跟随。
-      if (Math.abs(target - container.scrollTop) >= 1) {
-        animateScrollTo(container, target, () => {
-          outlineNavTargetRef.current = null;
-        });
-        outlineNavTargetRef.current = id;
-      }
+          element.getBoundingClientRect().top -
+          container.getBoundingClientRect().top,
+        id
+      );
     }
     if (isNarrow) {
-      setIsOutlineOpen(false);
+      setOutlineOpenPinned(false);
     }
   };
 
@@ -865,7 +986,7 @@ export default function App() {
         parentPath={activeDocument?.parentPath}
         onOpen={handleOpen}
         isOutlineOpen={isOutlineOpen}
-        onToggleOutline={toggleOutline}
+        onToggleOutline={toggleOutlinePinned}
         isEditing={editor.viewMode === "editing"}
         canEdit={!isMdlogActive}
         onToggleEdit={handleToggleEdit}
@@ -976,7 +1097,7 @@ export default function App() {
       <CustomScrollbar containerRef={scrollRef} contentRef={contentRef} />
       {state.status === "ready" && <JumpToBottom containerRef={scrollRef} />}
       {isOutlineOpen && isNarrow && (
-        <div className="outline-scrim" role="presentation" onClick={() => setIsOutlineOpen(false)} />
+        <div className="outline-scrim" role="presentation" onClick={() => setOutlineOpenPinned(false)} />
       )}
     </main>
   );

@@ -345,13 +345,12 @@ describe("kami.css editing view (block-level inline editing)", () => {
 
     const rule = css.match(/\.document-scroll__content--editing\s*>\s*\.block-editor__input\s*\{[^}]*\}/s)?.[0] ?? "";
     // 与 .markdown-body textarea 冲突的属性都要显式覆写，避免样式漂移
-    // （设计定稿 2026-09-10：覆盖层由「无线框 + 左竖线」改为「纸签底 + 实线外框」，
-    //  故这里断言的是新形态：背景/边框/圆角均由本规则显式给出）
-    expect(rule).toMatch(/background:\s*var\(--ivory\)/);
-    expect(rule).toMatch(/border:\s*1px solid var\(--brand\)/);
+    // （设计定稿 2026-09-12，A2「页边字符」：覆盖层改为**透明底 + 零框线**，
+    //  编辑信号移到块左页边的 ¶ 字符；冲突属性的显式归零不变）
+    expect(rule).toMatch(/background:\s*transparent/);
+    expect(rule).toMatch(/border:\s*none/);
     expect(rule).toMatch(/box-shadow:\s*none/);
-    // 圆角取 kami 的轻尺度（仍不得沿用阅读态输入控件的 6px）
-    expect(rule).toMatch(/border-radius:\s*3px/);
+    expect(rule).toMatch(/border-radius:\s*0/);
   });
 
   it("F12/F18：包裹层 display: contents 且不带任何尺寸/边框/内外边距", () => {
@@ -389,24 +388,51 @@ describe("kami.css editing view (block-level inline editing)", () => {
     expect(rule).toMatch(/pointer-events:\s*none/);
   });
 
-  it("编辑态三态视觉契约（2026-09-10 设计定稿）：只读粗虚线框 / 可编辑 hover 纸签底 / 覆盖层实框", () => {
-    // 只读块：加粗灰色虚线框 + not-allowed，且不得再有任何文字提示样式常驻
+  it("编辑态三态视觉契约（2026-09-12 A2「页边字符」定稿）：hover 页边 ¶ / 只读页边灰 × / 激活 brand ¶", () => {
+    // 只读块：零框线，只剩 not-allowed 光标；页边灰 × 由 ::before 承担（见下）
     const roRule = css.match(/\.markdown-body--editing \[data-vellum-locked\]\s*\{[^}]*\}/s)?.[0] ?? "";
     expect(roRule).not.toBe("");
-    expect(roRule).toMatch(/border:\s*2px dashed/);
+    expect(roRule).not.toMatch(/border/);
     expect(roRule).toMatch(/cursor:\s*not-allowed/);
 
-    // display:contents 的包裹层（代码块 / 交互块 / 数学块）：外框画在子元素上
+    // display:contents 的包裹层（交互块）：子元素同样只留光标、不画框（旧的 2px dashed 已废除）
     const wrapRule = css.match(/\.markdown-body--editing \.vellum-unit-wrap\[data-vellum-locked\]\s*>\s*\*\s*\{[^}]*\}/s)?.[0] ?? "";
     expect(wrapRule).not.toBe("");
-    expect(wrapRule).toMatch(/border:\s*2px dashed/);
+    expect(wrapRule).not.toMatch(/border/);
+    expect(wrapRule).toMatch(/cursor:\s*not-allowed/);
 
-    // 覆盖层：纸签底 + 实线外框（与只读虚线成对区分），且不再有左侧竖线
+    // 旧形态的实物残留检查：粗灰虚线框与 hover 纸签底在整份 CSS 里不复存在
+    expect(css).not.toContain("2px dashed #b9b6a9");
+    expect(css).not.toMatch(/\[data-vellum-unit\]:not\(\[data-vellum-locked\]\):hover\s*\{[^}]*background/);
+
+    // hover 页边 ¶：普通块画在自身 ::before 上；display:contents 包裹层画在首布局子元素上
+    const hoverGlyph = css.match(/\.markdown-body--editing\s*>\s*\[data-vellum-unit\]:not\(\[data-vellum-locked\]\):not\(\.vellum-unit-wrap\)::before[^{]*\{[^}]*\}/s)?.[0] ?? "";
+    expect(hoverGlyph).toMatch(/content:\s*"¶"/);
+    const hoverShow = css.match(/:not\(\.vellum-unit-wrap\):hover::before[^{]*\{[^}]*\}/s)?.[0] ?? "";
+    expect(hoverShow).not.toBe("");
+    expect(hoverShow).toMatch(/color:\s*#a5a294/);
+
+    // 只读页边 ×：块自身（HTML 块）与包裹层首子元素（交互块）两路并列
+    expect(css).toMatch(/\.markdown-body--editing\s*>\s*\[data-vellum-locked\]::before[^{]*\{[^}]*content:\s*"×"/s);
+
+    // 反裁剪红线：页边字符一律「绝对定位 + auto 偏移（静态位置）+ 负 margin 进页边」，
+    // 绝不给块自身加 position:relative —— 否则代码块 / widget 根容器的
+    // overflow:hidden 会把 -26px 处的字符整条裁掉（A2 探针实测）。
+    expect(css).not.toMatch(/\[data-vellum-unit\][^{]*\{[^}]*position:\s*relative/);
+    expect(hoverGlyph).toMatch(/position:\s*absolute/);
+    expect(hoverGlyph).toMatch(/margin-left:\s*-26px/);
+
+    // 覆盖层：透明底 + 零框线（编辑信号在页边，不在输入框上）
     const inputRule = css.match(/\.document-scroll__content--editing > \.block-editor__input\s*\{[^}]*\}/s)?.[0] ?? "";
     expect(inputRule).not.toBe("");
-    expect(inputRule).toMatch(/background:\s*var\(--ivory\)/);
-    expect(inputRule).toMatch(/border:\s*1px solid var\(--brand\)/);
-    expect(inputRule).not.toMatch(/border-left/);
+    expect(inputRule).toMatch(/background:\s*transparent/);
+    expect(inputRule).toMatch(/border:\s*none/);
+
+    // 激活块的页边标记：brand 色 ¶，由 BlockEditor 随覆盖层渲染（.block-editor__mark）
+    const markRule = css.match(/\.block-editor__mark\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(markRule).not.toBe("");
+    expect(markRule).toMatch(/color:\s*var\(--brand\)/);
+    expect(markRule).toMatch(/pointer-events:\s*none/);
 
     // 未保存提示：**无**（全自动保存的设计定稿——不保留任何未保存指示）
     expect(css).not.toMatch(/\.top-bar__dirty/);

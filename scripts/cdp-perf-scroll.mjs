@@ -14,7 +14,8 @@
  *      必须 `Target.setAutoAttach({flatten:true})` 挂上子目标分别收指标，否则
  *      沙箱里的动画脚本开销完全不可见。
  *
- * 前置：没有其它 Vellum 实例在跑（单实例插件会把新实例 argv 转发过去并退出）。
+ * 前置：没有其它 Vellum 实例在跑（多实例后新实例不再被吞，但并存实例的
+ *      WebView2 会污染 CPU/帧时序读数，测量纯净性仍要求独占）。
  *
  * 用法：
  *   node scripts/cdp-perf-scroll.mjs                       # 合成压力文档（clean/anim/churn/leak 四种 widget）
@@ -923,7 +924,7 @@ async function main() {
     } catch {}
     if (!exe.killed) exe.kill();
     // 宽厚收尾：点击关闭走应用自身路径，但若它没生效（或 CDP 在窗口销毁瞬间卡住），
-    // 必须硬杀，否则下一个测量会被单实例插件拦下（实测踩过）
+    // 必须硬杀，否则残留进程会让下一次 preflight 的独占检查直接拒绝（实测踩过）
     try {
       execSync('powershell -NoProfile -Command "Get-Process vellum -ErrorAction SilentlyContinue | Stop-Process -Force"', { timeout: 20000 });
     } catch {}

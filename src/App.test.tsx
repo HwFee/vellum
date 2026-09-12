@@ -161,6 +161,19 @@ vi.mock("./hooks/useDocumentEditor", async (importOriginal) => {
   };
 });
 
+// 侧栏初始态覆盖点：真机里 App 恒以「开启」启动，而「Ctrl+K 是本次进程内第一次侧栏操作」
+// 才是快捷键监听早于滚动输入监听的那种注册顺序（首次 Ctrl+K 被误判成用户滚动的场景）。
+// 与 heavyCommitMs 同一处置：包装真实 hook、只换参数，不 mock 掉 hook 自身。
+const outlineInitialOverride = vi.hoisted(() => ({ value: undefined as boolean | undefined }));
+vi.mock("./hooks/useOutlineOpen", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./hooks/useOutlineOpen")>();
+  return {
+    ...actual,
+    useOutlineOpen: (initialOpen: boolean = false) =>
+      actual.useOutlineOpen(outlineInitialOverride.value ?? initialOpen),
+  };
+});
+
 async function loadDocument() {
   backendInvoke.mockResolvedValueOnce(loadedDoc);
   vi.mocked(open).mockResolvedValueOnce("C:/notes/readme.md");
@@ -191,6 +204,7 @@ beforeEach(() => {
   vi.mocked(listen).mockReset();
   vi.mocked(listen).mockResolvedValue(() => {});
   heavyCommitMsOverride.value = undefined;
+  outlineInitialOverride.value = undefined;
   windowMock.reset();
 });
 
@@ -210,18 +224,14 @@ test("renders the top bar", () => {
   expect(screen.getByRole("button", { name: "打开文件" })).toBeInTheDocument();
 });
 
-test("registers the pending listener before draining paths", async () => {
-  let resolveListen!: (unlisten: () => void) => void;
-  vi.mocked(listen).mockImplementationOnce(
-    () => new Promise((resolve) => { resolveListen = resolve; })
-  );
-
+test("drains pending open paths once at startup (multi-instance: no runtime forwarding event)", async () => {
   render(<App />);
-  await act(async () => {});
-  expect(drainInvoke).not.toHaveBeenCalled();
 
-  await act(async () => resolveListen(() => {}));
+  // 多实例（2026-09-12）：每个进程只 drain 自己的启动参数，
+  // 不再有「pending-open-paths」运行期事件（其生产者单实例插件已移除），
+  // 启动 drain 因此不需要等待任何监听就位。
   await waitFor(() => expect(drainInvoke).toHaveBeenCalledTimes(1));
+  expect(vi.mocked(listen).mock.calls.some(([event]) => event === "pending-open-paths")).toBe(false);
 });
 
 test("loads the last-opened path after an empty startup drain", async () => {
@@ -1504,6 +1514,37 @@ test("end-to-end: live mdlog lifecycle from bottom stickiness to disconnection r
 });
 
 
+/// 宽度回流的真机几何模型（jsdom 无布局，必须自建）：
+/// 视口 top = 文档坐标 − scrollTop（若返回与 scrollTop 无关的固定 top，补偿量会被
+/// 重复计入，量出的行为与真机不符）；块取足够高以跨过视口顶，否则锚点候选为空。
+function mockSidebarReflow(
+  container: HTMLElement,
+  block: HTMLElement,
+  docTops: { open: number; closed: number },
+  blockHeight = 2600
+) {
+  vi.spyOn(container, "getBoundingClientRect").mockReturnValue({ top: 0 } as DOMRect);
+  vi.spyOn(block, "getBoundingClientRect").mockImplementation(() => {
+    const open = !!document.querySelector(".outline-sidebar--open");
+    const top = (open ? docTops.open : docTops.closed) - container.scrollTop;
+    return { top, bottom: top + blockHeight } as DOMRect;
+  });
+}
+
+/// 给滚动容器装上可读写的 scrollTop/scrollHeight/clientHeight（jsdom 默认全 0、只读语义）
+function mockScrollable(container: HTMLElement, initial: number, scrollHeight = 20000, clientHeight = 800) {
+  let scrollTop = initial;
+  Object.defineProperty(container, "scrollTop", {
+    configurable: true,
+    get: () => scrollTop,
+    set: (v: number) => {
+      scrollTop = Math.max(0, v);
+    },
+  });
+  Object.defineProperty(container, "scrollHeight", { configurable: true, get: () => scrollHeight });
+  Object.defineProperty(container, "clientHeight", { configurable: true, get: () => clientHeight });
+}
+
 describe("App outline integration", () => {
   beforeEach(() => {
     vi.mocked(invoke).mockClear();
@@ -1526,6 +1567,111 @@ describe("App outline integration", () => {
     expect(document.querySelector(".outline-sidebar--open")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Intro" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Section" })).toBeInTheDocument();
+  });
+
+  it("侧栏开关引起的宽度回流期间钉住视口（Chromium 原生锚定不补偿行内尺寸变化）", async () => {
+    await loadDocument();
+
+    const container = document.querySelector(".document-scroll") as HTMLElement;
+    const intro = document.getElementById("intro")!;
+    mockScrollable(container, 3000);
+    // 真机几何：正文更窄 ⇒ 行数更多 ⇒ 文档更高。开侧栏时首块文档坐标 3100，关闭后 2500
+    mockSidebarReflow(container, intro, { open: 3100, closed: 2500 });
+
+    fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
+
+    // 关闭后文档整体变矮 600px，视口顶部那块内容必须仍在原位 ⇒ 补偿 600px
+    expect(container.scrollTop).toBe(2400);
+    expect(intro.getBoundingClientRect().top).toBe(100);
+    // 同时进入布局过渡窗（热重载延迟合并提交、widget 高度过渡关停）
+    expect(document.querySelector(".app-shell--layout-shifting")).toBeInTheDocument();
+  });
+
+  it("Ctrl+K 打开侧栏同样钉住视口（快捷键不得被当成用户滚动而取消钉住）", async () => {
+    // 起始关闭：让 Ctrl+K 成为本实例里的**第一次**侧栏操作——真机首次按 Ctrl+K 时
+    // 快捷键监听注册在滚动输入监听之前，时间戳会落在钉住开始之后；「任何 keydown 都
+    // 记时间戳」的写法会在这一拍当场取消钉住（而这正是快捷键路径比顶栏按钮跳的原因）
+    outlineInitialOverride.value = false;
+    await loadDocument();
+
+    const container = document.querySelector(".document-scroll") as HTMLElement;
+    const intro = document.getElementById("intro")!;
+    mockScrollable(container, 3000);
+    mockSidebarReflow(container, intro, { open: 3100, closed: 2500 });
+
+    // jsdom 的 performance.now() 精度粗，同一次事件里两次取样相等，看不出「快捷键被
+    // 当成用户滚动」这回事；这里用单调递增的细粒度时钟，把真机（Chromium）的时序逼出来。
+    let clock = 100000;
+    vi.spyOn(performance, "now").mockImplementation(() => (clock += 0.1));
+
+    // 快捷键开侧栏：文档变高 600px，内容下移 600px ⇒ 必须补偿回 3600
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+
+    expect(document.querySelector(".outline-sidebar--open")).toBeInTheDocument();
+    expect(container.scrollTop).toBe(3600);
+    // 内容没动：同一块相对容器顶仍是 −500（未补偿的话会留在 3000，视口内容整体下移 600）
+    expect(intro.getBoundingClientRect().top).toBe(-500);
+  });
+
+  it("文档内锚点链接（Markdown 标准语法）接管点击：缓动滚到目标，不再交给浏览器改 hash", async () => {
+    backendInvoke.mockResolvedValueOnce({
+      ...loadedDoc,
+      markdown: "# Intro\n\n[回到顶部](#main)\n\n## Section\n\n[去 Section](#section)",
+    });
+    vi.mocked(open).mockResolvedValueOnce("C:/notes/anchors.md");
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Section" })).toBeInTheDocument());
+
+    const container = document.querySelector(".document-scroll") as HTMLElement;
+    mockScrollable(container, 300);
+    vi.spyOn(container, "getBoundingClientRect").mockReturnValue({ top: 0 } as DOMRect);
+    const section = document.getElementById("section")!;
+    vi.spyOn(section, "getBoundingClientRect").mockReturnValue({ top: 500, bottom: 520 } as DOMRect);
+    // jsdom 的 rAF 时序不足以等待动画自然跑完（缓动要看真实时钟），改为接管帧循环：
+    // 传入远超动画时长的帧时间戳，一帧即落到目标值
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      frames.push(cb);
+      return frames.length;
+    });
+    const drainFrames = () => {
+      while (frames.length > 0) {
+        const cb = frames.shift()!;
+        cb(performance.now() + 5000);
+      }
+    };
+
+    // 真实存在的锚点：滚到目标（300 + 500），且点击不发 hash 跳转
+    expect(fireEvent.click(screen.getByText("去 Section"))).toBe(false);
+    drainFrames();
+    expect(container.scrollTop).toBe(800);
+    expect(window.location.hash).toBe("");
+
+    // #main 不在文档里，但它是 HTML 导出文档里最常见的「页面主区域」id ⇒ 视为回到顶部
+    fireEvent.click(screen.getByText("回到顶部"));
+    drainFrames();
+    expect(container.scrollTop).toBe(0);
+  });
+
+  it("找不到目标且非顶部约定的锚点：不动，也不让浏览器改写 hash", async () => {
+    backendInvoke.mockResolvedValueOnce({
+      ...loadedDoc,
+      markdown: "# Intro\n\n[空链接](#nothing-here)",
+    });
+    vi.mocked(open).mockResolvedValueOnce("C:/notes/dead-anchor.md");
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Intro" })).toBeInTheDocument());
+
+    const container = document.querySelector(".document-scroll") as HTMLElement;
+    mockScrollable(container, 300);
+    vi.spyOn(container, "getBoundingClientRect").mockReturnValue({ top: 0 } as DOMRect);
+
+    expect(fireEvent.click(screen.getByText("空链接"))).toBe(false);
+    await act(async () => {});
+    expect(container.scrollTop).toBe(300);
+    expect(window.location.hash).toBe("");
   });
 
   it("shows an empty outline message when the document has no headings", async () => {

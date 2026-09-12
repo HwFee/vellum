@@ -198,6 +198,27 @@ describe("BlockEditor", () => {
     expect(input.style.minHeight).toBe("120px");
   });
 
+  it("A2：激活块随覆盖层渲染页边标记 ¶（与覆盖层同一基准，左缘再退 26px 进页边）", () => {
+    mountHostFixture(`<p data-vellum-unit="0">正文</p>`);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        if (this.classList.contains("document-scroll__content")) return rectLike(100, 30, 720, 600);
+        return rectLike(300, 40, 700, 120);
+      }
+    );
+
+    render(<Harness onCommit={vi.fn()} />);
+
+    const mark = document.querySelector<HTMLElement>(".block-editor__mark");
+    expect(mark).not.toBeNull();
+    expect(mark!.textContent).toBe("¶");
+    // 装饰性元素：不进无障碍树，也不抢焦点/指针
+    expect(mark!.getAttribute("aria-hidden")).toBe("true");
+    // 与上方 F4 用例同一盒：块顶 200、左缘 10 ⇒ 标记左页边 10-26=-16
+    expect(mark!.style.top).toBe("200px");
+    expect(mark!.style.left).toBe("-16px");
+  });
+
   it("目标为 .vellum-unit-wrap 时，样式与测量都落到其元素子节点（裁定 F18）", () => {
     mountHostFixture(`<div class="vellum-unit-wrap" data-vellum-unit="0"><pre>code</pre></div>`);
     const wrapper = document.querySelector<HTMLElement>(".vellum-unit-wrap")!;
