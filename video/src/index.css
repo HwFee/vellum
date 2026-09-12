@@ -1,0 +1,8 @@
+/* Remotion 渲染在固定的 1920×1080 画布上，只需要把浏览器的默认边距清掉，
+   其余版式一律由组件内联样式给出（跟着 DESIGN.md 的 token 走）。 */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #f5f4ed;
+}

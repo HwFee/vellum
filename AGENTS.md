@@ -74,6 +74,29 @@ npm run tauri        # Tauri CLI
 | `superpowers` | 工程化研发方法论套件（头脑风暴、TDD、系统化调试、执行计划、工作流规约） |
 | `vellum-mdlog` | Vellum 纸墨 Markdown 与 `vellum-widget` 契约（2026-09-10 起迁入全局仓库，本地为目录联接）。三个触发分支：mdlog 连接（逐回合强制）、**写本机 Vellum 阅读的 md 笔记**（2026-09-12 新增）、无提示出图。契约 1–6 全文在技能内 `references/widget-contracts.md`，速查在 `references/troubleshooting.md`——主体 `SKILL.md` 只留分支路由、图承载禁令、出图流程与最小清单。其「强调定界符跨汉字+括号」写法要求已于 2026-09 起降级为可移植性建议——渲染层由 remark-cjk-friendly 软件兼容（见「注意事项」） |
 
+## 宣传品（`video/` 宣传片工程 + `promo/` 对外材料）
+
+产品宣传片与落地页。**两边的颜色、字体、文案都取自同一处事实来源**——`video/src/theme.ts`（视频侧）与仓库根 `DESIGN.md`（落地页侧），与应用同源；片子里的界面是真实运行的窗口，不是重画的示意图。
+
+```bash
+# 素材 + 渲染（video/ 里；需要先有一份 release 版 exe）
+npm run assets          # 同步字体 → 合成配乐 → CDP 抓真实界面
+npm run render          # out/vellum-promo.mp4（含配乐）
+npm run render:silent   # out/vellum-promo-silent.mp4（GIF 用）
+
+# 导出入库的那一套（仓库根）
+node promo/build-assets.mjs
+```
+
+不可回退的几条：
+
+- **`video/` 里入库的只有源码**：成片（`out/`）、抓取素材（`public/capture/`）、字体（`public/fonts/`）、配乐（`public/music.wav`）全部是生成物，已由 `video/.gitignore` 排除；`promo/assets/` 是**唯一入库的分发副本**，只由 `promo/build-assets.mjs` 生成，不要手改。
+- **抓取脚本会 `taskkill /IM vellum.exe /F`**（并存实例会互相抢占远程调试端口），跑 `npm run capture` 前先确认没有需要保留的实例。素材文档暂存到 `~/Documents/Notes`——顶栏会原样显示绝对路径，所以不能直接用仓库路径抓图。
+- **字体闸门（`video/src/fonts.ts` 的 `useBrandFontsGate`）必须挂在真正画画面的组件里**（现落在 `PaperBackground` 上，它是每场的底）。仓耳今楷 8.4 MB×2，任何一帧抢在 `document.fonts.load` 之前都会被画成回退字体（中文是今楷、英文变几何无衬线）；只挂在 `Root.tsx` 上不够。
+- **分镜里不许用 CSS 动画**：Remotion 逐帧截图，transition/keyframes 根本不会被采样，所有运动必须由 `useCurrentFrame()` 驱动。
+- **长图素材用「撑高视口」抓，不用 `captureBeyondViewport`**：`.document-scroll` 是滚动盒，盒外截不到正文；滚动则由 Remotion 按帧推进（录屏的帧间隔会抖）。两个理由都写在 `video/capture/capture.mjs` 头部。
+- **落地页不引入第二个强调色、不加大圆角与厚度投影**（照 `DESIGN.md` 的 Do's/Don'ts），动效只有进场淡入一种且尊重 `prefers-reduced-motion`；字体与截图走相对路径，单独部署时必须把 `public/fonts/` 一并搬走。
+
 ## 性能优化
 
 ### 遇到性能需求时
@@ -157,6 +180,10 @@ npm run tauri        # Tauri CLI
 | `src/main.tsx` | 入口、字体加载 |
 | `vite.config.ts` | 构建配置 |
 | `src-tauri/tauri.conf.json` | Tauri 窗口配置 |
+| `promo/index.html` | 宣传落地页（单文件、内联 CSS、零依赖） |
+| `promo/build-assets.mjs` | 从成片导出对外分发的整套宣传材料 |
+| `video/src/theme.ts` | 宣传片的品牌 token 与全部文案（视频侧单一事实来源） |
+| `video/capture/capture.mjs` | CDP 抓真实窗口素材（窗口图 + 全高长图） |
 
 ## 注意事项
 

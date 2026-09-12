@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vellum · 素笺 — 给 Markdown 一张纸</title>
+<meta name="description" content="Vellum · 素笺：纸墨风格的 Windows Markdown 阅读器。暖纸底色、今楷正文、一笔靛青，长文档愿意被读完的那个窗口。">
+<meta name="theme-color" content="#f5f4ed">
+<meta property="og:title" content="Vellum · 素笺 — 给 Markdown 一张纸">
+<meta property="og:description" content="纸墨风格的 Windows Markdown 阅读器。免费开源，7 MB 安装包。">
+<meta property="og:image" content="assets/social-preview.png">
+<link rel="icon" href="../assets/logo.svg">
+<style>
+/* ============================================================================
+   Vellum 宣传页 · 单文件落地页
+   设计语言逐条对齐仓库根 DESIGN.md（kami v1.15）：暖纸三层底、发丝线分层、
+   单一靛青强调（页面占比 ≤5%）、圆角 2–6px、几乎无投影。
+   字体引用 ../public/fonts（与应用、与宣传片同一份文件），双击本文件即可打开。
+   ========================================================================== */
+
+@font-face {
+  font-family: "TsangerJinKai02";
+  src: url("../public/fonts/TsangerJinKai02-W04.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "TsangerJinKai02";
+  src: url("../public/fonts/TsangerJinKai02-W05.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../public/fonts/JetBrainsMono.woff2") format("woff2");
+  font-weight: 400 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* DESIGN.md 的 token，逐字照搬 */
+  --primary: #1B365D;
+  --parchment: #f5f4ed;
+  --ivory: #faf9f5;
+  --inline-code-bg: #f0eee6;
+  --warm-sand: #e8e6dc;
+  --near-black: #141413;
+  --dark-warm: #3d3d3a;
+  --olive: #504e49;
+  --stone: #6b6a64;
+  --tag-bg: #E4ECF5;
+  --border: #e8e6dc;
+  --hairline: #dddacc;
+
+  --serif: "TsangerJinKai02", "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", STSong, Georgia, serif;
+  --mono: "JetBrains Mono", "SF Mono", Consolas, Monaco, monospace;
+  --ui: "HarmonyOS Sans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+
+  --col: 1080px;
+  --gutter: 40px;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+body {
+  margin: 0;
+  background: var(--parchment);
+  color: var(--near-black);
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.7;
+  letter-spacing: 0.4px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 纸纤维：与应用同源的 SVG 湍流噪点，极轻地压一层，避免大面积纯色的“死像素感” */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='260' height='260' filter='url(%23g)' opacity='0.16'/%3E%3C/svg%3E");
+  mix-blend-mode: multiply;
+}
+
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.wrap { width: 100%; max-width: var(--col); margin: 0 auto; padding: 0 var(--gutter); }
+
+/* 阅读进度：与应用大纲激活条同一条 2px 靛青（全页唯一的常驻彩色元素） */
+.progress {
+  position: fixed; top: 0; left: 0; z-index: 60;
+  height: 2px; width: 0;
+  background: var(--primary); opacity: 0.75;
+}
+
+/* ------------------------------------------------------------------ 顶栏 */
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  height: 46px;
+  display: grid; grid-template-columns: 1fr auto; align-items: center;
+  gap: 16px;
+  padding: 0 22px;
+  background: rgba(245, 244, 237, 0.88);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.brand { display: flex; align-items: baseline; gap: 9px; font-size: 17px; color: var(--near-black); }
+.brand:hover { text-decoration: none; }
+.brand__mark { font-weight: 500; letter-spacing: 1px; }
+.brand__zh { color: var(--primary); font-size: 15px; letter-spacing: 6px; }
+.nav { display: flex; align-items: center; gap: 22px; }
+.nav a {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 1.6px; text-transform: uppercase;
+  color: var(--stone);
+}
+.nav a:hover { color: var(--primary); text-decoration: none; }
+
+/* --------------------------------------------------------------- 按钮 */
+.btn {
+  display: inline-flex; align-items: center; gap: 9px;
+  font-family: var(--ui); font-size: 13px; font-weight: 500; letter-spacing: 0.6px;
+  padding: 9px 18px; border-radius: 6px; cursor: pointer;
+  background: var(--warm-sand); color: var(--dark-warm);
+  box-shadow: inset 0 0 0 1px var(--border);
+  transition: background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+.btn:hover {
+  text-decoration: none; background: #e2dfd2;
+  box-shadow: inset 0 0 0 1px var(--border), 0 1px 2px rgba(20,20,19,0.04);
+}
+.btn:active { transform: translateY(1px); }
+.btn--ghost { background: transparent; color: var(--stone); }
+.btn--ghost:hover { background: var(--warm-sand); color: var(--primary); }
+
+/* ------------------------------------------------------------------ 首屏 */
+.hero { padding: 108px 0 76px; text-align: center; }
+.hero__ink { display: block; margin: 0 auto -18px; overflow: visible; }
+.hero h1 {
+  margin: 0; font-size: clamp(58px, 9vw, 104px); font-weight: 500;
+  line-height: 1; letter-spacing: 2px;
+}
+.hero__zh {
+  display: block; margin-top: 16px;
+  font-size: clamp(22px, 3vw, 30px); color: var(--primary); letter-spacing: 20px;
+  text-indent: 20px;
+}
+.hero__lede {
+  margin: 34px auto 0; max-width: 660px;
+  font-size: 21px; line-height: 1.75; color: var(--dark-warm);
+}
+.hero__sub {
+  margin: 18px auto 0; max-width: 620px;
+  font-size: 15px; line-height: 1.85; color: var(--stone);
+}
+.hero__cta { margin-top: 38px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.hero__meta {
+  margin-top: 34px; font-family: var(--mono); font-size: 11px; letter-spacing: 2.2px;
+  text-transform: uppercase; color: var(--stone);
+}
+.hero__meta span { white-space: nowrap; }
+.hero__meta i { font-style: normal; color: var(--hairline); padding: 0 10px; }
+
+/* ------------------------------------------------------------------ 影片 */
+.film { padding: 12px 0 96px; }
+.frame {
+  position: relative;
+  border-radius: 10px; border: 1px solid var(--hairline);
+  background: var(--parchment);
+  box-shadow: 0 18px 48px rgba(61,61,58,0.10), 0 2px 6px rgba(61,61,58,0.05);
+  overflow: hidden;
+}
+.frame video { display: block; width: 100%; height: auto; background: var(--parchment); }
+.film__bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 11px 14px; border-bottom: 1px solid var(--border); background: var(--ivory);
+}
+.film__label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 1.8px; text-transform: uppercase;
+  color: var(--stone);
+}
+.film__ctrl { display: flex; gap: 6px; }
+.icon-btn {
+  width: 28px; height: 28px; border-radius: 6px; cursor: pointer;
+  display: grid; place-items: center;
+  background: transparent; color: var(--stone); border: 0;
+  box-shadow: inset 0 0 0 1px var(--border);
+  transition: background 150ms ease, color 150ms ease;
+}
+.icon-btn:hover { background: var(--warm-sand); color: var(--primary); }
+.icon-btn svg { width: 13px; height: 13px; fill: currentColor; }
+.film__note {
+  margin: 14px 2px 0; font-family: var(--serif); font-size: 13.5px; line-height: 1.7;
+  letter-spacing: 0.6px; color: var(--stone);
+}
+
+/* ---------------------------------------------------------------- 章节 */
+.section { padding: 74px 0; border-top: 1px solid var(--border); }
+.section__head { display: flex; align-items: baseline; gap: 16px; }
+.section__no {
+  font-family: var(--mono); font-size: 12px; letter-spacing: 1.6px; color: var(--primary);
+  padding-top: 6px;
+}
+.section__kicker {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 2.4px; text-transform: uppercase;
+  color: var(--stone);
+}
+.section h2 {
+  margin: 6px 0 0; font-size: clamp(28px, 4vw, 38px); font-weight: 500; line-height: 1.25;
+  letter-spacing: 1px;
+}
+.split { display: grid; grid-template-columns: 1fr 1.14fr; gap: 54px; align-items: start; margin-top: 34px; }
+.split--flip .split__text { order: 2; }
+.split__text p { margin: 0 0 18px; font-size: 16px; line-height: 1.9; color: var(--dark-warm); }
+.split__text p:last-child { margin-bottom: 0; }
+.split__text strong { font-weight: 500; color: var(--near-black); }
+.split__text em { font-style: normal; color: var(--primary); }
+code, kbd {
+  font-family: var(--mono); font-size: 12.5px; letter-spacing: 0;
+  background: var(--inline-code-bg); color: var(--dark-warm);
+  border-radius: 3px; padding: 1px 5px;
+}
+kbd { font-size: 11px; border: 1px solid var(--border); background: var(--ivory); padding: 2px 6px; }
+
+.shot {
+  border-radius: 6px; border: 1px solid var(--hairline);
+  box-shadow: 0 14px 40px rgba(61,61,58,0.09);
+  display: block; width: 100%; height: auto; background: var(--parchment);
+}
+/* 图下小字是中文，不能用等宽字（JetBrains Mono 没有汉字，会掉到系统 CJK 字体、挤成一团） */
+.shot-cap {
+  margin: 12px 2px 0; font-family: var(--serif); font-size: 13px; line-height: 1.6;
+  letter-spacing: 0.6px; color: var(--stone);
+}
+
+/* -------------------------------------------------------------- 细节表 */
+.details { padding: 74px 0; border-top: 1px solid var(--border); }
+.grid {
+  margin-top: 40px;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 56px;
+}
+.item { padding: 18px 0; border-top: 1px solid var(--border); }
+.item:nth-child(-n+2) { border-top: 0; }
+.item h3 { margin: 0 0 6px; font-size: 17px; font-weight: 500; letter-spacing: 0.6px; }
+.item p { margin: 0; font-size: 14.5px; line-height: 1.8; color: var(--stone); }
+
+/* -------------------------------------------------------------- 规格表 */
+.spec { padding: 74px 0; border-top: 1px solid var(--border); }
+.spec table { width: 100%; border-collapse: collapse; margin-top: 34px; }
+.spec th, .spec td { text-align: left; padding: 14px 16px 14px 0; vertical-align: top; }
+.spec tr + tr th, .spec tr + tr td { border-top: 1px solid var(--border); }
+.spec th {
+  width: 190px; font-family: var(--mono); font-size: 10.5px; font-weight: 500;
+  letter-spacing: 1.8px; text-transform: uppercase; color: var(--stone); padding-top: 18px;
+}
+.spec td { font-size: 15.5px; color: var(--dark-warm); }
+.spec td .mono { font-family: var(--mono); font-size: 13px; letter-spacing: 0; color: var(--near-black); }
+
+/* ---------------------------------------------------------------- 下载 */
+.download { padding: 74px 0 88px; border-top: 1px solid var(--border); }
+.cards { margin-top: 38px; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 22px; }
+.card {
+  background: var(--ivory); border: 1px solid var(--border); border-radius: 6px;
+  padding: 24px 26px;
+}
+.card h3 { margin: 0 0 4px; font-size: 19px; font-weight: 500; }
+.card .tag {
+  display: inline-block; font-family: var(--mono); font-size: 10px; letter-spacing: 1.4px;
+  text-transform: uppercase; color: var(--primary); background: var(--tag-bg);
+  border-radius: 3px; padding: 3px 8px; margin-bottom: 14px;
+}
+.card p { margin: 0 0 16px; font-size: 14.5px; line-height: 1.8; color: var(--stone); }
+.card .file {
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0; color: var(--dark-warm);
+  background: var(--inline-code-bg); border-radius: 3px; padding: 4px 8px; display: inline-block;
+  margin-bottom: 16px; word-break: break-all;
+}
+
+/* ---------------------------------------------------------------- 页脚 */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 46px 0 64px;
+  font-family: var(--serif); font-size: 13.5px; letter-spacing: 0.8px;
+  color: var(--stone);
+}
+footer .wrap { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: baseline; }
+footer a { color: var(--stone); }
+footer a:hover { color: var(--primary); }
+footer .zh {
+  font-family: var(--serif); font-size: 14px; letter-spacing: 4px;
+  color: var(--dark-warm);
+}
+
+/* ------------------------------------------------------------ 进场动效 */
+.reveal { opacity: 0; transform: translateY(14px); }
+.reveal.is-in {
+  opacity: 1; transform: none;
+  transition: opacity 260ms ease, transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal, .reveal.is-in { opacity: 1; transform: none; transition: none; }
+}
+
+/* ---------------------------------------------------------------- 窄屏 */
+@media (max-width: 900px) {
+  :root { --gutter: 24px; }
+  .hero { padding: 74px 0 56px; }
+  .hero__lede { font-size: 18px; }
+  .split { grid-template-columns: 1fr; gap: 30px; }
+  .split--flip .split__text { order: 0; }
+  .grid { grid-template-columns: 1fr; column-gap: 0; }
+  .item:nth-child(2) { border-top: 1px solid var(--border); }
+  .cards { grid-template-columns: 1fr; }
+  .nav a:not(.nav__keep) { display: none; }
+  .spec th { width: 118px; font-size: 10px; letter-spacing: 1.2px; }
+  .section { padding: 52px 0; }
+}
+@media (max-width: 620px) {
+  .hero__zh { letter-spacing: 12px; text-indent: 12px; }
+  .topbar { padding: 0 14px; }
+  .brand__zh { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress" aria-hidden="true"></div>
+
+<!-- ============================================================== 顶栏 -->
+<header class="topbar">
+  <a class="brand" href="#top">
+    <span class="brand__mark">Vellum</span>
+    <span class="brand__zh">素笺</span>
+  </a>
+  <nav class="nav">
+    <a href="#read">读</a>
+    <a href="#find">寻</a>
+    <a href="#edit">写</a>
+    <a href="#stream">流</a>
+    <a class="nav__keep" href="https://github.com/HwFee/vellum">GitHub</a>
+    <a class="nav__keep" href="https://github.com/HwFee/vellum/releases">下载</a>
+  </nav>
+</header>
+
+<main id="top">
+
+  <!-- ============================================================ 首屏 -->
+  <section class="hero">
+    <div class="wrap">
+      <svg class="hero__ink" width="720" height="86" viewBox="0 0 980 120" aria-hidden="true">
+        <path d="M 18 66 C 190 40, 400 84, 620 52 C 760 32, 880 58, 962 46"
+              fill="none" stroke="#1B365D" stroke-width="9" stroke-linecap="round" opacity="0.92"/>
+        <path d="M 60 84 C 250 62, 470 96, 700 70"
+              fill="none" stroke="#1B365D" stroke-width="3.2" stroke-linecap="round" opacity="0.4"/>
+      </svg>
+
+      <h1>Vellum</h1>
+      <span class="hero__zh">素笺</span>
+
+      <p class="hero__lede">给 Markdown 一张纸。</p>
+      <p class="hero__sub">
+        暖纸底色、今楷正文、一笔靛青。没有行号栏，没有分屏，没有侧边工具架——
+        只有一个把长文档认真排出来的窗口，和一份愿意被读完的心情。
+      </p>
+
+      <div class="hero__cta">
+        <a class="btn" href="https://github.com/HwFee/vellum/releases">下载 Windows 版</a>
+        <a class="btn btn--ghost" href="#film">看 30 秒宣传片</a>
+      </div>
+
+      <p class="hero__meta">
+        <span>Windows 10 / 11 · x64</span><i>·</i>
+        <span>7 MB 安装包</span><i>·</i>
+        <span>离线可用</span><i>·</i>
+        <span>MIT 开源</span>
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================================================ 宣传片 -->
+  <section class="film" id="film">
+    <div class="wrap">
+      <div class="frame reveal">
+        <div class="film__bar">
+          <span class="film__label">Promo film · 1920 × 1080 · 30 fps · 30 s</span>
+          <span class="film__ctrl">
+            <button class="icon-btn" id="btn-play" aria-label="播放 / 暂停" title="播放 / 暂停">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="4.2" height="12" rx="1"/><rect x="9.8" y="2" width="4.2" height="12" rx="1"/></svg>
+            </button>
+            <button class="icon-btn" id="btn-sound" aria-label="开启 / 关闭配乐" title="开启 / 关闭配乐">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h2.6L8 3v10L4.6 10H2z"/><path d="M10.4 5.2a4 4 0 0 1 0 5.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            </button>
+          </span>
+        </div>
+        <video id="promo" src="assets/vellum-promo.mp4" poster="assets/poster-title.jpg"
+               autoplay muted loop playsinline preload="metadata"></video>
+      </div>
+      <p class="film__note">默片自动循环 · 点右上角开启配乐（片中原声为 Node 合成的纸墨氛围乐，无第三方素材）</p>
+    </div>
+  </section>
+
+  <!-- ============================================================== 读 -->
+  <section class="section" id="read">
+    <div class="wrap reveal">
+      <div class="section__head">
+        <span class="section__no">01</span>
+        <div>
+          <div class="section__kicker">Reading</div>
+          <h2>排版不是装饰，是把眼睛留下来</h2>
+        </div>
+      </div>
+      <div class="split">
+        <div class="split__text">
+          <p>
+            正文列宽、行距、字距都是从纸版心推出来的：<strong>14px / 1.55 行高 / 0.4px 字距</strong>，
+            中文的舒展来自字距而不是字号。层级只靠字号、字重、留白与 ivory 填充承担——
+            标题没有前导短线，引用没有侧线，表格默认没有斑马纹。
+          </p>
+          <p>
+            该渲染的一件都不少：GitHub Flavored Markdown 的表格、任务列表与脚注，
+            KaTeX 行内与行间公式（连 <em>$5 和 $10</em> 这种货币陷阱也做了保护），
+            以及 20 种常用语言的代码高亮。代码块是纸上浮起的一小块象牙白，
+            没有边框、没有彩色表头。
+          </p>
+          <p>
+            图、GIF、相对路径的本地图片按文档位置解析；raw HTML 放行常见排版标签后再净化。
+            眼睛停在正文上，是因为别处没有东西抢它。
+          </p>
+        </div>
+        <div>
+          <img class="shot" src="assets/window-reading.png" alt="Vellum 阅读视图：标题、正文、引用与表格" loading="lazy">
+          <p class="shot-cap">阅读视图 · 今楷正文 / 发丝线分层 / 大纲跟随</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== 寻 -->
+  <section class="section" id="find">
+    <div class="wrap reveal">
+      <div class="section__head">
+        <span class="section__no">02</span>
+        <div>
+          <div class="section__kicker">Finding</div>
+          <h2>长文档需要一张地图</h2>
+        </div>
+      </div>
+      <div class="split split--flip">
+        <div class="split__text">
+          <p>
+            左侧大纲把 h1–h3 收成一张目录，随正文滚动实时高亮当前章节，点一处就缓动滚过去。
+            <kbd>Ctrl</kbd>+<kbd>K</kbd> 聚焦全文检索，匹配项在正文里就地标出来，
+            上一个 / 下一个逐个跳。
+          </p>
+          <p>
+            侧栏宽度能在 <strong>200–320px</strong> 之间拖，双击手柄复位；
+            窄屏自动收成浮层。开关侧栏会改正文宽度、整篇重排——
+            应用会先用视口锚点钉住你正在看的那一行再换版，所以页面不会“闪到别处”。
+          </p>
+          <p>
+            关掉窗口再打开，位置还在：阅读位置按<strong>标题锚点 → 顶层块序号 → 比例兜底</strong>三级记录，
+            并在图片与字体把版面撑开时持续重锚，而不是拿旧比例乘新高度。
+          </p>
+        </div>
+        <div>
+          <img class="shot" src="assets/window-search.png" alt="Vellum 全文搜索：左侧栏检索与正文高亮" loading="lazy">
+          <p class="shot-cap">大纲 + 全文检索 · Ctrl K · 匹配项就地高亮</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== 写 -->
+  <section class="section" id="edit">
+    <div class="wrap reveal">
+      <div class="section__head">
+        <span class="section__no">03</span>
+        <div>
+          <div class="section__kicker">Editing</div>
+          <h2>就地编辑，不离开这一页</h2>
+        </div>
+      </div>
+      <div class="split">
+        <div class="split__text">
+          <p>
+            <kbd>Ctrl</kbd>+<kbd>E</kbd> 进入编辑视图，点任意可编辑块直接改——
+            不动版式，不切分屏，不改字体：源码覆盖层与渲染态<strong>同字号同行高</strong>，
+            草稿变长就自增高把下文推下去。
+          </p>
+          <p>
+            编辑信号全部放在块左页边：hover 浮出淡 <em>¶</em>，只读块（原生 HTML 与交互块）常驻灰 <em>×</em>，
+            正在编辑的块由一道靛青边轨与页边的 <em>¶</em> 标记。正文本身保持阅读时的样子。
+          </p>
+          <p>
+            <kbd>Ctrl</kbd>+<kbd>S</kbd> 或失焦自动提交：临时文件 + 原子重命名写回磁盘，
+            编辑期间文件被外部改动也能识别回声、不误判、不覆盖。
+          </p>
+        </div>
+        <div>
+          <img class="shot" src="assets/window-editing.png" alt="Vellum 块级就地编辑：页边 ¶ 标记与靛青边轨" loading="lazy">
+          <p class="shot-cap">块级就地编辑 · 页边 ¶ · 提交即落盘</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== 流 -->
+  <section class="section" id="stream">
+    <div class="wrap reveal">
+      <div class="section__head">
+        <span class="section__no">04</span>
+        <div>
+          <div class="section__kicker">Streaming</div>
+          <h2>当文档由 agent 写</h2>
+        </div>
+      </div>
+      <div class="split split--flip">
+        <div class="split__text">
+          <p>
+            文档不总是由人写完的。<code>vellum-mdlog</code> 连接建立后，agent 每写一段，
+            文档尾部就多一段——<strong>不抢你的滚动位置</strong>，不重打没有变化的块，
+            木已成舟的部分不闪一下再出现。
+          </p>
+          <p>
+            文档里的 <code>vellum-widget</code> 代码块会被渲染成沙箱交互块：实时曲线、图表、可点的小界面，
+            都在跨源 iframe 里跑。为了不让一篇长文档把内存吃光，全局最多保留 <strong>10 个存活窗口</strong>，
+            离屏的休眠、滑回来自动恢复，停帧的块不占 CPU。
+          </p>
+          <p>
+            交互块默认停在一个占位块上——点过一次 <em>[点击加载]</em>，这一份内容就被记住（按源码指纹落盘），
+            换文档、热重载、重启应用都不用再点第二次。
+          </p>
+        </div>
+        <div>
+          <img class="shot" src="assets/window-widget.png" alt="Vellum 沙箱交互块：vellum-widget 渲染的流水线图" loading="lazy">
+          <p class="shot-cap">沙箱交互块 · 跨源 iframe · 最多 10 个存活</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 细节 -->
+  <section class="details">
+    <div class="wrap reveal">
+      <div class="section__head">
+        <span class="section__no">05</span>
+        <div>
+          <div class="section__kicker">Details</div>
+          <h2>还剩下的那些小事</h2>
+        </div>
+      </div>
+      <div class="grid">
+        <div class="item">
+          <h3>无框原生窗口</h3>
+          <p>自己画的顶栏，方形窗口控制件，整栏可拖拽；关窗走的是平台惯例，不是网页。</p>
+        </div>
+        <div class="item">
+          <h3>6px 自定义滚动条</h3>
+          <p>隐藏原生滚动条，平时透明，滚动时淡入；光标靠近右缘也会浮现。</p>
+        </div>
+        <div class="item">
+          <h3>一键跳到底部</h3>
+          <p>距底超过 300px 时右下角浮现一枚浮钮，点它缓动到底，任何滚动输入都能打断。</p>
+        </div>
+        <div class="item">
+          <h3>多实例</h3>
+          <p>双击几个 .md 就开几个窗口，各自加载各自的文档；阅读位置按文件路径键控，互不干扰。</p>
+        </div>
+        <div class="item">
+          <h3>文件关联</h3>
+          <p>安装时自动接管 .md 与 .markdown，资源管理器里双击即开。</p>
+        </div>
+        <div class="item">
+          <h3>文档内锚点</h3>
+          <p>[文字](#id) 由应用接管：缓动滚过去、顺带点亮大纲，不再改写 URL 与历史。</p>
+        </div>
+        <div class="item">
+          <h3>本地优先</h3>
+          <p>没有云、没有账号、不联网。打开的是磁盘上的那个文件，写回的也是它。</p>
+        </div>
+        <div class="item">
+          <h3>折叠脚注</h3>
+          <p>脚注定义折在页边，点到才展开；定义块本身也是可下钻的容器。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 规格 -->
+  <section class="spec">
+    <div class="wrap reveal">
+      <div class="section__head">
+        <span class="section__no">06</span>
+        <div>
+          <div class="section__kicker">Specification</div>
+          <h2>它由什么构成</h2>
+        </div>
+      </div>
+      <table>
+        <tbody>
+          <tr><th>平台</th><td>Windows 10 版本 1809+ / Windows 11 · 64 位（x64）</td></tr>
+          <tr><th>运行时</th><td>WebView2（现代 Windows 多数已预装）</td></tr>
+          <tr><th>体积</th><td>约 <span class="mono">7 MB</span> 安装包，冷启动即读，不驻留后台</td></tr>
+          <tr><th>许可</th><td>MIT · 免费开源 · 离线可用</td></tr>
+          <tr><th>技术栈</th><td><span class="mono">Tauri 2</span>（Rust 后端）+ <span class="mono">React 19</span> + <span class="mono">Vite 8</span> + <span class="mono">TypeScript</span></td></tr>
+          <tr><th>字体</th><td>仓耳今楷 TsangerJinKai02（阅读）· JetBrains Mono（代码与计数）</td></tr>
+          <tr><th>设计语言</th><td>纸墨书斋 kami 风格：暖纸底色、墨色文字、单一靛青点缀，见仓库 <span class="mono">DESIGN.md</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================================================ 下载 -->
+  <section class="download" id="download">
+    <div class="wrap reveal">
+      <div class="section__head">
+        <span class="section__no">07</span>
+        <div>
+          <div class="section__kicker">Download</div>
+          <h2>下载 · 安装 · 双击一个 .md</h2>
+        </div>
+      </div>
+      <div class="cards">
+        <div class="card">
+          <span class="tag">推荐 · 集中管理</span>
+          <h3>MSI 安装包</h3>
+          <p>适合系统级或受管设备安装，卸载走标准 MSI 流程。</p>
+          <span class="file">素笺_x.x.x_x64_en-US.msi</span><br>
+          <a class="btn" href="https://github.com/HwFee/vellum/releases">前往 Releases 下载</a>
+        </div>
+        <div class="card">
+          <span class="tag">轻量 · 单用户</span>
+          <h3>NSIS 安装程序</h3>
+          <p>按用户安装、体积更小，升级更省事。</p>
+          <span class="file">素笺_x.x.x_x64-setup.exe</span><br>
+          <a class="btn btn--ghost" href="https://github.com/HwFee/vellum/releases">前往 Releases 下载</a>
+        </div>
+      </div>
+      <p class="film__note">两种安装包都会注册 .md / .markdown 文件关联。</p>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="zh">素笺</span>
+    <span>Built for focused reading</span>
+    <span>Design language inspired by <a href="https://github.com/tw93/kami">Kami</a></span>
+    <span>MIT © HwFee</span>
+    <span><a href="https://github.com/HwFee/vellum">github.com/HwFee/vellum</a></span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  /* --- 阅读进度：一条 2px 靛青，随滚动生长 --- */
+  var bar = document.getElementById("progress");
+  function onScroll() {
+    var h = document.documentElement.scrollHeight - window.innerHeight;
+    bar.style.width = (h > 0 ? Math.min(1, window.scrollY / h) * 100 : 0) + "%";
+  }
+  addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+
+  /* --- 章节进场：只淡入、不位移，尊重 prefers-reduced-motion --- */
+  var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* --- 宣传片：滚出视野就暂停，省电；声音默认关闭（自动播放要求） --- */
+  var video = document.getElementById("promo");
+  var playBtn = document.getElementById("btn-play");
+  var soundBtn = document.getElementById("btn-sound");
+  var ICON_PLAY = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.4 13.2 8 4 13.6z"/></svg>';
+  var ICON_PAUSE = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="4.2" height="12" rx="1"/><rect x="9.8" y="2" width="4.2" height="12" rx="1"/></svg>';
+
+  function syncPlay() { playBtn.innerHTML = video.paused ? ICON_PLAY : ICON_PAUSE; }
+  playBtn.addEventListener("click", function () {
+    if (video.paused) { video.play(); } else { video.pause(); }
+    syncPlay();
+  });
+  video.addEventListener("play", syncPlay);
+  video.addEventListener("pause", syncPlay);
+  soundBtn.addEventListener("click", function () {
+    video.muted = !video.muted;
+    video.volume = 0.55;
+    soundBtn.style.color = video.muted ? "" : "#1B365D";
+    soundBtn.setAttribute("aria-pressed", String(!video.muted));
+    if (!video.muted && video.paused) { video.play(); }
+  });
+
+  if ("IntersectionObserver" in window) {
+    var vis = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (reduce) return;
+        if (e.isIntersecting) {
+          if (video.dataset.userPaused !== "1") { video.play().catch(function () {}); }
+        } else {
+          video.pause();
+        }
+      });
+    }, { threshold: 0.25 });
+    vis.observe(video);
+
+    var reveals = document.querySelectorAll(".reveal");
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add("is-in"); io.unobserve(e.target); }
+      });
+    }, { rootMargin: "-8% 0px -12% 0px" });
+    Array.prototype.forEach.call(reveals, function (el) {
+      if (reduce) { el.classList.add("is-in"); } else { io.observe(el); }
+    });
+  } else {
+    Array.prototype.forEach.call(document.querySelectorAll(".reveal"), function (el) {
+      el.classList.add("is-in");
+    });
+  }
+
+  if (!reduce) { video.play().catch(function () {}); }
+  syncPlay();
+})();
+</script>
+</body>
+</html>
