@@ -27,9 +27,11 @@ npm run tauri        # Tauri CLI
 
 全局技能仓库：`C:/Users/17445/Desktop/HwFee-skills/skills/`
 
-每个项目通过**目录联接**引用仓库中的技能，**不拷贝**（本地 `.pi/skills/<skill-name>` 均为联接，永不入库）。
+每个项目通过**目录联接**引用仓库中的技能，**不拷贝**（本地 `.pi/skills/<skill-name>` 均为联接，永不入库；`.gitignore` 已忽略 `.pi/skills/`）。
 
-> 2026-09-10 记录：`vellum-mdlog` 已迁入全局仓库，本地仅保留目录联接。此前随本仓库版本化的真实目录（`.pi/skills/vellum-mdlog/`）已移除——此前「项目专属、不迁库、开箱即用」的例外不再成立，外部 clone 本仓库后需按「安装新技能」第 5 步重建联接。
+> **git 会跟随联接读到真实内容**——所以这些路径可以被误 `git add` 进来，历史上就发生过。判据只有一条：`git ls-files .pi/skills/` 有输出就是错，用 `git rm -r --cached .pi/skills/<skill-name>/` 解除跟踪（`--cached` 只动索引）。**别用 `rm -rf` 删那个路径**——它会顺着联接删掉全局库里的真身。
+
+> 2026-09-12 记录：`vellum-mdlog` 单一归属全局技能库（`C:\Users\17445\Desktop\HwFee-skills\skills\vellum-mdlog`；该库自身是 git 仓库，远端 `HwFee/skills-manager-backup`，备份由 Skills Manager 维护）。此前「项目专属、不迁库、开箱即用」的例外不再成立：本仓库只留目录联接，外部 clone **不会**得到该技能，需按「安装新技能」第 5 步重建联接。2026-09-10 的迁移当时只删了磁盘目录、漏了解除跟踪，已于 2026-09-12 补齐。
 
 ### 安装新技能
 
@@ -58,7 +60,7 @@ npm run tauri        # Tauri CLI
 | `tauri-v2` | Tauri 2 架构、IPC 通信、插件与原生桌面事件开发规范 |
 | `web-artifacts-builder` | 交互式 HTML / React / 可视化 Artifacts 沙箱构建规范 |
 | `superpowers` | 工程化研发方法论套件（头脑风暴、TDD、系统化调试、执行计划、工作流规约） |
-| `vellum-mdlog` | Vellum 交互式 mdlog 日志生成与 `vellum-widget` 交互块编写规范（2026-09-10 起迁入全局仓库，本地为目录联接）；其「强调定界符跨汉字+括号」写法要求已于 2026-09 起降级为可移植性建议——渲染层由 remark-cjk-friendly 软件兼容（见「注意事项」） |
+| `vellum-mdlog` | Vellum 纸墨 Markdown 与 `vellum-widget` 契约（2026-09-10 起迁入全局仓库，本地为目录联接）。三个触发分支：mdlog 连接（逐回合强制）、**写本机 Vellum 阅读的 md 笔记**（2026-09-12 新增）、无提示出图。契约 1–6 全文在技能内 `references/widget-contracts.md`，速查在 `references/troubleshooting.md`——主体 `SKILL.md` 只留分支路由、图承载禁令、出图流程与最小清单。其「强调定界符跨汉字+括号」写法要求已于 2026-09 起降级为可移植性建议——渲染层由 remark-cjk-friendly 软件兼容（见「注意事项」） |
 
 ## 性能优化
 
