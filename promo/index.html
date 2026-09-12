@@ -98,6 +98,10 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .wrap { width: 100%; max-width: var(--col); margin: 0 auto; padding: 0 var(--gutter); }
 
 /* 阅读进度：与应用大纲激活条同一条 2px 靛青（全页唯一的常驻彩色元素） */
+/* 顶栏是 sticky 的：锚点跳转必须留出 46px 的高度，否则目标区块的头部（例如影片工具条）
+   会被顶栏盖住——点“看 30 秒宣传片”过去正好把播放/语言按钮压在栏下。 */
+section[id] { scroll-margin-top: 58px; }
+
 .progress {
   position: fixed; top: 0; left: 0; z-index: 60;
   height: 2px; width: 0;
@@ -190,6 +194,19 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
   color: var(--stone);
 }
 .film__ctrl { display: flex; gap: 6px; }
+
+/* 影片语言：中英两版同一条时间线（文案与窗口素材不同），这里只换 source */
+.film__lang { display: flex; gap: 0; margin-left: auto; margin-right: 14px; }
+.lang-btn {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 1.4px;
+  padding: 5px 11px; cursor: pointer; color: var(--stone);
+  background: transparent; border: 1px solid var(--border);
+  transition: background 150ms ease, color 150ms ease;
+}
+.lang-btn:first-child { border-radius: 4px 0 0 4px; }
+.lang-btn:last-child { border-radius: 0 4px 4px 0; border-left: 0; }
+.lang-btn:hover { background: var(--warm-sand); color: var(--primary); }
+.lang-btn[aria-pressed="true"] { background: var(--tag-bg); color: var(--primary); border-color: var(--tag-bg); }
 .icon-btn {
   width: 28px; height: 28px; border-radius: 6px; cursor: pointer;
   display: grid; place-items: center;
@@ -394,6 +411,10 @@ footer .zh {
       <div class="frame reveal">
         <div class="film__bar">
           <span class="film__label">Promo film · 1920 × 1080 · 30 fps · 30 s</span>
+          <span class="film__lang">
+            <button class="lang-btn" id="lang-zh" aria-pressed="true">中文</button>
+            <button class="lang-btn" id="lang-en" aria-pressed="false">EN</button>
+          </span>
           <span class="film__ctrl">
             <button class="icon-btn" id="btn-play" aria-label="播放 / 暂停" title="播放 / 暂停">
               <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="4.2" height="12" rx="1"/><rect x="9.8" y="2" width="4.2" height="12" rx="1"/></svg>
@@ -403,10 +424,13 @@ footer .zh {
             </button>
           </span>
         </div>
-        <video id="promo" src="assets/vellum-promo.mp4" poster="assets/poster-title.jpg"
+        <video id="promo" src="assets/vellum-promo-zh.mp4" poster="assets/poster-title-zh.jpg"
                autoplay muted loop playsinline preload="metadata"></video>
       </div>
-      <p class="film__note">默片自动循环 · 点右上角开启配乐（片中原声为 Node 合成的纸墨氛围乐，无第三方素材）</p>
+      <p class="film__note">
+        中文 / 英文两版同一条时间线：中文字幕配中文文档界面，英文版配英文文档界面。
+        默认静音自动循环（浏览器自动播放的要求），点右上角开声音；滚出视野自动暂停。
+      </p>
     </div>
   </section>
 
@@ -731,6 +755,29 @@ footer .zh {
 
   if (!reduce) { video.play().catch(function () {}); }
   syncPlay();
+
+  /* --- 影片中/英切换：同一条时间线，只换 source 与 poster，保持播放状态 --- */
+  var FILMS = {
+    zh: { src: "assets/vellum-promo-zh.mp4", poster: "assets/poster-title-zh.jpg" },
+    en: { src: "assets/vellum-promo.mp4", poster: "assets/poster-title.jpg" }
+  };
+  var langBtns = { zh: document.getElementById("lang-zh"), en: document.getElementById("lang-en") };
+  var currentFilm = "zh";
+
+  function setFilm(lang) {
+    if (lang === currentFilm || !FILMS[lang]) return;
+    var wasPlaying = !video.paused;
+    currentFilm = lang;
+    video.src = FILMS[lang].src;
+    video.poster = FILMS[lang].poster;
+    video.load();
+    if (wasPlaying) { video.play().catch(function () {}); }
+    Object.keys(langBtns).forEach(function (k) {
+      langBtns[k].setAttribute("aria-pressed", String(k === lang));
+    });
+  }
+  langBtns.zh.addEventListener("click", function () { setFilm("zh"); });
+  langBtns.en.addEventListener("click", function () { setFilm("en"); });
 })();
 </script>
 </body>

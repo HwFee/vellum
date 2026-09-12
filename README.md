@@ -29,6 +29,8 @@ _A warm, parchment-toned Markdown viewer for Windows._
 </p>
 
 30 秒正片 · 1920×1080 · 30 fps —— [`promo/assets/vellum-promo.mp4`](./promo/assets/vellum-promo.mp4)。
+Chinese cut: [`promo/assets/vellum-promo-zh.mp4`](./promo/assets/vellum-promo-zh.mp4)
+(same timeline, Chinese captions **and** a Chinese demo document).
 片子里的每一帧界面都是真实运行的窗口（CDP 抓取），颜色与字体取自 [`DESIGN.md`](./DESIGN.md)，
 源工程在 [`video/`](./video/README.md)，整套对外材料在 [`promo/`](./promo/README.md)。
 

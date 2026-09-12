@@ -3,21 +3,24 @@ import { AbsoluteFill, interpolate, useCurrentFrame } from "remotion";
 import { Caption } from "../components/Caption";
 import { WindowShot } from "../components/Frames";
 import { PaperBackground } from "../components/PaperBackground";
-import { COPY } from "../theme";
+import { useCopy, useShot } from "../locale";
 
 const WIDTH = 1440;
 const LEFT = (1920 - WIDTH) / 2;
 const TOP = 34;
 
 const FADE = 14;
+// 素材名写裸文件名；13-log-top.png 两版共用（日志文档本来就是中文）
 const LAYERS = [
-  { src: "capture/06-window-widget-live.png", start: -40, end: 58, zoom: [1.0, 1.06] },
-  { src: "capture/13-log-top.png", start: 46, end: 200, zoom: [1.0, 1.05] },
+  { src: "06-window-widget-live.png", start: -40, end: 58, zoom: [1.0, 1.06] },
+  { src: "13-log-top.png", start: 46, end: 200, zoom: [1.0, 1.05] },
 ];
 
 /** 现场会话：同文档里渲染出的沙箱交互块 → 一份真实的 mdlog 会话日志。 */
 export const Scene6LiveBlocks: React.FC = () => {
   const frame = useCurrentFrame();
+  const copy = useCopy();
+  const shot = useShot();
 
   return (
     <PaperBackground>
@@ -36,7 +39,7 @@ export const Scene6LiveBlocks: React.FC = () => {
         return (
           <AbsoluteFill key={layer.src} style={{ opacity }}>
             <WindowShot
-              src={layer.src}
+              src={shot(layer.src)}
               width={WIDTH}
               enterAt={-200}
               from={layer.zoom[0]}
@@ -48,7 +51,7 @@ export const Scene6LiveBlocks: React.FC = () => {
           </AbsoluteFill>
         );
       })}
-      <Caption text={COPY.captions.liveBlocks} from={24} to={110} />
+      <Caption text={copy.captions.liveBlocks} from={24} to={110} />
     </PaperBackground>
   );
 };

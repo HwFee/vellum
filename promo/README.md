@@ -1,25 +1,28 @@
 # Vellum · 素笺 宣传品
 
-这一份是产品的对外材料：一枚 30 秒宣传片、一张落地页、一组海报帧与分享卡。
+这一份是产品的对外材料：**中英各一版** 30 秒宣传片、一张落地页、一组海报帧与分享卡。
 界面像素全部来自**真实运行的 Vellum**（CDP 抓取），配色与字体逐条对齐仓库根 `DESIGN.md`，
 所以宣传品与应用看起来是同一个东西——因为它们本来就是同一个东西。
+
+两版不是同一支片子配两种字幕：中文版另写了一支 `video/assets/demo.zh.md`，
+所以「中文版」里的文档、大纲、编辑面、交互块都是中文的（文件名叫 `纸的界面.md`），
+只有代码块与应用自身的英文标识（如快捷键提示 `⌘K`）保留原样。
 
 ## 目录
 
 | 文件 | 用途 |
 |------|------|
-| `index.html` | 落地页。单文件、内联 CSS、零依赖，双击即开 |
-| `assets/vellum-promo.mp4` | 正片 1920×1080 / 30 fps / 30 s（含配乐） |
-| `assets/vellum-promo.gif` | 9 秒循环（13.6→22.6 s：长图推进 → 大纲搜索 → 就地编辑），README 用 |
-| `assets/social-preview.png` | 社交分享卡 1280×640（Open Graph / GitHub Social Preview） |
-| `assets/poster-title.jpg` | 海报帧 · 开场落墨 |
-| `assets/poster-rendering.jpg` | 海报帧 · 排版全貌（标题 / 公式 / 代码 / 表格） |
-| `assets/poster-edit.jpg` | 海报帧 · 块级就地编辑 |
-| `assets/poster-session.jpg` | 海报帧 · 现场会话日志 |
-| `assets/window-reading.png` | 真实窗口截图 · 阅读视图（2880×1800） |
-| `assets/window-search.png` | 真实窗口截图 · 大纲与全文检索 |
-| `assets/window-editing.png` | 真实窗口截图 · 激活块的编辑面 |
-| `assets/window-widget.png` | 真实窗口截图 · 沙箱交互块 |
+| `index.html` | 落地页。单文件、内联 CSS、零依赖，双击即开；片可在中/英之间切换 |
+| `assets/vellum-promo-zh.mp4` | **中文版正片** 1920×1080 / 30 fps / 30 s（含配乐） |
+| `assets/vellum-promo.mp4` | 英文版正片，同上规格 |
+| `assets/vellum-promo-zh.gif` | 中文版 8.5 秒循环，README / 帖子配图用 |
+| `assets/vellum-promo.gif` | 英文版循环，同上 |
+| `assets/social-preview-zh.png` | 中文社交分享卡 1280×640 |
+| `assets/social-preview.png` | 英文社交分享卡 |
+| `assets/poster-*-zh.jpg` | 中文海报帧 ×4（开场落墨 / 排版全貌 / 就地编辑 / 现场会话） |
+| `assets/poster-*.jpg` | 英文海报帧 ×4 |
+| `assets/window-*-zh.png` | 中文窗口截图 ×4（阅读 / 检索 / 编辑 / 交互块） |
+| `assets/window-*.png` | 英文窗口截图 ×4 |
 | `announcement.md` | 发布口径与文案（一句话 / Release 正文草案 / 社交短文案 / 素材搭配） |
 | `build-assets.mjs` | 从 `video/` 的成片导出上面这一整套 |
 
@@ -28,19 +31,21 @@
 ```bash
 # 1. 素材 + 渲染（video/ 里，见 video/README.md）
 cd video
-npm run assets          # 同步字体 → 合成配乐 → CDP 抓真实界面
-npm run render          # out/vellum-promo.mp4        （含配乐）
-npm run render:silent   # out/vellum-promo-silent.mp4 （GIF 用）
+npm run assets          # 同步字体 → 合成配乐 → CDP 抓英文界面
+npm run capture:zh      # 中文界面（zh- 前缀，两套共存）
+npm run render          # out/vellum-promo.mp4
+npx remotion render VellumPromoZh out/vellum-promo-zh.mp4
 
 # 2. 导出对外分发的那一套
 cd ..
-node promo/build-assets.mjs            # 全量（含 Remotion 出的海报帧与分享卡）
+node promo/build-assets.mjs                 # 全量（中英两套，含海报帧与分享卡）
+node promo/build-assets.mjs --lang zh       # 只重做中文那套
 node promo/build-assets.mjs --skip-stills   # 只重编正片 / GIF / 截图
 ```
 
 `build-assets.mjs` 会重编码正片（CRF 22 + faststart，母版留 CRF 18）、
 用两级调色板生成 GIF、把窗口截图改好名复制过来，
-再调 `remotion still` 出四张海报帧与社交卡。它只依赖 `ffmpeg` 与 `video/` 的依赖。
+再调 `remotion still` 出海报帧与社交卡。它只依赖 `ffmpeg` 与 `video/` 的依赖。
 
 ## 落地页
 
@@ -59,7 +64,9 @@ node promo/build-assets.mjs --skip-stills   # 只重编正片 / GIF / 截图
 
 - **字体是仓耳今楷（8.4 MB × 2）**，落地页与正片都要它。落地页走 `../public/fonts/`，
   单独部署时必须把这几个 woff2 一起带上，否则会回退到系统宋体。
+- **等宽字体没有汉字**：中文元的文字不能落在 JetBrains Mono 上（会掉进系统 CJK 字体、
+  行高与字重都对不上）。片子里由 `useMetaFont()` 处理；落地页里凡是中文小字都用衬线。
 - 海报帧与分享卡需要 `video/` 的依赖（`remotion still`），只用 `--skip-stills` 时不需要。
 - 片子里出现的窗口截图来自 `~/Documents/Notes` 下的两份素材文档
-  （`video/assets/demo.md`、`video/assets/session-log.md` 的暂存副本）——
+  （`video/assets/demo.md`、`video/assets/demo.zh.md`、`video/assets/session-log.md` 的暂存副本）——
   顶栏会原样显示绝对路径，所以不能直接用仓库路径。

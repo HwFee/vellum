@@ -1,7 +1,8 @@
 import React from "react";
 import { Easing, interpolate, useCurrentFrame } from "remotion";
 import { PaperBackground } from "../components/PaperBackground";
-import { COLORS, COPY, MONO_STACK, SERIF_STACK } from "../theme";
+import { useCopy, useLocale, useMetaFont } from "../locale";
+import { COLORS, SERIF_STACK } from "../theme";
 
 const easeOut = Easing.bezier(0.16, 1, 0.3, 1);
 const easeInOut = Easing.bezier(0.42, 0, 0.58, 1);
@@ -13,6 +14,10 @@ const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 // 长度无关——换个曲线形状不用重算几何。
 export const Scene1ColdOpen: React.FC = () => {
   const frame = useCurrentFrame();
+  const copy = useCopy();
+  const locale = useLocale();
+  // 等宽栈没有汉字：中文版的底行退回衬线，宽字距改由 letterSpacing 承担
+  const metaFont = useMetaFont();
 
   const draw = interpolate(frame, [8, 46], [0, 1], { ...clamp, easing: easeInOut });
   const drawThin = interpolate(frame, [16, 54], [0, 1], { ...clamp, easing: easeInOut });
@@ -78,7 +83,7 @@ export const Scene1ColdOpen: React.FC = () => {
             transform: `translateY(${(1 - titleT) * 26}px)`,
           }}
         >
-          {COPY.title}
+          {copy.title}
         </div>
 
         <div
@@ -92,7 +97,7 @@ export const Scene1ColdOpen: React.FC = () => {
             transform: `translateX(${(1 - zhT) * 10}px)`,
           }}
         >
-          {COPY.titleZh}
+          {copy.titleZh}
         </div>
 
         <div
@@ -105,21 +110,21 @@ export const Scene1ColdOpen: React.FC = () => {
             transform: `translateY(${(1 - tagT) * 16}px)`,
           }}
         >
-          {COPY.tagline}
+          {copy.tagline}
         </div>
 
         <div
           style={{
-            fontFamily: MONO_STACK,
-            fontSize: 21,
-            letterSpacing: 3.4,
+            fontFamily: metaFont,
+            fontSize: locale === "zh" ? 19 : 21,
+            letterSpacing: locale === "zh" ? 4.6 : 3.4,
             textTransform: "uppercase",
             color: COLORS.stone,
             marginTop: 34,
             opacity: subT * 0.9,
           }}
         >
-          Windows 10 / 11 · offline · free
+          {copy.heroMeta}
         </div>
       </div>
     </PaperBackground>

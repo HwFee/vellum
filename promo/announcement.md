@@ -79,13 +79,30 @@ _Built for focused reading._
 
 ## 素材搭配
 
+中英各一套，文件同名只差 `-zh` 后缀。
+
+### 中文渠道
+
+| 场景 | 用哪件 |
+|------|--------|
+| 帖子 / 图床 | `assets/vellum-promo-zh.gif`（8.5 秒循环） |
+| 发布页 / 论坛正文 | `assets/vellum-promo-zh.mp4`（30 秒） |
+| 微信 / 朋友圈、B 站封面 | `assets/poster-title-zh.jpg` / `poster-rendering-zh.jpg` |
+| 分享卡（1280×640） | `assets/social-preview-zh.png` |
+| 功能配图 | `assets/window-*-zh.png` |
+
+中文版值得单独说一句的：片中的文档、大纲、编辑面、交互块**都是中文的**
+（截图来自中文演示文档 `纸的界面.md`），不是拿英文界面配中文字幕。
+
+### 英文渠道
+
 | 场景 | 用哪件 |
 |------|--------|
 | 仓库首页 / 分享卡 | `assets/social-preview.png`（1280×640） |
-| README / 社交贴 | `assets/vellum-promo.gif`（9 秒循环，5.9 MB） |
-| 发布页 / 论坛正文 | `assets/vellum-promo.mp4`（30 秒，8.8 MB） |
-| 图床贴图 | `assets/poster-*.jpg`（1920×1080，四张） |
-| 功能配图 | `assets/window-*.png`（2880×1800，四张） |
+| README / 社交贴 | `assets/vellum-promo.gif` |
+| 发布页 | `assets/vellum-promo.mp4` |
+| 图床贴图 | `assets/poster-*.jpg`（1920×1080） |
+| 功能配图 | `assets/window-*.png`（2880×1800） |
 
 ## 不要说的话
 

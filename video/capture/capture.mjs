@@ -1,8 +1,12 @@
 // 宣传片素材抓取：以 CDP 驱动真实 Vellum 窗口，截取用于 Remotion 合成的高分屏图。
 //
 // 用法（工作目录不限，路径一律以脚本自身位置为准）：
-//   node capture/capture.mjs [--exe <path>] [--out <dir>] [--keep]
-//   node video/capture/capture.mjs [--exe <path>] [--out <dir>] [--keep]
+//   node capture/capture.mjs [--exe <path>] [--out <dir>] [--lang en|zh] [--keep]
+//   node video/capture/capture.mjs [--exe <path>] [--out <dir>] [--lang en|zh] [--keep]
+//
+// --lang zh 抓的是中文版素材：换一份中文演示文档（video/assets/demo.zh.md），
+// 产物一律加 zh- 前缀（zh-01-window-reading.png …），不改动英文那套。
+// 中文会话不做会话 B：mdlog 日志文档本来就是中文，13/14/15 两张版共用。
 //
 // 前置：脚本会自己 taskkill 既有实例（并存实例会互相抢占远程调试端口）。
 // 产物默认写入 video/public/capture/，Remotion 侧用 staticFile("capture/xxx.png") 取。
@@ -39,6 +43,12 @@ const ROOT = path.resolve(VIDEO_DIR, "..");
 const EXE = path.resolve(get("exe", path.join(ROOT, "src-tauri/target/release/vellum.exe")));
 const OUT = path.resolve(get("out", path.join(VIDEO_DIR, "public/capture")));
 const PORT = Number(get("port", "9222"));
+/** 素材语言：en（默认） / zh。中文版加前缀，两套素材共存于同一目录。 */
+const LANG = get("lang", "en");
+const ZH = LANG === "zh";
+const PREFIX = ZH ? "zh-" : "";
+/** 搜索关键词：英文文档搜 paper，中文文档搜「排版」（两者都是文档里真实存在的词）。 */
+const QUERY = ZH ? "排版" : "paper";
 const VIEW = { width: 1440, height: 900, dsf: 2 };
 /** 素材文档的落地目录：不要用仓库路径，顶栏会把绝对路径原样显示出来。 */
 const STAGE = path.resolve(get("stage", path.join(os.homedir(), "Documents", "Notes")));
@@ -363,6 +373,7 @@ async function main() {
   log(`exe = ${EXE}`);
   log(`out = ${OUT}`);
   log(`stage = ${STAGE}`);
+  log(`lang = ${LANG}${ZH ? "（中文素材，产物前缀 zh-）" : ""}`);
   await mkdir(OUT, { recursive: true });
 
   if (!flag("keep")) {
@@ -371,14 +382,18 @@ async function main() {
   }
 
   // ============================ 会话 A：正文文档 ============================
-  const docA = await stageDoc("video/assets/demo.md", "the-paper-interface.md");
+  // 中文版用中文演示文档与中文文件名：顶栏会显示文件名，而中文版片子里
+  // 顶栏写着 the-paper-interface.md 会很出戏。
+  const docA = ZH
+    ? await stageDoc("video/assets/demo.zh.md", "纸的界面.md")
+    : await stageDoc("video/assets/demo.md", "the-paper-interface.md");
   let cdp = await launch(docA);
 
   await evaluate(cdp, `document.querySelector(".document-scroll").scrollTop = 0, true`);
   await sleep(700);
-  await shoot(cdp, "01-window-reading");
+  await shoot(cdp, `${PREFIX}01-window-reading`);
 
-  await shootPlate(cdp, "02-article-plate", ".document-scroll__content");
+  await shootPlate(cdp, `${PREFIX}02-article-plate`, ".document-scroll__content");
 
   // 大纲搜索
   await evaluate(
@@ -386,13 +401,13 @@ async function main() {
     `(() => {
       const input = document.querySelector(".outline-search__input");
       const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-      setter.call(input, "paper");
+      setter.call(input, ${JSON.stringify(QUERY)});
       input.dispatchEvent(new Event("input", { bubbles: true }));
       return true;
     })()`
   );
   await sleep(1100);
-  await shoot(cdp, "03-window-search");
+  await shoot(cdp, `${PREFIX}03-window-search`);
   await evaluate(
     cdp,
     `(() => {
@@ -407,28 +422,28 @@ async function main() {
 
   // 数学 / 图
   await scrollToElement(cdp, ".katex-display", { block: "center" });
-  await shoot(cdp, "04-window-math");
+  await shoot(cdp, `${PREFIX}04-window-math`);
 
   // 交互块：先占位，再点开
   await scrollToElement(cdp, ".mdlog-widget", { block: "center" });
-  await shoot(cdp, "05-window-widget-placeholder");
+  await shoot(cdp, `${PREFIX}05-window-widget-placeholder`);
   const clicked = await evaluate(
     cdp,
     `(() => { const b = document.querySelector(".mdlog-widget__placeholder"); if (!b) return false; b.click(); return true; })()`
   );
   await sleep(1800);
   await scrollToElement(cdp, ".mdlog-widget", { block: "center" });
-  await shoot(cdp, "06-window-widget-live");
+  await shoot(cdp, `${PREFIX}06-window-widget-live`);
   log(clicked ? "交互块已点开" : "没有占位按钮（可能已自动挂载）");
 
   // 代码块
   await scrollToElement(cdp, ".markdown-body pre", { block: "center" });
-  await shoot(cdp, "07-window-code");
+  await shoot(cdp, `${PREFIX}07-window-code`);
 
   // 收起侧栏后的宽正文
   await clickSelector(cdp, "header button[aria-label='切换大纲']", { wait: 900 });
   await sleep(900);
-  await shoot(cdp, "08-window-no-outline");
+  await shoot(cdp, `${PREFIX}08-window-no-outline`);
   await clickSelector(cdp, "header button[aria-label='切换大纲']", { wait: 900 });
   await sleep(600);
 
@@ -469,7 +484,7 @@ async function main() {
     });
     await sleep(600);
   }
-  await shoot(cdp, "09-window-editing");
+  await shoot(cdp, `${PREFIX}09-window-editing`);
 
   if (para) {
     for (const type of ["mousePressed", "mouseReleased"]) {
@@ -482,9 +497,10 @@ async function main() {
       });
     }
     await sleep(1000);
-    await shoot(cdp, "10-window-editing-active");
+    await shoot(cdp, `${PREFIX}10-window-editing-active`);
 
-    // 光标移到草稿末尾再输入：默认插在句子中间会把原文切断，看起来像 bug
+    // 光标移到草稿末尾再输入：默认插在句子中间会把原文切断，看起来像 bug。
+    // 输入内容跟语言走：中文版里让光标退到「一张纸的反面」這種中文句子才合理。
     const ready = await evaluate(
       cdp,
       `(() => { const ta = document.querySelector(".block-editor__input");
@@ -495,7 +511,7 @@ async function main() {
     );
     log(`就地编辑面已打开：${ready}`);
     if (ready) {
-      for (const ch of " Paper is the opposite of chrome.") {
+      for (const ch of ZH ? " 而纸是屏幕的反面。" : " Paper is the opposite of chrome.") {
         await cdp.send("Input.dispatchKeyEvent", { type: "char", text: ch });
         await sleep(44);
       }
@@ -524,13 +540,21 @@ async function main() {
             const r = ta.getBoundingClientRect();
             const cr = sc.getBoundingClientRect();
             sc.scrollTop += (r.top - cr.top) - (cr.height - r.height) / 2;
-            return { top: Math.round(r.top), ctop: Math.round(cr.top), h: Math.round(cr.height) }; })()`
+            // 光标在末尾时浏览器会把 textarea 自己滚到能看到光标的位置；overflow:hidden
+            // 下这不会出现滚动条，只会把开头的字裁掉（中文长段尤其明显）。图片要的是
+            // 「正在写这一块」而不是浏览器此时恰好滚到哪里，所以拍前把内部滚动归零。
+            ta.scrollLeft = 0;
+            ta.scrollTop = 0;
+            return { top: Math.round(r.top), ctop: Math.round(cr.top), h: Math.round(cr.height),
+              taW: ta.clientWidth, taSW: ta.scrollWidth, taSL: ta.scrollLeft,
+              taH: ta.clientHeight, taSH: ta.scrollHeight, len: ta.value.length }; })()`
         );
         await sleep(320);
+        log("编辑面几何：", JSON.stringify(box));
         if (box && box.top > box.ctop + 60 && box.top < box.ctop + box.h - 240) break;
       }
       await sleep(500);
-      await shoot(cdp, "11-window-editing-typed");
+      await shoot(cdp, `${PREFIX}11-window-editing-typed`);
       // 撤销草稿：素材文档是暂存副本，但把编辑会话留在原地会让后续镜头带着改动
       await cdp.send("Input.dispatchKeyEvent", {
         type: "keyDown",
@@ -555,7 +579,7 @@ async function main() {
   }
   await evaluate(cdp, `document.querySelector(".document-scroll").scrollTop = 0, true`);
   await sleep(900);
-  await shoot(cdp, "12-window-hero");
+  await shoot(cdp, `${PREFIX}12-window-hero`);
 
   const errors = cdp.events.filter(
     (e) => e.method === "Log.entryAdded" || e.method === "Runtime.exceptionThrown"
@@ -567,30 +591,36 @@ async function main() {
   await sleep(1500);
 
   // ============================ 会话 B：mdlog 日志 ==========================
-  const docB = await stageDoc("video/assets/session-log.md", "session-log.md");
-  cdp = await launch(docB);
-  // mdlog 未连接时交互块停在占位块（信任门禁），片子里要看到真内容就得逐个点开。
-  const opened = await evaluate(
-    cdp,
-    `(async () => {
-      const btns = [...document.querySelectorAll(".mdlog-widget__placeholder")];
-      for (const b of btns) { b.click(); await new Promise((r) => setTimeout(r, 140)); }
-      return btns.length;
-    })()`
-  );
-  log(`日志文档点开了 ${opened} 个交互块`);
-  await sleep(2600);
-  await evaluate(cdp, `document.querySelector(".document-scroll").scrollTop = 0, true`);
-  await sleep(900);
-  await shoot(cdp, "13-log-top");
-  await scrollToElement(cdp, ".mdlog-widget", { block: "center" }).catch(() =>
-    log("日志文档里没有交互块")
-  );
-  await sleep(700);
-  await shoot(cdp, "14-log-widget");
-  await shootPlate(cdp, "15-log-plate", ".document-scroll__content");
-  cdp.ws.close();
-  killVellum();
+  // 中文会话不做这一段：日志文档（video/assets/session-log.md）本来就是中文，
+  // 13/14/15 三张两版共用；再抓一遍只是白等两分钟。
+  if (ZH) {
+    log("中文会话跳过会话 B（日志文档本来就是中文，13/14/15 两版共用）");
+  } else {
+    const docB = await stageDoc("video/assets/session-log.md", "session-log.md");
+    cdp = await launch(docB);
+    // mdlog 未连接时交互块停在占位块（信任门禁），片子里要看到真内容就得逐个点开。
+    const opened = await evaluate(
+      cdp,
+      `(async () => {
+        const btns = [...document.querySelectorAll(".mdlog-widget__placeholder")];
+        for (const b of btns) { b.click(); await new Promise((r) => setTimeout(r, 140)); }
+        return btns.length;
+      })()`
+    );
+    log(`日志文档点开了 ${opened} 个交互块`);
+    await sleep(2600);
+    await evaluate(cdp, `document.querySelector(".document-scroll").scrollTop = 0, true`);
+    await sleep(900);
+    await shoot(cdp, "13-log-top");
+    await scrollToElement(cdp, ".mdlog-widget", { block: "center" }).catch(() =>
+      log("日志文档里没有交互块")
+    );
+    await sleep(700);
+    await shoot(cdp, "14-log-widget");
+    await shootPlate(cdp, "15-log-plate", ".document-scroll__content");
+    cdp.ws.close();
+    killVellum();
+  }
 
   log(`完成，共 ${saved} 张 → ${OUT}`);
 }

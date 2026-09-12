@@ -1,7 +1,8 @@
 import React from "react";
 import { Easing, interpolate, useCurrentFrame } from "remotion";
 import { PaperBackground } from "../components/PaperBackground";
-import { COLORS, COPY, MONO_STACK, SERIF_STACK } from "../theme";
+import { useCopy, useMetaFont } from "../locale";
+import { COLORS, MONO_STACK, SERIF_STACK } from "../theme";
 
 const easeOut = Easing.bezier(0.16, 1, 0.3, 1);
 const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
@@ -9,6 +10,9 @@ const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 /** 收尾：品牌与下载信息。末段整体淡出，避免最后一帧硬切。 */
 export const Scene7EndCard: React.FC = () => {
   const frame = useCurrentFrame();
+  const copy = useCopy();
+  // 等宽栈没有汉字，中文版的元信息行退回衬线（见 locale.tsx 的 useMetaFont）
+  const metaFont = useMetaFont();
 
   const markT = interpolate(frame, [0, 26], [0, 1], { ...clamp, easing: easeOut });
   const zhT = interpolate(frame, [10, 38], [0, 1], { ...clamp, easing: easeOut });
@@ -42,7 +46,7 @@ export const Scene7EndCard: React.FC = () => {
             transform: `translateY(${(1 - markT) * 24}px)`,
           }}
         >
-          {COPY.title}
+          {copy.title}
           <span
             style={{
               fontSize: 46,
@@ -52,7 +56,7 @@ export const Scene7EndCard: React.FC = () => {
               opacity: zhT,
             }}
           >
-            {COPY.titleZh}
+            {copy.titleZh}
           </span>
         </div>
 
@@ -73,7 +77,7 @@ export const Scene7EndCard: React.FC = () => {
             opacity: metaT,
           }}
         >
-          {COPY.captions.endCard}
+          {copy.captions.endCard}
         </div>
 
         <div
@@ -82,16 +86,16 @@ export const Scene7EndCard: React.FC = () => {
             alignItems: "center",
             gap: 26,
             marginTop: 44,
-            fontFamily: MONO_STACK,
+            fontFamily: metaFont,
             fontSize: 21,
             letterSpacing: 2.2,
             color: COLORS.stone,
             opacity: metaT * 0.95,
           }}
         >
-          <span>{COPY.end.license}</span>
+          <span>{copy.end.license}</span>
           <span style={{ color: COLORS.hairline }}>|</span>
-          <span>{COPY.end.platform}</span>
+          <span>{copy.end.platform}</span>
         </div>
 
         <div
@@ -108,7 +112,7 @@ export const Scene7EndCard: React.FC = () => {
             transform: `translateY(${(1 - ctaT) * 12}px)`,
           }}
         >
-          {COPY.end.repo}
+          {copy.end.repo}
         </div>
       </div>
     </PaperBackground>

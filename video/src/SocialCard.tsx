@@ -1,7 +1,8 @@
 import React from "react";
 import { AbsoluteFill, Img, staticFile } from "remotion";
 import { PaperBackground } from "./components/PaperBackground";
-import { COLORS, COPY, MONO_STACK, SERIF_STACK } from "./theme";
+import { LocaleProvider, useCopy, useMetaFont, useShot, type Locale } from "./locale";
+import { COLORS, SERIF_STACK } from "./theme";
 
 /**
  * 社交分享卡（Open Graph / GitHub Social Preview）：1280 × 640。
@@ -11,8 +12,19 @@ import { COLORS, COPY, MONO_STACK, SERIF_STACK } from "./theme";
  * 与正片、与应用同源。
  *
  * 尺寸取自 GitHub 的建议值（1280×640，容器最宽 1200 时也好看）。
+ * 中英文各一张：中文版的截图是中文文档，文案也是中文（见 palette 里的 COPY_ZH）。
  */
-export const SocialCard: React.FC = () => {
+export const SocialCard: React.FC<{ locale?: Locale }> = ({ locale = "en" }) => (
+  <LocaleProvider locale={locale}>
+    <SocialCardBody />
+  </LocaleProvider>
+);
+
+const SocialCardBody: React.FC = () => {
+  const copy = useCopy();
+  const shot = useShot();
+  const metaFont = useMetaFont();
+
   return (
     <PaperBackground intensity={0.85}>
       <AbsoluteFill style={{ padding: "0 0 0 92px", justifyContent: "center" }}>
@@ -46,10 +58,10 @@ export const SocialCard: React.FC = () => {
             }}
           >
             <span style={{ fontSize: 82, fontWeight: 500, lineHeight: 1, color: COLORS.nearBlack }}>
-              {COPY.title}
+              {copy.title}
             </span>
             <span style={{ fontSize: 30, color: COLORS.primary, letterSpacing: 8 }}>
-              {COPY.titleZh}
+              {copy.titleZh}
             </span>
           </div>
 
@@ -62,20 +74,20 @@ export const SocialCard: React.FC = () => {
               color: COLORS.darkWarm,
             }}
           >
-            给 Markdown 一张纸。
+            {copy.cardLede}
           </div>
 
           <div
             style={{
               marginTop: 22,
-              fontFamily: MONO_STACK,
+              fontFamily: metaFont,
               fontSize: 13.5,
               letterSpacing: 2.2,
               textTransform: "uppercase" as const,
               color: COLORS.stone,
             }}
           >
-            Windows 10 / 11 · offline · MIT
+            {copy.cardMeta}
           </div>
         </div>
       </AbsoluteFill>
@@ -94,7 +106,7 @@ export const SocialCard: React.FC = () => {
         }}
       >
         <Img
-          src={staticFile("capture/01-window-reading.png")}
+          src={staticFile(shot("01-window-reading.png"))}
           style={{ display: "block", width: "100%", height: "auto" }}
         />
       </div>

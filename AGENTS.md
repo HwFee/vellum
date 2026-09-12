@@ -78,11 +78,19 @@ npm run tauri        # Tauri CLI
 
 产品宣传片与落地页。**两边的颜色、字体、文案都取自同一处事实来源**——`video/src/theme.ts`（视频侧）与仓库根 `DESIGN.md`（落地页侧），与应用同源；片子里的界面是真实运行的窗口，不是重画的示意图。
 
+**中英两版共用一条时间线**（`VellumPromo` / `VellumPromoZh`），语言由 `src/locale.tsx` 的 context 下发：场景用 `useCopy()` 取文案、`useShot()` 取素材（中文版是 `capture/zh-*.png`）、`useMetaFont()` 取元信息字族。三条容易踩的线：
+
+- **`useShot()` 返回相对路径，不是 `staticFile()` 结果**：WindowShot / PlateScroll 内部自己会调 staticFile，重复调用会抛「The value "/public/…" is already …」（这个坑真被渲染到第 108 帧才发现）。需要完整 URL 的地方（如 `<Img>`）自己再包一层。
+- **等宽字体没有汉字**：中文文案落在 JetBrains Mono 上会掉进系统 CJK 字体、行高与字重都对不上。片子里一律走 `useMetaFont()`，落地页里中文小字一律用衬线。
+- **中文版不是同一支片配字幕**：中文演示文档是另一份（`video/assets/demo.zh.md`），素材用 `npm run capture:zh` 抓（产物 `zh-` 前缀，与英文那套共存）；会话 B 的日志文档本来就是中文，两版共用。
+
 ```bash
 # 素材 + 渲染（video/ 里；需要先有一份 release 版 exe）
-npm run assets          # 同步字体 → 合成配乐 → CDP 抓真实界面
+npm run assets          # 同步字体 → 合成配乐 → CDP 抓真实界面（英文）
+npm run capture:zh      # 中文演示文档那一套（zh- 前缀）
 npm run render          # out/vellum-promo.mp4（含配乐）
-npm run render:silent   # out/vellum-promo-silent.mp4（GIF 用）
+npm run render:silent   # out/vellum-promo-silent.mp4（无需配乐的嵌入用）
+npx remotion render VellumPromoZh out/vellum-promo-zh.mp4
 
 # 导出入库的那一套（仓库根）
 node promo/build-assets.mjs
@@ -90,7 +98,7 @@ node promo/build-assets.mjs
 
 不可回退的几条：
 
-- **`video/` 里入库的只有源码**：成片（`out/`）、抓取素材（`public/capture/`）、字体（`public/fonts/`）、配乐（`public/music.wav`）全部是生成物，已由 `video/.gitignore` 排除；`promo/assets/` 是**唯一入库的分发副本**，只由 `promo/build-assets.mjs` 生成，不要手改。
+- **`video/` 里入库的只有源码**：成片（`out/`）、抓取素材（`public/capture/`，含 `zh-*`）、字体（`public/fonts/`）、配乐（`public/music.wav`）全部是生成物，已由 `video/.gitignore` 排除；`promo/assets/` 是**唯一入库的分发副本**，只由 `promo/build-assets.mjs` 生成（中英两套，同名只差 `-zh` 后缀），不要手改。
 - **抓取脚本会 `taskkill /IM vellum.exe /F`**（并存实例会互相抢占远程调试端口），跑 `npm run capture` 前先确认没有需要保留的实例。素材文档暂存到 `~/Documents/Notes`——顶栏会原样显示绝对路径，所以不能直接用仓库路径抓图。
 - **字体闸门（`video/src/fonts.ts` 的 `useBrandFontsGate`）必须挂在真正画画面的组件里**（现落在 `PaperBackground` 上，它是每场的底）。仓耳今楷 8.4 MB×2，任何一帧抢在 `document.fonts.load` 之前都会被画成回退字体（中文是今楷、英文变几何无衬线）；只挂在 `Root.tsx` 上不够。
 - **分镜里不许用 CSS 动画**：Remotion 逐帧截图，transition/keyframes 根本不会被采样，所有运动必须由 `useCurrentFrame()` 驱动。
@@ -180,9 +188,10 @@ node promo/build-assets.mjs
 | `src/main.tsx` | 入口、字体加载 |
 | `vite.config.ts` | 构建配置 |
 | `src-tauri/tauri.conf.json` | Tauri 窗口配置 |
-| `promo/index.html` | 宣传落地页（单文件、内联 CSS、零依赖） |
-| `promo/build-assets.mjs` | 从成片导出对外分发的整套宣传材料 |
-| `video/src/theme.ts` | 宣传片的品牌 token 与全部文案（视频侧单一事实来源） |
+| `promo/index.html` | 宣传落地页（单文件、内联 CSS、零依赖，片可切中/英） |
+| `promo/build-assets.mjs` | 从成片导出对外分发的整套宣传材料（中英两套） |
+| `video/src/theme.ts` | 宣传片的品牌 token 与中英两套文案（视频侧单一事实来源） |
+| `video/src/locale.tsx` | 语言闸门（useCopy / useShot / useMetaFont） |
 | `video/capture/capture.mjs` | CDP 抓真实窗口素材（窗口图 + 全高长图） |
 
 ## 注意事项

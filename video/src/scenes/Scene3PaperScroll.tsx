@@ -3,22 +3,32 @@ import { Easing, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import { Caption } from "../components/Caption";
 import { PlateScroll } from "../components/Frames";
 import { PaperBackground } from "../components/PaperBackground";
-import { COLORS, COPY, MONO_STACK } from "../theme";
-import { PLATE_ARTICLE } from "../assetSizes";
+import { useCopy, useLocale, useShot } from "../locale";
+import { COLORS, MONO_STACK } from "../theme";
+import { PLATE_ARTICLE, PLATE_ARTICLE_ZH } from "../assetSizes";
 
 const FRAME_WIDTH = 1500;
 const VIEWPORT_HEIGHT = 800;
 const LEFT = (1920 - FRAME_WIDTH) / 2;
+/**
+ * 视口推进距离 = plate 高度的 63%。
+ * 以前这里是写死的 4300px，只为英文文档调过；中文文档短一截（约 6434 vs 6856 像素高），
+ * 同一个像素值会推进过头或推不够——改成比例，两份文档各自走到该走的地方。
+ */
+const TRAVEL_RATIO = 0.63;
 
 /** 通篇推进：一张全高长图，视口自上而下走一遍。左侧墨线是阅读进度。 */
 export const Scene3PaperScroll: React.FC = () => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
-  const scale = FRAME_WIDTH / PLATE_ARTICLE.width;
-  const renderedHeight = PLATE_ARTICLE.height * scale;
+  const plate = useLocale() === "zh" ? PLATE_ARTICLE_ZH : PLATE_ARTICLE;
+  const shot = useShot();
+  const copy = useCopy();
+  const scale = FRAME_WIDTH / plate.width;
+  const renderedHeight = plate.height * scale;
   const maxScroll = Math.max(0, renderedHeight - VIEWPORT_HEIGHT);
 
-  const endY = 4300;
+  const endY = plate.height * TRAVEL_RATIO;
   const hold = 18;
   const offset = interpolate(
     frame,
@@ -35,9 +45,9 @@ export const Scene3PaperScroll: React.FC = () => {
   return (
     <PaperBackground intensity={0.8}>
       <PlateScroll
-        src="capture/02-article-plate.png"
-        nativeWidth={PLATE_ARTICLE.width}
-        nativeHeight={PLATE_ARTICLE.height}
+        src={shot("02-article-plate.png")}
+        nativeWidth={plate.width}
+        nativeHeight={plate.height}
         frameWidth={FRAME_WIDTH}
         viewportHeight={VIEWPORT_HEIGHT}
         startY={0}
@@ -84,7 +94,7 @@ export const Scene3PaperScroll: React.FC = () => {
       >
         {String(Math.round(progress * 100)).padStart(3, "0")} %
       </div>
-      <Caption text={COPY.captions.paperScroll} from={30} to={durationInFrames - 6} />
+      <Caption text={copy.captions.paperScroll} from={30} to={durationInFrames - 6} />
     </PaperBackground>
   );
 };

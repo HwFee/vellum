@@ -68,7 +68,7 @@ export const RemotionRoot: React.FC = () => {
 
       <Composition id="FontProbe" component={FontProbe} durationInFrames={2} {...sceneMeta} />
 
-      {/* 社交分享卡：2:1，尺寸与正片不同，故单独声明 */}
+      {/* 社交分享卡：2:1，尺寸与正片不同，故单独声明；中英文各一张 */}
       <Composition
         id="SocialCard"
         component={SocialCard}
@@ -76,13 +76,24 @@ export const RemotionRoot: React.FC = () => {
         width={1280}
         height={640}
         fps={VIDEO.fps}
+        defaultProps={{ locale: "en" as const }}
+      />
+
+      <Composition
+        id="SocialCardZh"
+        component={SocialCard}
+        durationInFrames={2}
+        width={1280}
+        height={640}
+        fps={VIDEO.fps}
+        defaultProps={{ locale: "zh" as const }}
       />
 
       <Composition
         id="VellumPromo"
         component={VellumPromo}
         durationInFrames={VIDEO.durationInFrames}
-        defaultProps={{ music: true }}
+        defaultProps={{ music: true, locale: "en" as const }}
         {...sceneMeta}
       />
 
@@ -90,7 +101,24 @@ export const RemotionRoot: React.FC = () => {
         id="VellumPromoSilent"
         component={VellumPromo}
         durationInFrames={VIDEO.durationInFrames}
-        defaultProps={{ music: false }}
+        defaultProps={{ music: false, locale: "en" as const }}
+        {...sceneMeta}
+      />
+
+      {/* 中文版：同一条时间线，文案与窗口素材换成 zh 那一套 */}
+      <Composition
+        id="VellumPromoZh"
+        component={VellumPromo}
+        durationInFrames={VIDEO.durationInFrames}
+        defaultProps={{ music: true, locale: "zh" as const }}
+        {...sceneMeta}
+      />
+
+      <Composition
+        id="VellumPromoZhSilent"
+        component={VellumPromo}
+        durationInFrames={VIDEO.durationInFrames}
+        defaultProps={{ music: false, locale: "zh" as const }}
         {...sceneMeta}
       />
     </>

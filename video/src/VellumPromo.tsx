@@ -10,6 +10,7 @@ import { Scene4OutlineSearch } from "./scenes/Scene4OutlineSearch";
 import { Scene5EditInPlace } from "./scenes/Scene5EditInPlace";
 import { Scene6LiveBlocks } from "./scenes/Scene6LiveBlocks";
 import { Scene7EndCard } from "./scenes/Scene7EndCard";
+import { LocaleProvider, type Locale } from "./locale";
 import { SCENES } from "./theme";
 
 // 场景时长之和不等于成片时长：TransitionSeries 的转场与相邻两场**重叠**，
@@ -20,11 +21,14 @@ const timing = linearTiming({ durationInFrames: T });
 export type VellumPromoProps = {
   /** README 里要自动播放的静音版：同一条时间线，只抽掉音轨。 */
   music?: boolean;
+  /** 文案与素材语言：en（默认）/ zh。中文版用 zh- 前缀的那套窗口截图。 */
+  locale?: Locale;
 };
 
-export const VellumPromo: React.FC<VellumPromoProps> = ({ music = true }) => {
+export const VellumPromo: React.FC<VellumPromoProps> = ({ music = true, locale = "en" }) => {
   return (
-    <AbsoluteFill>
+    <LocaleProvider locale={locale}>
+      <AbsoluteFill>
       {music ? (
         <Audio
           src={staticFile("music.wav")}
@@ -66,6 +70,7 @@ export const VellumPromo: React.FC<VellumPromoProps> = ({ music = true }) => {
           <Scene7EndCard />
         </TransitionSeries.Sequence>
       </TransitionSeries>
-    </AbsoluteFill>
+      </AbsoluteFill>
+    </LocaleProvider>
   );
 };
