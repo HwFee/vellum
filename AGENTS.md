@@ -26,11 +26,12 @@ npm run tauri        # Tauri CLI
 | 入口 | 实际 shell | 语法 |
 |------|-----------|------|
 | 前台 `bash` 工具 | Git Bash / MSYS，bash 5.3.15 | POSIX（`&&`、`$(…)`、`for … do … done`） |
-| `bg_run` 后台任务 | PowerShell | PowerShell（`;` 串联、`Select-Object -Last 40`） |
+| `bg_run` 后台任务 | PowerShell 7.6.6（Core，`pwsh.exe`） | PowerShell 7（`&&`、`? :`、`??` 均可用） |
 | `powershell` 工具 | PowerShell 7.6.6（Core） | 同上 |
 
-- **后台任务里写 bash 语法会「看着像任务失败、实际命令根本没跑」**：`npm test 2>&1 | tail -40` 报「术语 'tail' 不会被识别为 cmdlet」，命令压根没执行，退出码却是 1——本项目已误读过一次，当成「测试失败」去查代码。要截尾用 `Select-Object -Last 40`，或不接管道（后台输出本身有上限）。
-- **`bash -lc "…"` 当逃生口也是坑**：PowerShell 里的 `bash` 是 `C:\WINDOWS\system32\bash.exe`（WSL，bash 5.2.21），而 **WSL 里没有 node/npm**（实测 `node: command not found`）。要跑 POSIX 就放前台 `bash` 工具，后台任务老老实实写 PowerShell。
+- **后台任务是 PowerShell 7，不是 bash**：`npm test 2>&1 | tail -40` 报「术语 'tail' 不会被识别为 cmdlet」，命令压根没执行，退出码却是 1——本项目已误读过一次，当成「测试失败」去查代码。`&&` 这类链式运算符在 PS7 里是好用的，缺的只是 POSIX **命令**本身：截尾用 `Select-Object -Last 40`，文本匹配用 `Select-String`，或不接管道（后台输出本身有上限）。
+- **这条靠用户级环境变量撑着**：`PI_BG_SHELL=pwsh` + `PI_BG_SHELL_PATH=…\PowerShell\7\pwsh.exe`（User 与 Process 作用域均已设）。变量一旦丢失，`pi-background-tasks` 会回落到 `cmd.exe`（取 `ComSpec`），上面这条就不再成立。
+- **`bash -lc "…"` 不是逃生口**：把 `PI_BG_SHELL` 改成 `bash`、或在 PowerShell 里直接调 `bash`，拿到的都是 `C:\WINDOWS\system32\bash.exe`（WSL，bash 5.2.21），而 **WSL 里没有 node/npm**（实测 `node: command not found`）。要跑 POSIX 就放前台 `bash` 工具。
 
 ## 技能安装流程
 
