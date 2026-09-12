@@ -6,16 +6,27 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { widgetRegistry } from "../lib/widgetRegistry";
+import { isWidgetTrusted, subscribeWidgetTrust, trustWidget } from "../lib/widgetTrust";
 import { isWidgetInteractive } from "../lib/widgetInteractivity";
 import { CodeBlock } from "./CodeBlock";
 
 export type WidgetSandboxProps = {
   html: string;
+  /// 文档级信任（mdlog 日志）：true 时无需用户逐块授权
   autoMount: boolean;
 };
+
+// 授权三源（任一命中即挂载）：
+//   ① autoMount —— 受信 mdlog 文档（头部带 mdlog:v1 标记）
+//   ② 持久台账 —— 用户点过「交互内容 · 点击加载」的**同一份** widget 内容（按源码指纹记在
+//      lib/widgetTrust.ts，落盘 settings，重启后仍然有效；同一文档里不同的交互块仍需各自点一次）
+//   ③ 本会话点过 —— activatedForHtmlRef（在同一实例上兼顾 html 变更时的复位语义）
+// 已授权的块被 LRU 休眠后**滑回视野自动恢复**：休眠只是「全局最多 10 个存活 iframe」的内存闸门，
+// 不该让用户在同一块上点第二次（用户裁定）。未授权的块一律停在占位块，门禁不变。
 
 // 预载视距：进入视口前提前挂载 iframe——下方 1200px（阅读方向，滑到时已渲染完毕，
 // 不再看到「闪一下」），上方 400px（回滑同理）。仍受 widgetRegistry 的 LRU 上限约束。
@@ -65,6 +76,14 @@ export const WidgetSandbox = memo(function WidgetSandbox({
   const prevHtmlRef = useRef(html);
   const prevAutoMountRef = useRef(autoMount);
   const readyFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 预载观察器的回调只注册一次，必须经 ref 读到最新的授权态：已授权的块滑回视野
+  // 要自动从 LRU 休眠里恢复（见下方观察器注释）
+  const authorizedRef = useRef(false);
+
+  // 持久化信任台账（按 widget 源码指纹，见 lib/widgetTrust.ts）：用户点过一次加载，
+  // 之后这份内容无论文档重开、热重载重建实例、还是重启应用都不再问。
+  // useSyncExternalStore 承担「台账读完/新增条目 → 重渲染」这一环。
+  const persistedTrust = useSyncExternalStore(subscribeWidgetTrust, () => isWidgetTrusted(html));
 
   // 静态图（通信 IIFE 之外无脚本/控件/链接）的 iframe 禁用指针事件：
   // 滚轮手势命中跨源沙箱子帧会被 scroll-latch 锁住（子帧哪怕只有几 px 可滚动
@@ -171,6 +190,12 @@ export const WidgetSandbox = memo(function WidgetSandbox({
           if (entry.isIntersecting) {
             setIsInViewport(true);
             widgetRegistry.markVisible(instanceId);
+            // 已授权的块（受信 mdlog / 台账已信任 / 本会话点过加载）滑回视野即自动恢复：
+            // LRU 休眠只是「全局最多 10 个存活 iframe」的内存闸门，不该再有第二次人工点击
+            //（用户裁定：同一个交互块点过一次就行了）。未授权的块不受影响，仍停在占位块。
+            if (authorizedRef.current) {
+              widgetRegistry.activate(instanceId);
+            }
           }
         }
       },
@@ -203,7 +228,9 @@ export const WidgetSandbox = memo(function WidgetSandbox({
   }, []);
 
   // 3. 挂载条件仲裁与 register_widget 触发
-  const isAuthorized = autoMount || activatedForHtmlRef.current === html;
+  // 授权三源：受信 mdlog 文档（autoMount）、持久台账（同一份内容点过一次）、本会话点过
+  const isAuthorized = autoMount || persistedTrust || activatedForHtmlRef.current === html;
+  authorizedRef.current = isAuthorized;
   const shouldMount = isAuthorized && !isDormant;
 
   useEffect(() => {
@@ -324,6 +351,8 @@ export const WidgetSandbox = memo(function WidgetSandbox({
           className="mdlog-widget__placeholder"
           onClick={() => {
             activatedForHtmlRef.current = html;
+            // 同一份交互块只需授权一次：写入持久台账，之后重开文档/重启应用不再问
+            trustWidget(html);
             setGrantRenderTick((tick) => tick + 1);
             setIsInViewport(true);
             widgetRegistry.activate(instanceId);

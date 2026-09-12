@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WidgetSandbox } from "./WidgetSandbox";
 import { widgetRegistry } from "../lib/widgetRegistry";
+import { __resetWidgetTrustForTest, isWidgetTrusted } from "../lib/widgetTrust";
 import { invoke } from "@tauri-apps/api/core";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -29,6 +30,9 @@ describe("WidgetSandbox", () => {
     if ("__clear" in widgetRegistry && typeof widgetRegistry.__clear === "function") {
       widgetRegistry.__clear();
     }
+    // 信任台账是模块级单例：不隔离的话上一个用例的授权会漏到下一个用例
+    __resetWidgetTrustForTest();
+    localStorage.clear();
 
     vi.spyOn(globalThis, "IntersectionObserver").mockImplementation(function (
       this: unknown,
@@ -197,6 +201,96 @@ describe("WidgetSandbox", () => {
     expect(iframe.src).toBe("http://vellum-widget.localhost/w-1");
     expect(iframe.getAttribute("sandbox")).toBe("allow-scripts");
     expect(iframe.getAttribute("referrerpolicy")).toBe("no-referrer");
+  });
+
+  it("同一个交互块只需授权一次：点击写入台账，同内容实例无需再点", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd) =>
+      cmd === "register_widget"
+        ? { id: "w-trust", url: "http://vellum-widget.localhost/w-trust" }
+        : undefined
+    );
+
+    render(<WidgetSandbox html="<div>same</div>" autoMount={false} />);
+    await act(async () => {
+      fireEvent.click(screen.getByText("交互内容 · 点击加载"));
+    });
+    expect(isWidgetTrusted("<div>same</div>")).toBe(true);
+
+    // 模拟「文档重开/重启后」：组件实例全新、但台账已记住这份内容
+    vi.mocked(invoke).mockClear();
+    render(<WidgetSandbox html="<div>same</div>" autoMount={false} />);
+    expect(screen.queryByText("交互内容 · 点击加载")).not.toBeInTheDocument();
+    await act(async () => {
+      observerCallback?.(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver
+      );
+    });
+    expect(invoke).toHaveBeenCalledWith("register_widget", { html: "<div>same</div>" });
+
+    // 反例：内容不同的交互块仍需各自授权一次
+    render(<WidgetSandbox html="<div>different</div>" autoMount={false} />);
+    expect(screen.getByText("交互内容 · 点击加载")).toBeInTheDocument();
+  });
+
+  it("已授权且被 LRU 休眠的块滑回视野自动恢复（不再要求点「点击查看」）", async () => {
+    vi.useFakeTimers();
+    try {
+      let registerCallsCount = 0;
+      vi.mocked(invoke).mockImplementation(async (cmd) => {
+        if (cmd === "register_widget") {
+          return registerCallsCount++ === 0
+            ? { id: "w-auto-a", url: "http://vellum-widget.localhost/w-auto-a" }
+            : { id: "w-auto-b", url: "http://vellum-widget.localhost/w-auto-b" };
+        }
+        return null;
+      });
+
+      render(<WidgetSandbox html="<div>auto wake</div>" autoMount={true} />);
+      await act(async () => {
+        observerCallback?.(
+          [{ isIntersecting: true } as IntersectionObserverEntry],
+          {} as IntersectionObserver
+        );
+      });
+      expect(screen.getByTitle("交互演示")).toBeInTheDocument();
+
+      // 触发 LRU 休眠（11 个其它 widget 挂载并可见）
+      act(() => {
+        for (let i = 1; i <= 11; i++) {
+          widgetRegistry.register(`other-${i}`);
+          widgetRegistry.requestMount(`other-${i}`);
+          widgetRegistry.markVisible(`other-${i}`);
+        }
+        vi.advanceTimersByTime(400);
+      });
+      expect(screen.getByText("交互已休眠 · 点击查看")).toBeInTheDocument();
+
+      // 滑回视野：无需点击，自动恢复
+      await act(async () => {
+        observerCallback?.(
+          [{ isIntersecting: true } as IntersectionObserverEntry],
+          {} as IntersectionObserver
+        );
+      });
+      const iframe = screen.getByTitle("交互演示") as HTMLIFrameElement;
+      expect(iframe.src).toBe("http://vellum-widget.localhost/w-auto-b");
+      expect(screen.queryByText("交互已休眠 · 点击查看")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("未授权的块滑回视野不会自动挂载（门禁不变）", async () => {
+    render(<WidgetSandbox html="<div>still gated</div>" autoMount={false} />);
+    await act(async () => {
+      observerCallback?.(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver
+      );
+    });
+    expect(invoke).not.toHaveBeenCalledWith("register_widget", expect.anything());
+    expect(screen.getByText("交互内容 · 点击加载")).toBeInTheDocument();
   });
 
   it("auto mounts when autoMount is true and element enters viewport", async () => {
@@ -473,7 +567,6 @@ describe("WidgetSandbox", () => {
     await act(async () => {
       fireEvent.click(placeholder);
     });
-
     expect(invoke).toHaveBeenCalledWith("register_widget", { html: "<div>old</div>" });
     expect(screen.getByTitle("交互演示")).toBeInTheDocument();
 
