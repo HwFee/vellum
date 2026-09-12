@@ -21,6 +21,17 @@ npm test             # vitest run（34 测试文件，459 用例）
 npm run tauri        # Tauri CLI
 ```
 
+### 跑命令用哪个 shell（三个入口不是一个 shell）
+
+| 入口 | 实际 shell | 语法 |
+|------|-----------|------|
+| 前台 `bash` 工具 | Git Bash / MSYS，bash 5.3.15 | POSIX（`&&`、`$(…)`、`for … do … done`） |
+| `bg_run` 后台任务 | PowerShell | PowerShell（`;` 串联、`Select-Object -Last 40`） |
+| `powershell` 工具 | PowerShell 7.6.6（Core） | 同上 |
+
+- **后台任务里写 bash 语法会「看着像任务失败、实际命令根本没跑」**：`npm test 2>&1 | tail -40` 报「术语 'tail' 不会被识别为 cmdlet」，命令压根没执行，退出码却是 1——本项目已误读过一次，当成「测试失败」去查代码。要截尾用 `Select-Object -Last 40`，或不接管道（后台输出本身有上限）。
+- **`bash -lc "…"` 当逃生口也是坑**：PowerShell 里的 `bash` 是 `C:\WINDOWS\system32\bash.exe`（WSL，bash 5.2.21），而 **WSL 里没有 node/npm**（实测 `node: command not found`）。要跑 POSIX 就放前台 `bash` 工具，后台任务老老实实写 PowerShell。
+
 ## 技能安装流程
 
 ### 仓库结构
