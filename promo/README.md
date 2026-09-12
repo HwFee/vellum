@@ -20,6 +20,7 @@
 | `assets/window-search.png` | 真实窗口截图 · 大纲与全文检索 |
 | `assets/window-editing.png` | 真实窗口截图 · 激活块的编辑面 |
 | `assets/window-widget.png` | 真实窗口截图 · 沙箱交互块 |
+| `announcement.md` | 发布口径与文案（一句话 / Release 正文草案 / 社交短文案 / 素材搭配） |
 | `build-assets.mjs` | 从 `video/` 的成片导出上面这一整套 |
 
 ## 重新生成
