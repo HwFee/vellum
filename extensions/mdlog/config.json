@@ -1,0 +1,8 @@
+{
+  "toolNames": [],
+  "imageExtensions": ["png", "jpg", "jpeg", "gif", "webp", "bmp"],
+  "maxImageBytes": 20971520,
+  "assetRetentionMb": 200,
+  "imageCopyTimeoutMs": 5000,
+  "vellumPath": ""
+}

@@ -72,7 +72,20 @@ npm run tauri        # Tauri CLI
 | `tauri-v2` | Tauri 2 架构、IPC 通信、插件与原生桌面事件开发规范 |
 | `web-artifacts-builder` | 交互式 HTML / React / 可视化 Artifacts 沙箱构建规范 |
 | `superpowers` | 工程化研发方法论套件（头脑风暴、TDD、系统化调试、执行计划、工作流规约） |
-| `vellum-mdlog` | Vellum 纸墨 Markdown 与 `vellum-widget` 契约（2026-09-10 起迁入全局仓库，本地为目录联接）。三个触发分支：mdlog 连接（逐回合强制）、**写本机 Vellum 阅读的 md 笔记**（2026-09-12 新增）、无提示出图。契约 1–6 全文在技能内 `references/widget-contracts.md`，速查在 `references/troubleshooting.md`——主体 `SKILL.md` 只留分支路由、图承载禁令、出图流程与最小清单。其「强调定界符跨汉字+括号」写法要求已于 2026-09 起降级为可移植性建议——渲染层由 remark-cjk-friendly 软件兼容（见「注意事项」） |
+| `vellum-mdlog` | Vellum 纸墨 Markdown 与 `vellum-widget` 契约（2026-09-10 起迁入全局仓库，本地为目录联接）。三个触发分支：mdlog 连接（逐回合强制）、**写本机 Vellum 阅读的 md 笔记**（2026-09-12 新增）、无提示出图。契约 1–6 全文在技能内 `references/widget-contracts.md`，速查在 `references/troubleshooting.md`——主体 `SKILL.md` 只留分支路由、图承载禁令、出图流程与最小清单。其「强调定界符跨汉字+括号」写法要求已于 2026-09 起降级为可移植性建议——渲染层由 remark-cjk-friendly 软件兼容（见「注意事项」）。**记录态判据是工具表里有 `vellum_figure`**（pi 扩展只在记录连接期间激活它；技能里那条「系统提示出现 `mdlog live log: CONNECTED`」的注入是 2026-09-14 重建扩展时丢的——`CHANGELOG.md` 未发布段仍留着它当年的修复记录与回归测试，2026-09-16 起由工具激活门禁与 `promptGuidelines` 承担同一作用）：图示经该工具投递（草稿路径 → 扩展回一枚 `<!-- mdlog-fig:ID -->` 标记 → 写入器落盘前展开回围栏），**源码不进对话记录，日志文件与手写围栏逐字节同形**。细则见 `extensions/mdlog/README.md` |
+
+### pi 扩展（本项目，与技能同一套联接思路）
+
+实体在**本仓库** `extensions/mdlog/`（2026-09-16 从 `~/.pi/agent/extensions/mdlog` 迁入，原目录内层 git 仓库一并撤销，历史以 Vellum 文档为准）；pi 的加载位是指向它的目录联接：
+
+```bash
+node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/extensions/mdlog','C:/Users/17445/.pi/agent/extensions/mdlog','junction')"
+```
+
+- **外部 clone 拿不到它**：pi 只扫 `~/.pi/agent/extensions/`，克隆后必须按上面这条重建联接，否则实时日志整体失效（静默失效——pi 不会报错）。验证方式：临时在扩展工厂里加一行 `console.error` 跑 `pi -p "..."`，输出里出现即说明联接被跟随（pi 的扩展发现显式接受 `isSymbolicLink()` 目录项，`core/extensions/loader.js`）。
+- **`node_modules` 里三个联接是指向 pi 自带那份的**（`typebox` / `@earendil-works/pi-tui` / `@earendil-works/pi-coding-agent`）：pi 加载扩展时走 jiti 别名，`node --test` 与 `tsc` 走 Node 原生解析——两套解析必须都能找到，且刻意指向同一份以防版本漂移。重建命令见 `extensions/mdlog/README.md`。
+- **它的 TS 不属于前端构建面**：app 的 `tsconfig.json` 只 `include: ["src"]`，`vite.config.ts` 的 `test.exclude` 已排除 `extensions/**`（那边的测试跑 `node:test`，被 vitest 拾取会必挂）。
+- 常用命令（在 `extensions/mdlog/` 里）：`npm test`、`npm run typecheck`。
 
 ## 宣传品（`video/` 宣传片工程 + `promo/` 对外材料）
 
