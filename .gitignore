@@ -44,9 +44,6 @@ nul
 # Local run logs / review prompts, never versioned
 outputs/
 
-# design-preview/build.sh 的中间产物（由 src/styles/kami.css 经 sed 生成，只供 awk 装配进 edit-views.html）
-design-preview/.kami.inlined.css
-
 # pi local runtime: session logs, delegate state, generated images
 .pi/delegate/
 .pi/tasks/
