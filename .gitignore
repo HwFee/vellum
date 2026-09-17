@@ -48,3 +48,6 @@ outputs/
 .pi/delegate/
 .pi/tasks/
 .pi/generated-images/
+
+# ZCode local runtime: plan-mode drafts, one file per session
+.zcode/
