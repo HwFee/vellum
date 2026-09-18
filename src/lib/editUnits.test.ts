@@ -408,3 +408,91 @@ describe("findUnitForRange", () => {
     expect(findUnitForRange(units, heading.start, heading.end)?.index).toBe(0);
   });
 });
+
+describe("buildEditUnits（文首 frontmatter → 只读属性卡单元）", () => {
+  /// 手算偏移（逐行长度累加）：
+  /// 行0 `---`+LF = 4 → 行1 `date: 2026-06-25`+LF = 17 → 行2 `tags: [concept, ai-agent]`+LF = 27
+  /// → 行3 `---`+LF = 4 ⇒ 闭合围栏行尾 = 51；其后空行 1 字节 ⇒ 标题 `## 标题` = [52, 57)、
+  /// 正文段 `正文。` = [59, 62)。
+  const NOTE = [
+    "---",
+    "date: 2026-06-25",
+    "tags: [concept, ai-agent]",
+    "---",
+    "",
+    "## 标题",
+    "",
+    "正文。",
+    "",
+  ].join("\n");
+
+  it("整块合并成单一只读单元，正文单元的绝对偏移与改动前逐字节相同", () => {
+    const units = buildEditUnits(NOTE);
+
+    expect(units.map((u) => u.kind)).toEqual(["frontmatter", "heading", "paragraph"]);
+    expect(units.map((u) => [u.index, u.start, u.end])).toEqual([
+      [0, 0, 51],
+      [1, 52, 57],
+      [2, 59, 62],
+    ]);
+    expect(units[0]).toMatchObject({ editable: false, reason: "frontmatter" });
+    // 正文块照旧可编辑、且没有锁定原因（回归：合并不得把相邻块一起吞掉）
+    expect(units.slice(1).map((u) => [u.editable, u.reason])).toEqual([
+      [true, undefined],
+      [true, undefined],
+    ]);
+    // 切片自包含且逐字节取自原文（range.end 落在闭合围栏行的行尾之后，故含该行换行）
+    expect(NOTE.slice(units[0].start, units[0].end)).toBe(
+      "---\ndate: 2026-06-25\ntags: [concept, ai-agent]\n---\n"
+    );
+    expect(NOTE.slice(units[1].start, units[1].end)).toBe("## 标题");
+    expect(NOTE.slice(units[2].start, units[2].end)).toBe("正文。");
+  });
+
+  it("正文单元 = 「同一份正文去掉 frontmatter」的单元整体平移（只删只插，不重排文本）", () => {
+    const plain = buildEditUnits("## 标题\n\n正文。\n");
+    const shifted = buildEditUnits(NOTE).slice(1);
+
+    // 位移 = 闭合围栏行尾 51 + 紧随的那个空行
+    const shift = shifted[0].start - plain[0].start;
+    expect(shift).toBe(52);
+    expect(shifted.map((u) => [u.start - shift, u.end - shift, u.kind])).toEqual(
+      plain.map((u) => [u.start, u.end, u.kind])
+    );
+  });
+
+  it("块序列形态（related 后跟 - 项）的 frontmatter 同样只产出一块只读单元", () => {
+    const markdown = ["---", "related:", '  - "[[wiki/x]]"', "---", "", "正文。"].join("\n");
+    const units = buildEditUnits(markdown);
+
+    expect(units.map((u) => [u.start, u.end, u.kind])).toEqual([
+      [0, 34, "frontmatter"],
+      [35, 38, "paragraph"],
+    ]);
+    expect(units[0].editable).toBe(false);
+    expect(units[0].reason).toBe("frontmatter");
+    expect(units[1].editable).toBe(true);
+  });
+
+  it("没有 frontmatter 的文档切分不变，且不产出 frontmatter 单元", () => {
+    const units = buildEditUnits("# 标题\n\n正文\n");
+    expect(units.map((u) => [u.start, u.end, u.kind])).toEqual([
+      [0, 4, "heading"],
+      [6, 8, "paragraph"],
+    ]);
+    expect(units.some((u) => u.kind === "frontmatter" || u.reason === "frontmatter")).toBe(false);
+  });
+
+  it("围栏未闭合（malformed）保持原切分：文首分隔线照旧是可编辑块", () => {
+    const markdown = "---\ntype: log\ntags: [a, b]\n\n正文（没有闭合围栏）";
+    const units = buildEditUnits(markdown);
+
+    expect(units.map((u) => [u.start, u.end, u.kind])).toEqual([
+      [0, 3, "thematicBreak"],
+      [4, 26, "paragraph"],
+      [28, 38, "paragraph"],
+    ]);
+    expect(units.every((u) => u.editable)).toBe(true);
+    expect(units.some((u) => u.reason === "frontmatter")).toBe(false);
+  });
+});

@@ -15,8 +15,9 @@ import { useIsNarrow } from "./hooks/useIsNarrow";
 import { useOutlineOpen } from "./hooks/useOutlineOpen";
 import { useOutlineSync } from "./hooks/useOutlineSync";
 import { OUTLINE_WIDTH_DEFAULT, useOutlineWidth } from "./hooks/useOutlineWidth";
-import { extractOutline } from "./lib/outline";
-import { isSamePath } from "./lib/path";
+import { extractOutline, matchHeadingByFragment } from "./lib/outline";
+import { fileNameToTitle, isSamePath } from "./lib/path";
+import { extractWikilinkTargets } from "./lib/wikilink";
 import { loadLastOpened, saveLastOpened } from "./lib/lastOpened";
 import { loadScrollPosition, saveScrollPosition } from "./lib/scrollMemory";
 import { captureScrollPosition, restoreScrollPosition } from "./lib/scrollRestore";
@@ -31,6 +32,10 @@ import type { DocumentState, LoadedDocument, OutlineHeading } from "./types";
 // 代码分割：react-markdown + rehype/remark + 语法高亮是体积最大的依赖，
 // 懒加载后首屏（顶栏/空状态）先行渲染，文档引擎在后台加载。
 const MarkdownDocument = lazy(() => import("./components/MarkdownDocument"));
+
+/// 空解析表：无 wikilink 的文档与解析失败时的共同兜底。必须是**同一个常量引用**——
+/// App 每次渲染新建 Map 会让 memo 化的正文层整体重解析。
+const EMPTY_WIKILINKS: ReadonlyMap<string, string | null> = new Map();
 
 export default function App() {
   const [state, setState] = useState<DocumentState>({ status: "empty" });
@@ -57,6 +62,13 @@ export default function App() {
   // 分流函数在挂载时注册一次，直接读 state 会拿到过期闭包值，故经 ref 读取最新内容；
   // 判据不依赖任何赋值时机，也没有需要失效的快照。
   const currentMarkdownRef = useRef("");
+  // 当前 ready 态携带的 wikilink 解析表：热重载与外部变更分流在挂载时注册一次，
+  // 直接读 state 会拿到过期闭包值，故经 ref 读取最新一份（与 currentMarkdownRef 同款）
+  const wikilinksRef = useRef<ReadonlyMap<string, string | null>>(EMPTY_WIKILINKS);
+  // 打开文档函数的稳定引用：wikilink 点击回调要在**空依赖**下还能调到最新一份 loadPath
+  // （它闭包了 state 与各个 ref，直接捕获会被 memo 化正文钉在首帧那一份上）
+  const loadPathRef = useRef<(path: string, fragment?: string) => void>(() => {});
+  loadPathRef.current = loadPath;
   // 编辑会话（在 activeDocument 之后创建）：回调与 effect 经此读到最新一份，
   // 既避免闭包过期，也让传给 memo 化 MarkdownDocument 的回调保持引用稳定
   const editorRef = useRef<ReturnType<typeof useDocumentEditor> | null>(null);
@@ -66,6 +78,10 @@ export default function App() {
   const pendingAnchorRef = useRef<ViewportAnchor | null>(null);
   // 大纲点击跳转的目标标题 id（动画期间锁定，见 handleSelectHeading）
   const outlineNavTargetRef = useRef<string | null>(null);
+  // 本次加载携带的 wikilink 片段（`[[目标#人读标题]]`）待跳转目标。ready 提交、正文
+  // 进 DOM 之后才谈得上定位，故随加载记下、由 handleContentRendered 消费；
+  // 消费即清空（命中与落空都清），加载失败也清——绝不留给下一次加载
+  const pendingFragmentRef = useRef<{ path: string; fragment: string } | null>(null);
   const scrollSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRestoredPathRef = useRef<string | null>(null);
   // 恢复落位守护的取消函数（切换文档/重复恢复时终止上一段守护）
@@ -270,7 +286,28 @@ export default function App() {
     );
   }
 
-  async function loadPath(path: string) {
+  /**
+   * 把文档里出现过的 wikilink 目标一次性交给后端解析（祖先目录逐级向上找 → 自动补
+   * 扩展名 → 全库唯一 basename 兜底）。返回「目标 → 绝对路径 / null」的表。
+   *
+   * 无 wikilink 的文档不发 IPC（返回空表）；**IPC 失败会抛**，由调用方决定怎么降级——
+   * 首次打开退化成空表（全部按未解析渲染成纯文本 + 提示，正文照常可读），
+   * 热重载则保留原有表（一次抖动不该把已经点得动的链接降级）。
+   */
+  async function resolveWikilinks(
+    path: string,
+    markdown: string
+  ): Promise<ReadonlyMap<string, string | null>> {
+    const targets = extractWikilinkTargets(markdown);
+    if (targets.length === 0) return EMPTY_WIKILINKS;
+    const resolved = await invoke<Record<string, string | null>>("resolve_wikilinks", {
+      fromPath: path,
+      targets,
+    });
+    return new Map(Object.entries(resolved ?? {}));
+  }
+
+  async function loadPath(path: string, fragment?: string) {
     // 切换文档前先提交活动块（规格 §6.3）：经 OS 关联/再次启动切文档时没有失焦事件，
     // 不先提交就会把上一篇的草稿按「同序号块」拼进新文档（写到错的文件里）。
     // 提交口失败时 hook 会保留草稿与活动块，此处只是尽力提交。
@@ -281,6 +318,14 @@ export default function App() {
     // 保留滚动位置并以 reloadTick 驱动落墨/贴底仲裁）。
     if (isSamePath(path, currentPathRef.current)) {
       await reloadCurrent();
+      // 自引用（`[[本笔记#标题]]`）不换文档，走不到下面的 ready 提交：正文已在 DOM 里，
+      // 直接按同一套缓动路径跳转——否则这枚片段会静默失效
+      if (fragment) {
+        const heading = matchHeadingByFragment(headingsRef.current, fragment);
+        if (heading) {
+          scrollHeadingIntoView(heading.id);
+        }
+      }
       return;
     }
     // 确认是「切换文档」后先清空编辑会话（终审 I1 / 裁定 F39）：落盘失败时 F24 会把
@@ -311,6 +356,8 @@ export default function App() {
     pendingAnchorRef.current = null;
     // 连续打开文件时只有最新一次请求允许写回状态，避免慢响应覆盖新文档
     const requestId = ++loadRequestRef.current;
+    // 片段只属于**本次**加载：无片段时显式清空，落空的旧片段不许跑进下一次加载里
+    pendingFragmentRef.current = fragment ? { path, fragment } : null;
     setShowReloadNote(false);
     // 首次加载（尚无文档展示）跳过中间「加载中...」帧，直接 empty → ready，
     // 少一次无意义渲染；切换文档时保留 loading 态作为反馈。
@@ -321,7 +368,17 @@ export default function App() {
       const document = await invoke<LoadedDocument>("load_document", { path });
       if (loadRequestRef.current !== requestId) return;
       currentPathRef.current = document.path;
-      setState({ status: "ready", document });
+      // wikilink 解析必须在 setState 之前完成：ready 态一次就带上表，
+      // 否则首帧全部是「未找到」纯文本、第二帧才变链接（闪烁 + 整篇重解析）。
+      // 解析失败只退化成空表——绝不让它冒泡到外层 catch 把文档变成错误页
+      let wikilinks: ReadonlyMap<string, string | null> = EMPTY_WIKILINKS;
+      try {
+        wikilinks = await resolveWikilinks(document.path, document.markdown);
+      } catch {
+        wikilinks = EMPTY_WIKILINKS;
+      }
+      if (loadRequestRef.current !== requestId) return;
+      setState({ status: "ready", document, wikilinks });
       void saveLastOpened(document.path);
 
       try {
@@ -340,6 +397,8 @@ export default function App() {
       }
     } catch (error) {
       if (loadRequestRef.current !== requestId) return;
+      // 加载失败：本次片段随之作废（绝不让它落到下一次加载上）
+      pendingFragmentRef.current = null;
       setState({ status: "error", message: String(error), path });
     }
   }
@@ -377,7 +436,25 @@ export default function App() {
           ? captureViewportAnchor(container, contentRef.current)
           : null;
       currentPathRef.current = document.path;
-      setState({ status: "ready", document });
+      // 热重载（含 mdlog 每次追加）对延迟敏感：先沿用上一份表提交，绝不在此 await IPC。
+      // 表里缺目标时（追加内容引入新链接）异步补齐，补齐前那些链接按未解析渲染成
+      // 纯文本 + 提示；目标集合无变化时（绝大多数追加）一次多余调用都不发。
+      const carried = wikilinksRef.current;
+      const targets = extractWikilinkTargets(document.markdown);
+      setState({ status: "ready", document, wikilinks: carried });
+      if (targets.some((target) => !carried.has(target))) {
+        void resolveWikilinks(document.path, document.markdown)
+          .then((map) => {
+            if (loadRequestRef.current !== requestId) return;
+            setState((previous) =>
+              previous.status === "ready" && previous.document === document
+                ? { ...previous, wikilinks: map }
+                : previous
+            );
+          })
+          // 解析失败（IPC 抖动）：保留原有表，别把已经点得动的链接降级成纯文本
+          .catch(() => {});
+      }
       setReloadTick((tick) => tick + 1);
       if (!isMdlogActiveRef.current) {
         setShowReloadNote(true);
@@ -551,6 +628,7 @@ export default function App() {
 
   const activeDocument = state.status === "ready" ? state.document : undefined;
   currentMarkdownRef.current = activeDocument?.markdown ?? "";
+  wikilinksRef.current = state.status === "ready" ? state.wikilinks : EMPTY_WIKILINKS;
 
   /// 文档 markdown 的唯一写入点：提交新内容与失败回退都经此，保持引用稳定
   const applyMarkdown = useCallback((next: string) => {
@@ -584,12 +662,50 @@ export default function App() {
     editorRef.current?.activateUnit(index, caretOffset);
   }, []);
 
+  // 点名库内链接：走与「打开文件」完全相同的加载路径（提交活动块、保存上一篇阅读位置、
+  // 重置编辑会话、恢复位置）。片段（`#标题`）随路径一起交给 loadPath：目标文档进 DOM 后
+  // 由 handleContentRendered 按同一套缓动路径跳转。同款空依赖 + ref 读最新函数，
+  // 保住 memo 化正文的引用稳定
+  const handleOpenWikilink = useCallback((path: string, _target: string, fragment?: string) => {
+    void loadPathRef.current(path, fragment);
+  }, []);
+
   const handleToggleEdit = useCallback(() => {
     void editorRef.current?.toggleView();
   }, []);
 
   // 只读块（HTML / 交互块）在编辑视图里由「加粗灰色虚线框 + not-allowed 指针」表达，
   // 不再弹文字提示（2026-09-10 设计定稿：零文字浮层）——因此这里没有 locked 点击处理器。
+
+  /// 缓动滚到容器内某处（与恢复位置同一套动画）；lockId 非空时锁定大纲高亮到该标题，
+  /// 动画自然结束或被用户滚动/按键打断时解除锁定。
+  const animateContainerTo = useCallback((target: number, lockId?: string) => {
+    const container = scrollRef.current;
+    if (!container) return;
+    if (Math.abs(target - container.scrollTop) < 1) return;
+    outlineNavTargetRef.current = lockId ?? null;
+    animateScrollTo(container, target, () => {
+      outlineNavTargetRef.current = null;
+    });
+  }, []);
+
+  /// 把正文里某个标题滚到视口顶：点大纲与 wikilink 片段跳转**共用**这一条缓动路径
+  /// （含大纲高亮锁定）。调用前提是目标标题的 DOM 已提交——懒加载正文尚未进 DOM 时
+  /// getElementById 取不到，直接不滚（宁可不动，也不去猜一个位置）。
+  const scrollHeadingIntoView = useCallback(
+    (id: string) => {
+      const element = document.getElementById(id);
+      const container = scrollRef.current;
+      if (!element || !container) return;
+      animateContainerTo(
+        container.scrollTop +
+          element.getBoundingClientRect().top -
+          container.getBoundingClientRect().top,
+        id
+      );
+    },
+    [animateContainerTo]
+  );
 
   // 切换文档时恢复上次阅读位置（无记录则回到顶部）。
   // 恢复时机放在 MarkdownDocument 内容渲染进 DOM 之后（onRendered），而非 state 变 ready 时：
@@ -599,12 +715,35 @@ export default function App() {
   // 恢复走锚点优先（restoreScrollPosition）：标题被删则落到最近幸存标题附近；
   // 恢复后图片/字体加载会撑大 scrollHeight 导致落点漂移（间歇性恢复失败的根因），
   // 由落位守护在布局稳定前持续重新锚定。
+  //
+  // 本次加载若带着 wikilink 片段（`[[目标#标题]]`），片段跳转**取代**阅读位置恢复：
+  // 两者作用于同一个滚动容器，恢复还会挂落位守护（布局稳定前持续按锚点重锚定），
+  // 后启动的那个必然把先启动的顶掉——不跳过就会出现「跳到位又被拽回旧位置」。
+  // 片段命中时只跳转、**不**挂守护：读者要的是那个标题，不是记忆里的旧位置。
   const handleContentRendered = useCallback(() => {
     const container = scrollRef.current;
     const path = currentPathRef.current;
     if (!container || !path) return;
     if (lastRestoredPathRef.current === path) return;
     lastRestoredPathRef.current = path;
+
+    // 片段消费即清空（命中与落空都清）：落空的片段退回下面的正常恢复，
+    // 用户中途滚动时动画由全局输入监听取消（onComplete 同步解锁大纲目标，
+    // 且已消费的片段不会再来第二次）。路径按 isSamePath 比对：请求路径与
+    // ready 态携带的规范路径可能写法不同（与 loadPath 的同路径守卫同款）
+    const pending = pendingFragmentRef.current;
+    if (pending && isSamePath(pending.path, path)) {
+      pendingFragmentRef.current = null;
+      const heading = matchHeadingByFragment(headingsRef.current, pending.fragment);
+      if (heading) {
+        // 先归零（与恢复路径同款：不沿用上一篇文档的滚动位置）。缓动目标按目标元素
+        // 自身在正文里的位置算，与这里的写入无关，跳转终点不受影响
+        container.scrollTop = 0;
+        scrollHeadingIntoView(heading.id);
+        return;
+      }
+    }
+
     // 先归零，避免沿用上一篇文档的滚动位置
     container.scrollTop = 0;
     void loadScrollPosition(path).then((record) => {
@@ -623,7 +762,7 @@ export default function App() {
         headingsRef.current
       );
     });
-  }, []);
+  }, [scrollHeadingIntoView]);
 
   // 程序化滚动动画（恢复位置/大纲跳转/搜索跳转/跳底）期间用户主动滚动/按键，
   // 立即取消动画让出控制权；同时记下输入时间戳，热重载恢复与宽度过渡期的视口钉住
@@ -883,18 +1022,6 @@ export default function App() {
     document.addEventListener("pointerup", onUp);
   };
 
-  /// 缓动滚到容器内某处（与恢复位置同一套动画）；lockId 非空时锁定大纲高亮到该标题，
-  /// 动画自然结束或被用户滚动/按键打断时解除锁定。
-  const animateContainerTo = useCallback((target: number, lockId?: string) => {
-    const container = scrollRef.current;
-    if (!container) return;
-    if (Math.abs(target - container.scrollTop) < 1) return;
-    outlineNavTargetRef.current = lockId ?? null;
-    animateScrollTo(container, target, () => {
-      outlineNavTargetRef.current = null;
-    });
-  }, []);
-
   /// 文档内锚点链接（Markdown 标准语法 `[文字](#id)`）。浏览器默认的 hash 跳转会改写
   /// URL 与历史，且不参与我们的缓动滚动与大纲联动，所以全部接管：
   /// - 目标元素在正文里 ⇒ 缓动滚到它（与点大纲同一条路径；标题会顺带锁定大纲高亮）
@@ -958,16 +1085,8 @@ export default function App() {
   }, [scrollToContentFragment]);
 
   const handleSelectHeading = (id: string) => {
-    const element = document.getElementById(id);
-    const container = scrollRef.current;
-    if (element && container) {
-      animateContainerTo(
-        container.scrollTop +
-          element.getBoundingClientRect().top -
-          container.getBoundingClientRect().top,
-        id
-      );
-    }
+    // 与 wikilink 片段跳转共用同一条缓动路径（scrollHeadingIntoView）
+    scrollHeadingIntoView(id);
     if (isNarrow) {
       setOutlineOpenPinned(false);
     }
@@ -982,7 +1101,6 @@ export default function App() {
       }
     >
       <TopBar
-        fileName={activeDocument?.fileName}
         parentPath={activeDocument?.parentPath}
         onOpen={handleOpen}
         isOutlineOpen={isOutlineOpen}
@@ -1057,6 +1175,10 @@ export default function App() {
               {state.status === "error" ? <ErrorState message={state.message} path={state.path} /> : null}
               {state.status === "ready" ? (
                 <>
+                  {/* 文档标题（Obsidian 的 inline title）：取自文件名，落在正文首行。
+                      刻意放在 .markdown-body 之外——它不属于文档内容，也就不进 markdown
+                      解析、搜索高亮、块单元与大纲 */}
+                  <h1 className="document-title">{fileNameToTitle(state.document.fileName)}</h1>
                   <Suspense fallback={null}>
                     <MarkdownDocument
                       markdown={state.document.markdown}
@@ -1068,6 +1190,8 @@ export default function App() {
                       onMatchCountChange={handleMatchCountChange}
                       editable={editor.viewMode === "editing"}
                       onActivateUnit={handleActivateUnit}
+                      wikilinks={state.wikilinks}
+                      onOpenWikilink={handleOpenWikilink}
                     />
                   </Suspense>
                   {mdlogState !== null && (

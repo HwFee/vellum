@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
 import { MarkdownDocument } from "./MarkdownDocument";
+import { buildEditUnits } from "../lib/editUnits";
 import { extractOutline } from "../lib/outline";
 import { widgetRegistry } from "../lib/widgetRegistry";
 import { useState } from "react";
@@ -437,6 +438,203 @@ plain block
 
     expect(openUrl).not.toHaveBeenCalled();
     expect(link).toHaveAttribute("href", "#section");
+  });
+
+  it("已解析的 wikilink 渲染成库内锚点：data-wikilink 落到 DOM、标签无方括号、点击回调解析出的路径", () => {
+    const onOpenWikilink = vi.fn();
+    const wikilinks = new Map([["wiki/x", "C:/vault/wiki/x.md"]]);
+    const { container } = render(
+      <MarkdownDocument
+        markdown="见 [[wiki/x#Day 10|第十天]]。"
+        wikilinks={wikilinks}
+        onOpenWikilink={onOpenWikilink}
+      />
+    );
+
+    const anchor = container.querySelector("a.wikilink") as HTMLAnchorElement;
+    expect(anchor).toBeInTheDocument();
+    expect(anchor).toHaveAttribute("data-wikilink", "wiki/x");
+    expect(anchor).toHaveAttribute("data-wikilink-fragment", "Day 10");
+    expect(anchor).toHaveAttribute("title", "wiki/x#Day 10|第十天");
+    // href 是占位方案：必须活过 urlTransform（否则会被 defaultUrlTransform 清成空串），
+    // 但它绝不带 http(s) 协议，点击不该落进外链分支
+    expect(anchor).toHaveAttribute("href", "wikilink:wiki/x");
+    expect(anchor).toHaveTextContent("第十天");
+    expect(container.textContent).not.toContain("[[");
+
+    fireEvent.click(anchor);
+
+    // 第三参是 `#` 后的人读标题原文（App 据此在目标笔记里定位标题）
+    expect(onOpenWikilink).toHaveBeenCalledWith("C:/vault/wiki/x.md", "wiki/x", "Day 10");
+    expect(openUrl).not.toHaveBeenCalled();
+  });
+
+  it("没有片段的 wikilink 仍是两参调用（既有调用方与断言不受影响）", () => {
+    const onOpenWikilink = vi.fn();
+    const { container } = render(
+      <MarkdownDocument
+        markdown="见 [[wiki/x]]。"
+        wikilinks={new Map([["wiki/x", "C:/vault/wiki/x.md"]])}
+        onOpenWikilink={onOpenWikilink}
+      />
+    );
+
+    const anchor = container.querySelector("a.wikilink") as HTMLAnchorElement;
+    expect(anchor).not.toHaveAttribute("data-wikilink-fragment");
+
+    fireEvent.click(anchor);
+
+    expect(onOpenWikilink).toHaveBeenCalledWith("C:/vault/wiki/x.md", "wiki/x");
+    // 实参个数也要锁：多带一个 undefined 会让既有两参断言在运行时落空
+    expect(onOpenWikilink.mock.calls[0]).toHaveLength(2);
+  });
+
+  it("空片段（`[[wiki/x#]]`）按没有片段处理：不落 data 属性、两参调用", () => {
+    const onOpenWikilink = vi.fn();
+    const { container } = render(
+      <MarkdownDocument
+        markdown="见 [[wiki/x#]]。"
+        wikilinks={new Map([["wiki/x", "C:/vault/wiki/x.md"]])}
+        onOpenWikilink={onOpenWikilink}
+      />
+    );
+
+    const anchor = container.querySelector("a.wikilink") as HTMLAnchorElement;
+    expect(anchor).not.toHaveAttribute("data-wikilink-fragment");
+
+    fireEvent.click(anchor);
+
+    expect(onOpenWikilink.mock.calls[0]).toHaveLength(2);
+  });
+
+  it("目标在表里为 null 或压根不在表里：降级为纯文本 + 提示，不给假链接", () => {
+    const wikilinks = new Map<string, string | null>([["wiki/x", null]]);
+    const { container } = render(
+      <MarkdownDocument markdown="见 [[wiki/x]] 与 [[wiki/missing]]。" wikilinks={wikilinks} />
+    );
+
+    const missing = Array.from(container.querySelectorAll("span.wikilink--missing"));
+    expect(missing).toHaveLength(2);
+    expect(missing[0]).toHaveTextContent("wiki/x");
+    expect(missing[0]).toHaveAttribute("title", "未找到笔记：wiki/x");
+    expect(missing[1]).toHaveAttribute("title", "未找到笔记：wiki/missing");
+    expect(container.querySelector("a.wikilink")).not.toBeInTheDocument();
+    // 方括号一个都不留在正文
+    expect(container.textContent).not.toContain("[[");
+    expect(container.textContent).not.toContain("]]");
+  });
+
+  it("未传 wikilinks 表（不接 App 的调用方）：锚点惰性——不发导航也不报未找到", () => {
+    const { container } = render(<MarkdownDocument markdown="见 [[wiki/x]]。" />);
+
+    const anchor = container.querySelector("a.wikilink") as HTMLAnchorElement;
+    expect(anchor).toBeInTheDocument();
+    expect(anchor).toHaveAttribute("data-wikilink", "wiki/x");
+    expect(anchor).not.toHaveAttribute("href");
+    expect(container.querySelector(".wikilink--missing")).not.toBeInTheDocument();
+
+    fireEvent.click(anchor);
+
+    expect(openUrl).not.toHaveBeenCalled();
+  });
+
+  it("属性卡里的 wikilink 走同一套渲染：已解析出锚点、未解析出纯文本", () => {
+    const onOpenWikilink = vi.fn();
+    const markdown = ["---", 'related: ["[[wiki/x]]", "[[wiki/missing]]"]', "---", "", "正文。"].join("\n");
+    const { container } = render(
+      <MarkdownDocument
+        markdown={markdown}
+        wikilinks={new Map([["wiki/x", "C:/vault/wiki/x.md"]])}
+        onOpenWikilink={onOpenWikilink}
+      />
+    );
+
+    const anchor = container.querySelector(".md-props__row--related a.wikilink") as HTMLAnchorElement;
+    expect(anchor).toHaveAttribute("data-wikilink", "wiki/x");
+    fireEvent.click(anchor);
+    expect(onOpenWikilink).toHaveBeenCalledWith("C:/vault/wiki/x.md", "wiki/x");
+    expect(openUrl).not.toHaveBeenCalled();
+
+    const missing = container.querySelector(".md-props__row--related span.wikilink--missing");
+    expect(missing).toHaveTextContent("wiki/missing");
+  });
+
+  it("代码里的 `[[ ]]` 从不变锚点（围栏块与行内代码都一样）", () => {
+    const markdown = ["正文 [[wiki/x]]", "", "```md", "示例 [[wiki/y]]", "```", "", "行内 `[[wiki/z]]`。"].join(
+      "\n"
+    );
+    const { container } = render(
+      <MarkdownDocument markdown={markdown} wikilinks={new Map([["wiki/x", "C:/vault/wiki/x.md"]])} />
+    );
+
+    const anchors = container.querySelectorAll("a.wikilink");
+    expect(anchors).toHaveLength(1);
+    expect(anchors[0]).toHaveAttribute("data-wikilink", "wiki/x");
+    expect(container.querySelector("pre")?.textContent).toContain("[[wiki/y]]");
+    expect(container.querySelector("p code")?.textContent).toBe("[[wiki/z]]");
+  });
+
+  it("编辑视图下 wikilink 不挪动块单元（锚点无位置，块标记仍按源码偏移落位）", () => {
+    const markdown = "# 标题\n\n见 [[wiki/x]] 与 [[wiki/missing]]。\n";
+    const { container } = render(
+      <MarkdownDocument
+        markdown={markdown}
+        editable
+        wikilinks={new Map([["wiki/x", "C:/vault/wiki/x.md"]])}
+      />
+    );
+
+    const units = buildEditUnits(markdown);
+    expect(container.querySelectorAll("[data-vellum-unit]").length).toBe(units.length);
+    const paragraph = container.querySelector('[data-vellum-unit="1"]') as HTMLElement;
+    expect(paragraph.tagName).toBe("P");
+    expect(paragraph).toHaveTextContent("见 wiki/x 与 wiki/missing。");
+  });
+
+  /// 真实语料形状（8 篇 21 处实测）：标记行与正文行之间没有空引用行，
+  /// 真实解析管线里它们是同一个段落（软换行），不是两块。
+  const CALLOUT_DOC = [
+    "> [!tip] 今天没时间？",
+    "> 启用保底模式（15 分钟）：只背 20 个单词。",
+  ].join("\n");
+
+  it("callout：引用就地换形为提示块，`[!tip]` 与自定义标题不再留在正文里", () => {
+    const { container } = render(<MarkdownDocument markdown={CALLOUT_DOC} />);
+
+    const callout = container.querySelector("blockquote.callout") as HTMLElement;
+    expect(callout).toBeInTheDocument();
+    expect(callout).toHaveClass("callout--tip");
+    expect(callout).toHaveAttribute("data-callout", "tip");
+
+    const title = callout.querySelector(".callout__title") as HTMLElement;
+    expect(title).toBeInTheDocument();
+    // 标题行是引用的首个元素子节点
+    expect(title).toBe(callout.firstElementChild);
+    expect(title).toHaveTextContent("今天没时间？");
+
+    // 标记不再作为字面量出现在正文里
+    expect(container.textContent).not.toContain("[!");
+    expect(container.textContent).not.toContain("[!tip");
+    // 正文段落仍在，且仍是一个 <p>（结构没被换成新容器）
+    expect(callout.querySelectorAll("p")).toHaveLength(1);
+    expect(callout).toHaveTextContent("启用保底模式（15 分钟）：只背 20 个单词。");
+  });
+
+  it("callout：编辑视图下正文段落仍带块标记，单元数与同形状的普通引用一致", () => {
+    const plainDoc = CALLOUT_DOC.replace("[!tip] ", "");
+    const { container } = render(<MarkdownDocument markdown={CALLOUT_DOC} editable />);
+
+    const paragraph = container.querySelector("blockquote.callout p") as HTMLElement;
+    expect(paragraph).toHaveAttribute("data-vellum-unit", "0");
+    // 装饰只发生在渲染树上：块单元仍在原始 Markdown 上算，与普通引用逐项一致
+    const units = buildEditUnits(CALLOUT_DOC);
+    const plainUnits = buildEditUnits(plainDoc);
+    expect(units).toHaveLength(1);
+    expect(plainUnits).toHaveLength(1);
+    expect(units.map((unit) => [unit.kind, unit.editable])).toEqual(
+      plainUnits.map((unit) => [unit.kind, unit.editable])
+    );
+    expect(container.querySelector("blockquote")).toHaveClass("callout--tip");
   });
 
   it("passes the image title through to the img element", () => {
@@ -1084,6 +1282,110 @@ plain block
     const reading = render(<MarkdownDocument markdown={markdown} />);
     expect(reading.container.querySelectorAll("[data-vellum-unit]").length).toBe(0);
     expect(reading.container.querySelector("article")).not.toHaveClass("markdown-body--editing");
+  });
+
+  /// 文首 frontmatter 的端到端形态：真实解析管线（remark → rehype）下的属性卡
+  const FRONTMATTER_DOC = [
+    "---",
+    "date: 2026-06-25",
+    "tags: [concept, ai-agent]",
+    "---",
+    "",
+    "## 标题",
+    "",
+    "正文。",
+  ].join("\n");
+
+  it("阅读视图把文首 frontmatter 渲染成属性卡：无 hr、无原始 YAML 文本、标签成 chip", () => {
+    const { container } = render(<MarkdownDocument markdown={FRONTMATTER_DOC} />);
+
+    // 老行为是「分隔线 + setext 标题 + 原样 YAML 文本」，三者都必须消失
+    expect(container.querySelector("hr")).not.toBeInTheDocument();
+    expect(container.textContent).not.toContain("date:");
+    expect(container.textContent).not.toContain("tags:");
+
+    expect(container.querySelector(".md-props")).toBeInTheDocument();
+    expect(container.querySelector(".md-props__key")).toHaveTextContent("date");
+    expect(
+      Array.from(container.querySelectorAll(".md-props__chip")).map((chip) => chip.textContent)
+    ).toEqual(["concept", "ai-agent"]);
+    // 正文照常渲染
+    expect(screen.getByRole("heading", { name: "标题" })).toBeInTheDocument();
+    expect(container.textContent).toContain("正文。");
+  });
+
+  it("块序列形态（related / sources 后跟 - 项）的 frontmatter 同样整块成卡：闭合围栏变分隔线也不残留", () => {
+    // 该形态在真实解析里产出的是「分隔线 + 段落 + 列表 + 分隔线」（闭合围栏不再是 setext 下划线）
+    const markdown = [
+      "---",
+      "type: log",
+      "tags: [concept]",
+      "related:",
+      '  - "[[wiki/x]]"',
+      "sources:",
+      "  - https://example.com/a",
+      "---",
+      "",
+      "## Heading",
+      "",
+      "body text",
+    ].join("\n");
+
+    const { container } = render(<MarkdownDocument markdown={markdown} />);
+
+    expect(container.querySelector("hr")).not.toBeInTheDocument();
+    expect(container.textContent).not.toContain("related:");
+    // related 的 wikilink 项是锚点（不再是去括号的纯文本条目）；未传解析表时惰性锚点
+    const related = container.querySelector(".md-props__row--related a.wikilink");
+    expect(related).toHaveTextContent("wiki/x");
+    expect(related).toHaveAttribute("data-wikilink", "wiki/x");
+    expect(container.querySelector(".md-props__row--sources a")).toHaveAttribute(
+      "href",
+      "https://example.com/a"
+    );
+    expect(screen.getByRole("heading", { name: "Heading" })).toBeInTheDocument();
+  });
+
+  it("属性卡里的 sources 锚点走既有的外链渲染器（点击交给系统 opener）", () => {
+    const markdown = ["---", 'sources: ["https://example.com/a"]', "---", "", "正文。"].join("\n");
+    render(<MarkdownDocument markdown={markdown} />);
+
+    fireEvent.click(screen.getByRole("link", { name: "https://example.com/a" }));
+
+    expect(openUrl).toHaveBeenCalledWith("https://example.com/a");
+  });
+
+  it("编辑视图下属性卡是第一个只读块：unit/locked 标记齐备，标记总数与单元数一致", () => {
+    const { container } = render(<MarkdownDocument markdown={FRONTMATTER_DOC} editable />);
+
+    const card = container.querySelector(".md-props") as HTMLElement;
+    expect(card).toHaveAttribute("data-vellum-unit", "0");
+    expect(card).toHaveAttribute("data-vellum-locked", "frontmatter");
+
+    // 卡片子节点没有 hast 位置 ⇒ 不额外打标；本夹具的块都是纯文本块（无嵌套元素），
+    // 故标记总数恰好等于单元数
+    const units = buildEditUnits(FRONTMATTER_DOC);
+    expect(units).toHaveLength(3);
+    expect(container.querySelectorAll("[data-vellum-unit]").length).toBe(units.length);
+    expect(container.querySelector('[data-vellum-unit="1"]')?.tagName).toBe("H2");
+    expect(container.querySelector('[data-vellum-unit="2"]')?.tagName).toBe("P");
+  });
+
+  it("frontmatter 与原始 HTML 同篇时两者各就其位（rehype-raw 不干扰卡片与块编号）", () => {
+    const markdown = [
+      FRONTMATTER_DOC,
+      "",
+      '<div align="center">Centered</div>',
+    ].join("\n");
+    const { container } = render(<MarkdownDocument markdown={markdown} editable />);
+
+    expect(container.querySelector(".md-props")).toHaveAttribute("data-vellum-unit", "0");
+    // 原始 HTML 块仍是自己的只读块（索引按源码顺序顺延，落位不受卡片影响）
+    const raw = container.querySelector('[data-vellum-locked="html"]') as HTMLElement;
+    expect(raw).toHaveTextContent("Centered");
+    expect(raw).toHaveAttribute("data-vellum-unit", "3");
+    expect(container.querySelector('[data-vellum-unit="1"]')?.tagName).toBe("H2");
+    expect(container.querySelector('[data-vellum-unit="2"]')?.tagName).toBe("P");
   });
 
   it("点击可编辑块回调索引，点击只读块回调原因", () => {

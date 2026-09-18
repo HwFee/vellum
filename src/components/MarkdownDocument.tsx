@@ -13,7 +13,10 @@ import { MarkdownImage } from "./MarkdownImage";
 import { slugify } from "../lib/outline";
 import { animateScrollTo } from "../lib/smoothScroll";
 import { buildEditUnits, caretOffsetForRatio, type EditUnit } from "../lib/editUnits";
+import { parseFrontmatter } from "../lib/frontmatter";
+import { wikilinkHref, WIKILINK_SCHEME } from "../lib/wikilink";
 import { rehypeEditUnits } from "../lib/rehypeEditUnits";
+import { rehypeObsidian } from "../lib/rehypeObsidian";
 import { CodeBlock } from "./CodeBlock";
 import { WidgetSandbox } from "./WidgetSandbox";
 import type { OutlineHeading } from "../types";
@@ -33,7 +36,12 @@ type MarkdownDocumentProps = {
   /** 块级就地编辑视图：为真时才给块打标记并响应点击；缺省（阅读视图）不接入标记插件 */
   editable?: boolean;
   onActivateUnit?: (index: number, caretOffset: number) => void;
-  onLockedUnitClick?: (reason: "html" | "widget") => void;
+  onLockedUnitClick?: (reason: "html" | "widget" | "frontmatter") => void;
+  /** wikilink 目标 → 已解析的绝对路径（null = 库内找不到）。缺省时锚点不接任何行为 */
+  wikilinks?: ReadonlyMap<string, string | null>;
+  /** 点击库内链接（已解析）时回调：App 用它切换文档；第三参是 `#片段`（人读标题原文，
+   *  没有片段时省略，保持两参调用），App 据此在目标笔记里滚到对应标题 */
+  onOpenWikilink?: (path: string, target: string, fragment?: string) => void;
 };
 
 type HastText = { type: "text"; value: string };
@@ -215,9 +223,13 @@ const kamiSchema: RehypeSanitizeOptions = {
 };
 
 // react-markdown 的 defaultUrlTransform 会把 ftp 等未列出的协议置为空字符串；
-// 这里放行 ftp，使其 href 保留，点击时与 http(s) 一样交给系统 opener 处理
+// 这里放行 ftp，使其 href 保留，点击时与 http(s) 一样交给系统 opener 处理。
+// `wikilink:`（库内笔记互链的占位方案）同样必须放行——它不交给浏览器导航，
+// 但 href 要留在 DOM 里可供检查；被清成空串会让锚点看起来是一条空链接。
 function urlTransform(url: string) {
-  return url.startsWith("ftp:") ? url : defaultUrlTransform(url);
+  if (url.startsWith("ftp:")) return url;
+  if (url.startsWith(WIKILINK_SCHEME)) return url;
+  return defaultUrlTransform(url);
 }
 
 /// react-markdown 把 hast 属性作为 props 交给自定义 components，而被自定义组件接管的
@@ -328,11 +340,21 @@ type MarkdownBodyProps = {
   editable?: boolean;
   /** 块单元由 MarkdownDocument 统一构建后传入（reading 视图恒为空数组） */
   units: EditUnit[];
+  wikilinks?: ReadonlyMap<string, string | null>;
+  onOpenWikilink?: (path: string, target: string, fragment?: string) => void;
 };
 
 /// 真正执行 unified 解析管线的部分。props 全部是稳定引用（字符串或 memo 结果），
 /// 因此父组件因 activeMatchIndex 等无关状态重渲染时，这里整体跳过，不重新解析文档。
-const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuery, editable, units }: MarkdownBodyProps) {
+const MarkdownBody = memo(function MarkdownBody({
+  markdown,
+  headings,
+  searchQuery,
+  editable,
+  units,
+  wikilinks,
+  onOpenWikilink,
+}: MarkdownBodyProps) {
   const resolveHeadingId = useHeadingIdResolver(headings);
 
   const isTrustedMdlog = useMemo(
@@ -347,6 +369,11 @@ const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuer
   // 插件选项对象必须 memo：内联创建会让 unified 每次渲染都重跑标记插件
   const editUnitOptions = useMemo(() => ({ units }), [units]);
 
+  // frontmatter 解析与插件选项都按 markdown memo：MarkdownBody 的 props 保持稳定引用，
+  // 父组件因无关状态重渲染时这里整体跳过
+  const frontmatter = useMemo(() => parseFrontmatter(markdown), [markdown]);
+  const obsidianOptions = useMemo(() => ({ frontmatter }), [frontmatter]);
+
   const rehypePlugins: PluggableList = useMemo(() => {
     // 块标记插件只在编辑视图接入，且位于 sanitize 之后：标记不经 sanitize 白名单，
     // 阅读视图（editable 为假）的管线与改动前逐字节一致
@@ -355,6 +382,10 @@ const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuer
     return [
       ...(hasRawHtml ? [rehypeRaw] : []),
       [rehypeSanitize, kamiSchema],
+      // 属性卡在 sanitize 之后（自产 hast，不经白名单）、在 rehypeEditUnits 之前
+      // （卡片要先存在，才谈得上打上只读块标记）。它只换树、不动源码字符串，
+      // 正文节点的偏移因此保持原样（见 rehypeObsidian 头部注释）
+      [rehypeObsidian, obsidianOptions],
       ...editPlugins,
       // 搜索高亮必须在 katex 之前：此刻公式仍是 <code class="math-*"> 纯文本
       //（被 SEARCH_SKIP_TAGS 跳过），katex 渲染产物（MathML + 大量定位 span）
@@ -364,7 +395,7 @@ const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuer
       // sanitize；rehype-katex 默认 trust:false（\href 等禁用），产物安全
       [rehypeKatex, KATEX_OPTIONS],
     ];
-  }, [hasRawHtml, searchQuery, editable, editUnitOptions]);
+  }, [hasRawHtml, searchQuery, editable, editUnitOptions, obsidianOptions]);
 
   // components 对象必须 memo：内联创建会让 react-markdown 每次渲染都重走解析管线
   const components: Components = useMemo(
@@ -405,7 +436,65 @@ const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuer
           </h3>
         );
       },
-      a: ({ href, children }) => {
+      a: ({ href, children, ...rest }) => {
+        // wikilink 必须在协议分支**之前**处理：它的 href 也带方案（`wikilink:`），
+        // 落到外链分支就会被交给系统 opener 打开一个不存在的协议
+        const props = rest as Record<string, unknown>;
+        const target = props["data-wikilink"];
+        if (typeof target === "string" && target !== "") {
+          // 片段（`#人读标题原文`）单独携带：渲染层只负责把它交给 App，
+          // 匹配哪一条标题由 App 按目标文档的大纲决定
+          const rawFragment = props["data-wikilink-fragment"];
+          const fragment = typeof rawFragment === "string" && rawFragment !== "" ? rawFragment : undefined;
+          const label = children;
+          const resolved = wikilinks?.get(target);
+
+          // 未传表（只出现在不接 App 的调用方与测试里）：锚点保持惰性——
+          // 不接点击、不导航，但形状与已解析时一致
+          if (!wikilinks) {
+            return (
+              <a className="wikilink" data-wikilink={target} title={typeof props.title === "string" ? props.title : undefined}>
+                {label}
+              </a>
+            );
+          }
+
+          if (typeof resolved === "string") {
+            return (
+              <a
+                className="wikilink"
+                href={wikilinkHref(target)}
+                data-wikilink={target}
+                data-wikilink-fragment={fragment}
+                title={typeof props.title === "string" ? props.title : undefined}
+                onClick={(event) => {
+                  event.preventDefault();
+                  // 有片段才带第三个实参：没有片段的链接保持两参调用，
+                  // 既有调用方与断言一字不改
+                  if (fragment === undefined) {
+                    onOpenWikilink?.(resolved, target);
+                  } else {
+                    onOpenWikilink?.(resolved, target, fragment);
+                  }
+                }}
+              >
+                {label}
+              </a>
+            );
+          }
+
+          // 库内找不到（或表里显式 null）：降级为纯文本 + 提示，绝不给出假链接
+          return (
+            <span
+              className="wikilink wikilink--missing"
+              data-wikilink={target}
+              title={`未找到笔记：${target}`}
+            >
+              {label}
+            </span>
+          );
+        }
+
         // 带协议（http(s)、mailto、ftp 等）的链接交给系统默认程序打开；
         // 页内锚点（#...）与相对路径保持原生行为
         const hasProtocol = href ? /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(href) : false;
@@ -497,7 +586,7 @@ const MarkdownBody = memo(function MarkdownBody({ markdown, headings, searchQuer
         );
       },
     }),
-    [resolveHeadingId, isTrustedMdlog]
+    [resolveHeadingId, isTrustedMdlog, wikilinks, onOpenWikilink]
   );
 
   return (
@@ -523,6 +612,8 @@ export const MarkdownDocument = memo(function MarkdownDocument({
   editable,
   onActivateUnit,
   onLockedUnitClick,
+  wikilinks,
+  onOpenWikilink,
 }: MarkdownDocumentProps) {
   const articleRef = useRef<HTMLElement>(null);
   const prevQueryRef = useRef("");
@@ -626,7 +717,8 @@ export const MarkdownDocument = memo(function MarkdownDocument({
       if (!unit) return;
 
       if (!unit.editable) {
-        onLockedUnitClick?.(unit.reason === "widget" ? "widget" : "html");
+        // reason 原样转发（frontmatter 属性卡也是只读块，不能被折叠成 html）
+        onLockedUnitClick?.(unit.reason ?? "html");
         return;
       }
 
@@ -663,6 +755,8 @@ export const MarkdownDocument = memo(function MarkdownDocument({
         searchQuery={searchQuery}
         editable={editable}
         units={units}
+        wikilinks={wikilinks}
+        onOpenWikilink={onOpenWikilink}
       />
     </article>
   );

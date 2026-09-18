@@ -59,7 +59,6 @@ function BookIcon() {
 }
 
 type TopBarProps = {
-  fileName?: string;
   parentPath?: string;
   onOpen: () => void;
   isOutlineOpen?: boolean;
@@ -72,7 +71,6 @@ type TopBarProps = {
 };
 
 export function TopBar({
-  fileName,
   parentPath,
   onOpen,
   isOutlineOpen = false,
@@ -110,9 +108,11 @@ export function TopBar({
           <OpenIcon />
         </button>
       </div>
+      {/* 文件名不在这里显示（它在正文首行，见 .document-title）；顶栏只报所在目录 */}
       <div className="top-bar__meta" data-tauri-drag-region>
-        <div className="top-bar__title">{fileName ?? "未打开文件"}</div>
-        {parentPath ? <div className="top-bar__path">{compactPath(parentPath)}</div> : null}
+        <div className="top-bar__path">
+          {parentPath ? compactPath(parentPath) : "未打开文件"}
+        </div>
       </div>
       <div className="window-controls" data-tauri-drag-region="false">
         <button

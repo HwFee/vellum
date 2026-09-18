@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vellum · 选定组合汇总预览</title>
+<style>
+/* ============================================================
+   选定组合：①2 文件名进正文 · ②3 属性卡键值两列+行线
+             ③1 wikilink 点状下划线（现状） · ④2 callout 素（无底色）
+   内容用真笔记：wisdom/Logs/2026-07-19.md（frontmatter + H1/H2/H3 +
+   复选任务 + 外链 + [[wikilink]] + [!tip] 提示块 全都在这一篇里）。
+   窗口框架仍是现状：顶栏 46px 带文件名与路径、侧栏 240px、正文 800px。
+   ============================================================ */
+
+@font-face {
+  font-family: "TsangerJinKai02";
+  src: url("../../public/fonts/TsangerJinKai02-W04.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: block;
+}
+@font-face {
+  font-family: "TsangerJinKai02";
+  src: url("../../public/fonts/TsangerJinKai02-W05.woff2") format("woff2");
+  font-weight: 500; font-style: normal; font-display: block;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../../public/fonts/JetBrainsMono.woff2") format("woff2");
+  font-weight: 400 500; font-style: normal; font-display: block;
+}
+
+:root {
+  --parchment: #f5f4ed;
+  --ivory: #faf9f5;
+  --inline-code-bg: #f0eee6;
+  --warm-sand: #e8e6dc;
+  --near-black: #141413;
+  --dark-warm: #3d3d3a;
+  --olive: #504e49;
+  --stone: #6b6a64;
+  --brand: #1b365d;
+  --tag-bg: #e4ecf5;
+  --brand-tint: #eef2f7;
+  --border: #e8e6dc;
+  --border-soft: #e5e3d8;
+  --hairline: #dddacc;
+  --serif: "TsangerJinKai02", "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", Charter, Georgia, serif;
+  --mono: "JetBrains Mono", "SF Mono", Consolas, Monaco, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(1100px 560px at 10% -6%, #24241f 0%, transparent 62%),
+    #171715;
+  color: #e9e7df;
+  font-family: "Inter", system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- 页头 ---------- */
+.page-head { max-width: 1140px; margin: 0 auto; padding: 58px 32px 8px; }
+.page-head__kicker {
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 2.4px;
+  text-transform: uppercase;
+  color: #7d8fa8;
+  margin-bottom: 16px;
+}
+.page-head h1 { margin: 0 0 14px; font-size: 28px; font-weight: 600; letter-spacing: 0.5px; color: #f6f4ec; }
+.page-head p { margin: 0 0 12px; max-width: 860px; color: #a9a69c; }
+.page-head b { color: #ded9ca; font-weight: 600; }
+.page-head code {
+  font-family: var(--mono); font-size: 12px; color: #c3b48c;
+  background: #24241f; border-radius: 3px; padding: 2px 5px;
+}
+.font-state {
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 16px;
+  font: 500 11px/1 var(--mono); letter-spacing: 1px; color: #8d8a80;
+  background: #1f1f1b; border: 1px solid #2e2e29; border-radius: 4px; padding: 7px 11px;
+}
+.font-state i { width: 6px; height: 6px; border-radius: 50%; background: #6b6a64; }
+.font-state--ok i { background: #6f8f6a; }
+.font-state--bad { color: #c99a8c; }
+.font-state--bad i { background: #c4452b; }
+
+/* ---------- 选择摘要 ---------- */
+.picks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+  max-width: 1140px;
+  margin: 24px auto 0;
+  padding: 0 32px;
+}
+.pick {
+  padding: 14px 16px;
+  background: #1e1e1a;
+  border: 1px solid #2b2b27;
+  border-radius: 6px;
+}
+.pick__no { font: 600 10px/1 var(--mono); letter-spacing: 1.6px; color: #7d8fa8; }
+.pick__name { margin: 8px 0 6px; font-size: 14px; font-weight: 600; color: #e9e7df; }
+.pick__what { margin: 0; font-size: 12.5px; color: #8d8a80; }
+.pick__tag {
+  display: inline-block; margin-top: 10px;
+  font: 500 10px/1 var(--mono); letter-spacing: 1px;
+  color: #9db2cd; border: 1px solid #384660; border-radius: 3px; padding: 3px 6px;
+}
+
+/* ---------- 区块 ---------- */
+.zone { max-width: 1140px; margin: 0 auto; padding: 34px 32px 8px; }
+.zone + .zone { border-top: 1px solid #23231f; margin-top: 28px; }
+.zone__lead { margin: 0 0 20px; max-width: 880px; color: #a09d93; font-size: 13.5px; }
+.zone__lead b { color: #d8d5c9; font-weight: 600; }
+.zone h2.zone__title { margin: 0 0 10px; font-size: 18px; font-weight: 600; color: #f6f4ec; }
+
+/* ---------- 窗口（现状框架） ---------- */
+.win {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 1040px;
+  height: 800px;
+  overflow: hidden;
+  background: var(--parchment);
+  border-radius: 8px;
+  box-shadow: 0 32px 70px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.055);
+  color: var(--near-black);
+  font-family: var(--serif);
+  font-size: 14px;
+  line-height: 1.55;
+  letter-spacing: 0.3px;
+}
+.app-bar {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px;
+  height: 46px; flex-shrink: 0; padding-left: 16px;
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--parchment) 94%, var(--ivory));
+}
+.app-bar__left { display: flex; align-items: center; gap: 6px; }
+.app-bar__meta { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.app-bar__title { font-size: 14px; font-weight: 500; white-space: nowrap; }
+.app-bar__path { color: var(--stone); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.icon { width: 14px; height: 14px; display: block; }
+.gbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 6px; color: var(--stone);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.gbtn--active { background: var(--warm-sand); color: var(--brand); }
+.wctrls { display: flex; }
+.wctrl {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; margin-right: 6px; border-radius: 5px; color: var(--stone);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.wctrl--close { color: #c42b1c; }
+.wctrl svg { width: 10px; height: 10px; }
+.win__main { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+
+/* 侧栏：现状 240px（本轮不动） */
+.win__side {
+  display: flex; flex-direction: column; flex-shrink: 0; width: 240px;
+  padding: 18px 10px 18px 14px; border-right: 1px solid var(--hairline);
+}
+.win__side-head { display: flex; align-items: center; gap: 7px; padding: 0 6px 12px; }
+.win__side-dot { width: 6px; height: 6px; border-radius: 1px; background: var(--brand); }
+.win__side-label { font-size: 11px; letter-spacing: 5px; color: var(--stone); }
+.win__side-item {
+  display: flex; gap: 10px; padding: 6px 9px; border-radius: 4px;
+  color: var(--olive); font-size: 13px; line-height: 1.45;
+}
+.win__side-item b { flex-shrink: 0; font: 500 10px/1.7 var(--mono); color: var(--stone); }
+.win__side-item--h3 { padding-left: 26px; font-size: 12.5px; color: var(--stone); }
+.win__side-item--active { color: var(--brand); background: var(--brand-tint); box-shadow: inset 2px 0 0 var(--brand); }
+.win__side-item--active b { color: var(--brand); }
+
+/* 正文：现状 800px 版心 + 40px 32px */
+.win__doc { flex: 1; min-width: 0; overflow: hidden; }
+/* 贴顶：与真机一致——有标题时正文区顶部留白收到 42px、正文自身不再叠 40px 顶距 */
+.doc { max-width: 800px; margin: 0 auto; padding: 42px 32px 40px; }
+
+/* ---------- ①2 文档标题（文件名进正文） ---------- */
+.doc-title {
+  margin: 0 0 20px;
+  color: var(--near-black);
+  font-size: 30px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0.5px;
+  word-break: break-word;
+}
+
+/* ---------- ②3 属性卡：键值两列 + 发丝行线 ---------- */
+.props {
+  margin: 0 0 26px;
+  border-top: 1px solid var(--hairline);
+  font-size: 12.5px;
+}
+.props__row {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.props__key { color: var(--stone); font: 500 10px/1.7 var(--mono); letter-spacing: 0.04em; }
+.props__value { color: var(--near-black); overflow-wrap: anywhere; }
+.props__list { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 4px; }
+.props__chip { color: var(--olive); }
+.props__chip + .props__chip::before { content: "· "; color: var(--hairline); }
+
+/* ---------- 正文排版（现状） ---------- */
+.doc h1 { margin: 0 0 14px; font-size: 30px; font-weight: 500; line-height: 1.2; }
+.doc h2 { margin: 34px 0 12px; font-size: 21px; font-weight: 500; line-height: 1.25; }
+.doc h3 { margin: 25px 0 8px; font-size: 17px; font-weight: 500; line-height: 1.3; color: var(--dark-warm); }
+.doc p { margin: 0 0 14px; }
+.doc strong { font-weight: 500; }
+.doc del { color: var(--stone); }
+.doc code {
+  font-family: var(--mono); font-size: 12px; color: var(--dark-warm);
+  background: var(--inline-code-bg); border-radius: 3px; padding: 1px 5px;
+}
+.doc ul { margin: 0 0 14px; padding-left: 22px; }
+.doc ul ul { margin: 4px 0 0; }
+.doc li { margin: 0 0 4px; }
+.doc li::marker { color: var(--stone); }
+.doc .task { list-style: none; margin-left: -20px; display: flex; gap: 8px; }
+.doc .task__box {
+  flex-shrink: 0; width: 13px; height: 13px; margin-top: 4px;
+  border: 1px solid var(--hairline); border-radius: 3px;
+  background: var(--ivory); color: var(--brand);
+  font: 500 10px/12px var(--mono); text-align: center;
+}
+.doc .task__box--done { background: var(--tag-bg); border-color: color-mix(in srgb, var(--brand) 30%, transparent); }
+
+/* ③1 wikilink：点状下划线（现状，本轮不动） */
+.wl {
+  color: var(--brand);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: color-mix(in srgb, var(--brand) 55%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.wl--missing { color: var(--stone); text-decoration: none; border-bottom: 1px dashed var(--border); }
+.doc a.outlink {
+  color: var(--brand);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--brand) 55%, transparent);
+  text-underline-offset: 3px;
+}
+.doc a.outlink::after { content: "↗"; font-size: 0.8em; margin-left: 2px; opacity: 0.7; }
+
+/* ---------- ④2 callout：素（无底色，一道发丝线） ---------- */
+.callout {
+  margin: 17px 0;
+  padding: 2px 0 2px 16px;
+  border-left: 2px solid var(--hairline);
+  color: var(--dark-warm);
+}
+.callout__title {
+  margin-bottom: 4px;
+  color: var(--brand);
+  font: 500 11px/1.5 var(--mono);
+  letter-spacing: 0.08em;
+}
+
+/* 底部渐隐：表示窗口还有下文 */
+.win__doc { position: relative; }
+.win__doc::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 64px;
+  background: linear-gradient(to bottom, transparent, var(--parchment));
+  pointer-events: none;
+}
+
+/* ---------- 待定项：日期型文件名的重复 ---------- */
+.compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 18px; max-width: 1040px; }
+.cmp { background: #1a1a17; border: 1px solid #2b2b27; border-radius: 6px; padding: 16px; }
+.cmp__label { font: 500 10px/1 var(--mono); letter-spacing: 1.4px; text-transform: uppercase; color: #8fa4bd; margin-bottom: 12px; }
+.cmp__label--alt { color: #c0a08c; }
+.cmp__note { margin: 12px 0 0; font-size: 12.5px; color: #8d8a80; }
+.sheet {
+  padding: 22px 24px; background: var(--parchment); border-radius: 5px;
+  color: var(--near-black); font-family: var(--serif);
+  font-size: 14px; line-height: 1.55; letter-spacing: 0.3px;
+}
+.sheet .doc-title { font-size: 28px; margin-bottom: 14px; }
+.sheet h1 { margin: 0 0 12px; font-size: 28px; font-weight: 500; line-height: 1.2; }
+.sheet p { margin: 0; }
+.sheet .props { margin-bottom: 20px; }
+
+.page-foot {
+  max-width: 1140px; margin: 30px auto 0; padding: 28px 32px 90px;
+  color: #6b6a64; font-size: 12.5px; border-top: 1px solid #23231f;
+}
+.page-foot b { color: #a9a69c; font-weight: 600; }
+.page-foot code { font-family: var(--mono); font-size: 12px; color: #c3b48c; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-outline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+    <line x1="4" y1="7" x2="20" y2="7" /><line x1="8" y1="12" x2="20" y2="12" /><line x1="8" y1="17" x2="20" y2="17" />
+  </symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
+  </symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+  </symbol>
+  <symbol id="i-min" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="6" y1="12" x2="18" y2="12" /></symbol>
+  <symbol id="i-max" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="1.5" /></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="7" y1="7" x2="17" y2="17" /><line x1="17" y1="7" x2="7" y2="17" /></symbol>
+</svg>
+
+<header class="page-head">
+  <div class="page-head__kicker">Vellum · 选定组合汇总</div>
+  <h1>四项拼起来长这样</h1>
+  <p>内容是一篇真笔记：<code>wisdom/Logs/2026-07-19.md</code>——它同时含 frontmatter、H1/H2/H3、复选任务、外链、<code>[[wikilink]]</code> 和 <code>[!tip]</code> 提示块，四样改动一次全都能看到。窗口框架（顶栏、侧栏、版心、代码块、正文排版）仍是现状，没动。</p>
+  <div class="font-state" id="font-state"><i></i><span>正在检查字体…</span></div>
+</header>
+
+<div class="picks">
+  <div class="pick">
+    <div class="pick__no">① 文档标题</div>
+    <div class="pick__name">文件名进正文</div>
+    <p class="pick__what">正文首行是文件名剥掉 .md 的大标题，紧贴顶栏下方；<b>顶栏不再重复显示文件名</b>，只报所在目录。</p>
+    <span class="pick__tag">选了 2</span>
+  </div>
+  <div class="pick">
+    <div class="pick__no">② 属性卡</div>
+    <div class="pick__name">键值两列 + 发丝行线</div>
+    <p class="pick__what">去掉外框与 ivory 底色，只留上下两条发丝线与行线；tags 退成中点分隔的普通文字。</p>
+    <span class="pick__tag">选了 3</span>
+  </div>
+  <div class="pick">
+    <div class="pick__no">③ wikilink</div>
+    <div class="pick__name">点状下划线</div>
+    <p class="pick__what">保持现状：靛青 + 点状下划线，外链是实线 + ↗，库内找不到的目标是灰字虚线。</p>
+    <span class="pick__tag">选了 1</span>
+  </div>
+  <div class="pick">
+    <div class="pick__no">④ callout</div>
+    <div class="pick__name">素（无底色）</div>
+    <p class="pick__what">与引用块同一套语汇：只留一道发丝竖线，类型由标题行的靛青小字标注。</p>
+    <span class="pick__tag">选了 2</span>
+  </div>
+</div>
+
+<div class="zone">
+  <h2 class="zone__title">整体效果</h2>
+  <p class="zone__lead">下滚是窗口本身；内容按原文顺序排（<code>## For future Claude</code> 在前、H1 在后，跟你文件里一致）。</p>
+  <div class="win">
+    <header class="app-bar">
+      <div class="app-bar__left">
+        <span class="gbtn"><svg class="icon"><use href="#i-outline" /></svg></span>
+        <span class="gbtn gbtn--active"><svg class="icon"><use href="#i-pen" /></svg></span>
+        <span class="gbtn"><svg class="icon"><use href="#i-folder" /></svg></span>
+      </div>
+      <div class="app-bar__meta">
+        <span class="app-bar__path">…/Desktop/wisdom/Logs</span>
+      </div>
+      <div class="wctrls">
+        <span class="wctrl"><svg><use href="#i-min" /></svg></span>
+        <span class="wctrl"><svg><use href="#i-max" /></svg></span>
+        <span class="wctrl wctrl--close"><svg><use href="#i-close" /></svg></span>
+      </div>
+    </header>
+    <div class="win__main">
+      <aside class="win__side">
+        <div class="win__side-head"><span class="win__side-dot"></span><span class="win__side-label">目錄</span></div>
+        <div class="win__side-item"><b>01</b>For future Claude</div>
+        <div class="win__side-item"><b>02</b>2026-07-19（Day 3，周日）</div>
+        <div class="win__side-item win__side-item--active"><b>03</b>今日任务卡</div>
+        <div class="win__side-item win__side-item--h3"><b>·</b>主线（约 1.5h）</div>
+        <div class="win__side-item win__side-item--h3"><b>·</b>副线</div>
+        <div class="win__side-item win__side-item--h3"><b>·</b>今晚：周复盘①</div>
+        <div class="win__side-item"><b>04</b>规范新增（Owner 指示）</div>
+        <div class="win__side-item"><b>05</b>学习笔记：未初始化局部变量为什么没有 0xCC</div>
+      </aside>
+      <div class="win__doc">
+        <div class="doc">
+          <h1 class="doc-title">2026-07-19</h1>
+          <div class="props">
+            <div class="props__row"><span class="props__key">date</span><span class="props__value">2026-07-19</span></div>
+            <div class="props__row"><span class="props__key">type</span><span class="props__value">log</span></div>
+            <div class="props__row"><span class="props__key">tags</span><span class="props__list"><span class="props__chip">log</span><span class="props__chip">career</span><span class="props__chip">inference-engineer</span></span></div>
+            <div class="props__row"><span class="props__key">ai-first</span><span class="props__value">true</span></div>
+          </div>
+
+          <h2>For future Claude</h2>
+          <p>Daily log for 2026-07-19（阶段 0 Day 3，周日）。今日任务：VS 2026 调试器上手（断点/F11/F10/看变量）+ Cherno【8】变量复习 + LC 206 反转链表 + 数学 1h + 单词 20 个。任务卡权威版本见 <a class="wl">wiki/projects/inference-engineer-checkin</a>，计划见 <a class="wl">wiki/projects/inference-engineer-phase0-daily</a>。</p>
+
+          <h1>2026-07-19（Day 3，周日）</h1>
+
+          <h2>今日任务卡</h2>
+          <h3>主线（约 1.5h）</h3>
+          <ul>
+            <li class="task"><span class="task__box task__box--done">✓</span><span>1. 视频：<strong>Cherno【11】如何在 VS 中调试 C++</strong>（B 站 “Cherno C++ 中文字幕”）【核心】
+              <ul>
+                <li>看完立刻动手 10 分钟：拿 Day 2 的三文件程序练 <strong>断点 / 单步步入（F11）/ 逐过程（F10）/ 查看变量</strong></li>
+                <li>执行目录：<code>C:\Users\17445\Desktop\inference-journey\cpp\day02-multi-file\</code></li>
+              </ul>
+            </span></li>
+            <li class="task"><span class="task__box task__box--done">✓</span><span>2. 视频：<strong>Cherno【8】C++中的变量</strong>【复习·倍速】</span></li>
+            <li class="task"><span class="task__box"> </span><span><del>3. 补齐前一天欠的集数</del>（无欠账，自动取消）</span></li>
+          </ul>
+
+          <h3>副线</h3>
+          <ul>
+            <li class="task"><span class="task__box task__box--done">✓</span><span>4. LC <a class="outlink">206. 反转链表</a>：迭代三指针（prev/curr/next）先跑通</span></li>
+            <li class="task"><span class="task__box task__box--done">✓</span><span>5. 数学 1h：函数与极限收尾——<strong>ε-δ 语言【核心】</strong></span></li>
+            <li class="task"><span class="task__box task__box--done">✓</span><span>6. 单词 20 个（无痛单词，考研词书）</span></li>
+          </ul>
+
+          <div class="callout">
+            <div class="callout__title">Tip · 今天没时间？</div>
+            <p>启用保底模式（15 分钟）：只背 20 个单词。今天本就是机动日，主线顺延不算欠账。</p>
+          </div>
+
+          <h3>今晚：周复盘①（21:23，约 30-60 min，已设定时提醒）</h3>
+          <ul>
+            <li><strong>费曼复述</strong>：向 Kimi 口述 C++ 编译/链接全流程——结合 Day 2 实战的 LNK2019/LNK2005 经验（骨架见 <a class="wl">2026-07-18</a> 日志的统一心智模型）。</li>
+            <li>清算本周有效天数（7/17–7/19）→ 确认/微调 Week 2 计划。</li>
+          </ul>
+
+          <h2>规范新增（Owner 指示，2026-07-19）</h2>
+          <p>每天“开始今天的学习”时，Kimi 除在台账建任务卡外，必须：① 任务卡同步写进当天 <code>Logs/</code>（本文件即首例）；② 回复附打卡台账的可点击路径。已同步更新 <a class="wl">AGENTS</a> 与 <a class="wl">wiki/projects/inference-engineer-checkin</a>（打卡协议第 1 条）。</p>
+          <p>引用一个库里不存在的目标时是这样：<span class="wl--missing">wiki/concepts/cpp-move-construction</span>。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="zone">
+  <h2 class="zone__title">往下滚：同一篇笔记的中段</h2>
+  <p class="zone__lead">上一张窗口只到「副线」，提示块在它下面看不到。这张是同一篇继续往下滚——<b>④2 的提示块</b>在这里，可以看清它在正文里的分量（只有一道发丝竖线，不抢正文）。第二条 <code>[!warning]</code> 取自 <code>checkin-archive</code>，拼进来只为让你看到<b>两类提示块在「素」方案下的区分度</b>：只差竖线深浅与标题色。</p>
+  <div class="win" style="height:760px">
+    <header class="app-bar">
+      <div class="app-bar__left">
+        <span class="gbtn"><svg class="icon"><use href="#i-outline" /></svg></span>
+        <span class="gbtn gbtn--active"><svg class="icon"><use href="#i-pen" /></svg></span>
+        <span class="gbtn"><svg class="icon"><use href="#i-folder" /></svg></span>
+      </div>
+      <div class="app-bar__meta">
+        <span class="app-bar__path">…/Desktop/wisdom/Logs</span>
+      </div>
+      <div class="wctrls">
+        <span class="wctrl"><svg><use href="#i-min" /></svg></span>
+        <span class="wctrl"><svg><use href="#i-max" /></svg></span>
+        <span class="wctrl wctrl--close"><svg><use href="#i-close" /></svg></span>
+      </div>
+    </header>
+    <div class="win__main">
+      <aside class="win__side">
+        <div class="win__side-head"><span class="win__side-dot"></span><span class="win__side-label">目錄</span></div>
+        <div class="win__side-item"><b>01</b>For future Claude</div>
+        <div class="win__side-item"><b>02</b>2026-07-19（Day 3，周日）</div>
+        <div class="win__side-item win__side-item--active"><b>03</b>今日任务卡</div>
+        <div class="win__side-item win__side-item--h3"><b>·</b>主线（约 1.5h）</div>
+        <div class="win__side-item win__side-item--h3"><b>·</b>副线</div>
+        <div class="win__side-item win__side-item--h3"><b>·</b>今晚：周复盘①</div>
+        <div class="win__side-item"><b>04</b>规范新增（Owner 指示）</div>
+        <div class="win__side-item"><b>05</b>学习笔记：未初始化局部变量为什么没有 0xCC</div>
+      </aside>
+      <div class="win__doc">
+        <div class="doc">
+          <h3>副线</h3>
+          <ul>
+            <li class="task"><span class="task__box task__box--done">✓</span><span>4. LC <a class="outlink">206. 反转链表</a>：迭代三指针（prev/curr/next）先跑通；有余力再写递归版对照
+              <ul><li>归档：<code>…\inference-journey\leetcode\0206-reverse-linked-list.cpp</code></li></ul>
+            </span></li>
+            <li class="task"><span class="task__box task__box--done">✓</span><span>5. 数学 1h：函数与极限收尾——<strong>ε-δ 语言【核心】</strong>看 Kira 高数对应节</span></li>
+            <li class="task"><span class="task__box task__box--done">✓</span><span>6. 单词 20 个（无痛单词，考研词书）</span></li>
+          </ul>
+
+          <div class="callout">
+            <div class="callout__title">Tip · 今天没时间？</div>
+            <p>启用保底模式（15 分钟）：只背 20 个单词。今天本就是机动日，主线顺延不算欠账。</p>
+          </div>
+
+          <div class="callout" style="border-left-color:var(--stone)">
+            <div class="callout__title" style="color:var(--dark-warm)">Warning · 无证据 = 未完成</div>
+            <p>说得再好听都不算数。每项任务都标了要交什么证据；交不出，该项一律判未完成。</p>
+          </div>
+
+          <h3>今晚：周复盘①（21:23，约 30-60 min）</h3>
+          <ul>
+            <li><strong>费曼复述</strong>：向 Kimi 口述 C++ 编译/链接全流程（预处理 → 编译 → 汇编 → 链接），结合 Day 2 实战的 LNK2019/LNK2005 经验（骨架见 <a class="wl">2026-07-18</a> 日志的统一心智模型）。</li>
+            <li>Kimi 按面经追问 + 现场出题（含变量/头文件保护/声明 vs 定义）。</li>
+            <li>清算本周有效天数（7/17–7/19）→ 确认/微调 Week 2 计划。</li>
+          </ul>
+
+          <h2>规范新增（Owner 指示，2026-07-19）</h2>
+          <p>每天“开始今天的学习”时，Kimi 除在台账建任务卡外，必须：① 任务卡同步写进当天 <code>Logs/</code>；② 回复附打卡台账的可点击路径。已同步更新 <a class="wl">AGENTS</a> 与 <a class="wl">wiki/projects/inference-engineer-checkin</a>。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="zone">
+  <h2 class="zone__title">一处要你定的：标题会不会重复</h2>
+  <p class="zone__lead">上面那张窗口里你可能已经注意到：inline title 是文件名 <code>2026-07-19</code>，而正文自己又有一行 <code># 2026-07-19（Day 3，周日）</code>，两行挨着。<b>技术笔记不会撞</b>（<code>cpp-move-construction-anatomy</code> vs 正文 H1「移动构造剖析」），<b>日志会</b>——你的 <code>Logs/</code> 与 <code>notes/</code> 都是日期名。下面两种处理，挑一个。</p>
+
+  <div class="compare">
+    <div class="cmp">
+      <div class="cmp__label">A · 照原样（Obsidian 也是这么显示的）</div>
+      <div class="sheet">
+        <h1 class="doc-title">2026-07-19</h1>
+        <div class="props">
+          <div class="props__row"><span class="props__key">date</span><span class="props__value">2026-07-19</span></div>
+          <div class="props__row"><span class="props__key">type</span><span class="props__value">log</span></div>
+        </div>
+        <h1>2026-07-19（Day 3，周日）</h1>
+        <p style="color:var(--stone);font-size:12.5px">Daily log for 2026-07-19（阶段 0 Day 3，周日）…</p>
+      </div>
+      <p class="cmp__note">朴实、可预期，与 Obsidian 一致。代价是每篇日志开头都有一行半重复的日期。</p>
+    </div>
+
+    <div class="cmp">
+      <div class="cmp__label cmp__label--alt">B · 纯日期文件名不显示 inline title（建议）</div>
+      <div class="sheet">
+        <div class="props" style="margin-top:0">
+          <div class="props__row"><span class="props__key">date</span><span class="props__value">2026-07-19</span></div>
+          <div class="props__row"><span class="props__key">type</span><span class="props__value">log</span></div>
+        </div>
+        <h1>2026-07-19（Day 3，周日）</h1>
+        <p style="color:var(--stone);font-size:12.5px">Daily log for 2026-07-19（阶段 0 Day 3，周日）…</p>
+      </div>
+      <p class="cmp__note">规则简单：文件名形如 <code>YYYY-MM-DD</code> 时不画标题，其余文件照常画。技术笔记、概念笔记、项目笔记都不受影响。</p>
+    </div>
+  </div>
+</div>
+
+<div class="zone">
+  <h2 class="zone__title">四处改动的落地位置</h2>
+  <p class="zone__lead">定了之后我会动这些文件（只这四处，其余不碰）：</p>
+  <div class="cmp" style="max-width:1040px">
+    <div class="props" style="border-top-color:#3a3a34">
+      <div class="props__row" style="border-bottom-color:#2b2b27"><span class="props__key" style="color:#8d8a80">①标题</span><span class="props__value" style="color:#c9c6ba">新增 <code>src/lib/path.ts</code> 的 <code>fileNameToTitle</code> + <code>App.tsx</code> 在正文顶部渲染 + <code>kami.css</code> 的 <code>.document-title</code></span></div>
+      <div class="props__row" style="border-bottom-color:#2b2b27"><span class="props__key" style="color:#8d8a80">②属性卡</span><span class="props__value" style="color:#c9c6ba">只改 <code>kami.css</code> 的 <code>.md-props</code> 一组规则（去外框底色、行改两列 + 行线）——DOM 不变，测试不动</span></div>
+      <div class="props__row" style="border-bottom-color:#2b2b27"><span class="props__key" style="color:#8d8a80">③wikilink</span><span class="props__value" style="color:#c9c6ba">不动</span></div>
+      <div class="props__row" style="border-bottom-color:#2b2b27"><span class="props__key" style="color:#8d8a80">④callout</span><span class="props__value" style="color:#c9c6ba">只改 <code>kami.css</code> 的 <code>blockquote.callout</code> 一组规则</span></div>
+    </div>
+  </div>
+</div>
+
+<footer class="page-foot">
+  <p><b>下一步：</b>告诉我上面那处「标题重复」选 A 还是 B（或别的规则），我就开始改。改完会跑一遍 <code>npm test</code>，再给你一份能直接看的真机效果。</p>
+  <p><b>这页是只读的：</b>只新增了 <code>docs/preview/</code> 下的 HTML，应用代码一行未动。</p>
+</footer>
+
+<script>
+  (function () {
+    var box = document.getElementById("font-state");
+    if (!box || !document.fonts) return;
+    var label = box.querySelector("span");
+    document.fonts.ready.then(function () {
+      var ok = document.fonts.check('16px "TsangerJinKai02"') && document.fonts.check('12px "JetBrains Mono"');
+      if (ok) {
+        box.classList.add("font-state--ok");
+        label.textContent = "字体已加载 · 仓耳今楷 W04/W05 + JetBrains Mono";
+      } else {
+        box.classList.add("font-state--bad");
+        label.textContent = "字体没加载上，当前是回退字体（用 localhost 打开这份页面）";
+      }
+    });
+  })();
+</script>
+</body>
+</html>

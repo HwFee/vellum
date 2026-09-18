@@ -4,9 +4,13 @@ import { gfm } from "micromark-extension-gfm";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { math } from "micromark-extension-math";
 import { mathFromMarkdown } from "mdast-util-math";
+import { parseFrontmatter } from "./frontmatter";
 
 /// 解析扩展必须与渲染管线（MarkdownDocument 的 REMARK_PLUGINS）一致：
 /// 渲染挂了 remark-gfm 与 remark-math，切分若少挂一个，块区间就会与渲染树错位。
+/// 文首 frontmatter **不在这里加解析扩展**（不引 remark-frontmatter）：属性卡由
+/// 渲染侧的 rehypeObsidian 换树实现，两边都按 `parseFrontmatter` 的同一区间对齐，
+/// 这里只把区间合并成一块只读单元（见 buildEditUnits 尾部），解析行为保持不变。
 const PARSE_OPTIONS = {
   extensions: [gfm(), math()],
   mdastExtensions: [gfmFromMarkdown(), mathFromMarkdown()],
@@ -24,6 +28,8 @@ export type EditUnitKind =
   | "thematicBreak"
   | "html"
   | "widget"
+  /// 文首 YAML frontmatter（渲染成属性卡）：整块合一个只读单元，见 buildEditUnits 尾部
+  | "frontmatter"
   | "other";
 
 export type EditUnit = {
@@ -33,7 +39,7 @@ export type EditUnit = {
   kind: EditUnitKind;
   editable: boolean;
   /// 不可编辑的原因（可编辑块为 undefined）。裁定 F10：不再声明永不产出的 "unmapped"。
-  reason?: "html" | "widget";
+  reason?: "html" | "widget" | "frontmatter";
 };
 
 type Positioned = {
@@ -206,7 +212,35 @@ export function buildEditUnits(markdown: string): EditUnit[] {
   }
 
   units.sort((a, b) => a.start - b.start || a.end - b.end);
-  return normalizeOverlaps(markdown, units).map((unit, index) => ({ ...unit, index }));
+  const normalized = normalizeOverlaps(markdown, units);
+
+  return mergeFrontmatter(markdown, normalized).map((unit, index) => ({ ...unit, index }));
+}
+
+/// 文首 frontmatter 合并成一块只读单元（属性卡）。
+///
+/// 为什么必须合并：文首 YAML 在 Markdown 眼里只是「分隔线 + setext 标题 + 列表」，
+/// 逐块可编辑意味着用户能把 `date: …` 当正文改写，而渲染层给出的是属性卡——
+/// 两边说的不是一回事。合并后整块只读，区间与卡片 hast 位置逐字节相同，
+/// `rehypeEditUnits` 的包含判定因此能命中它（编辑视图页边灰 ×）。
+/// 只做「删除 + 插入」，一律不动文本，其余单元的绝对偏移与改动前逐字节一致。
+function mergeFrontmatter(markdown: string, sorted: EditUnit[]): EditUnit[] {
+  const range = parseFrontmatter(markdown).range;
+  if (!range) return sorted;
+
+  const card: EditUnit = {
+    index: 0,
+    start: range.start,
+    end: range.end,
+    kind: "frontmatter",
+    editable: false,
+    reason: "frontmatter",
+  };
+
+  // 与区间有**任何**重叠的单元都去掉（不只是完全落在区间内的）：留下半个跨界的单元
+  // 会破坏「有序、互不重叠」的区间不变量，而该不变量是整条编辑链路的立足点。
+  const kept = sorted.filter((unit) => unit.end <= range.start || unit.start >= range.end);
+  return [card, ...kept].sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
 /// 找到包含给定源码区间的块（用于把 DOM 节点映射回块）。

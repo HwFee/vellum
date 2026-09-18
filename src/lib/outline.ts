@@ -91,3 +91,34 @@ export function buildOutlineTree(headings: OutlineHeading[]): OutlineNode[] {
 
   return roots;
 }
+
+/**
+ * 把 wikilink 片段（Obsidian 写的是**人读标题原文**，如 `#Day 10`，不是 slug）
+ * 落到大纲里的某个标题上。
+ *
+ * 三条**严格**优先级，全部都只认「整段相等」，绝不做子串/模糊匹配：片段对不上
+ * 只是不跳转（读者仍能看到笔记），跳到错的标题却会把人带到另一处内容，比不跳更糟。
+ * 1. 逐字节相等（两侧 trim）——语料里 `#Day 10` 这种写法命中同一行；
+ * 2. 折叠空白（连续空白归一为单个空格）后大小写不敏感相等（`Day  10` / `day 10`）；
+ * 3. slug 相等（`slugify(片段) === 标题 id`），覆盖写成 slug 的片段（`#hello-world`）。
+ *
+ * 空片段（`[[目标#]]`）与三条全落空都返回 undefined，由调用方退回原有行为。
+ */
+export function matchHeadingByFragment(
+  headings: OutlineHeading[],
+  fragment: string
+): OutlineHeading | undefined {
+  const exact = fragment.trim();
+  if (exact === "" || headings.length === 0) return undefined;
+
+  const direct = headings.find((heading) => heading.text.trim() === exact);
+  if (direct) return direct;
+
+  const fold = (value: string) => value.replace(/\s+/gu, " ").trim().toLowerCase();
+  const folded = fold(exact);
+  const normalised = headings.find((heading) => fold(heading.text) === folded);
+  if (normalised) return normalised;
+
+  const slug = slugify(exact);
+  return headings.find((heading) => heading.id === slug);
+}

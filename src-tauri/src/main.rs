@@ -129,6 +129,18 @@ async fn resolve_asset(
     document::resolve_asset_to_data_url(&anchor_dir, &asset_src)
 }
 
+/// Obsidian `[[wikilink]]` 解析：目标 → 磁盘上的笔记绝对路径（找不到为 null）。
+///
+/// 只读存在性检查，无状态、无副作用；`from_path` 是当前文档路径（解析基准，也是找
+/// `.obsidian` 库根的起点）。前端在一次打开里只调一次（目标清单去重后整批传）。
+#[tauri::command]
+async fn resolve_wikilinks(
+    from_path: String,
+    targets: Vec<String>,
+) -> Result<std::collections::HashMap<String, Option<String>>, String> {
+    Ok(document::resolve_wikilink_map(Path::new(&from_path), &targets))
+}
+
 /// 从一组命令行参数中提取第一个 .md / .markdown 文件路径。
 fn first_markdown_from_args(args: &[String]) -> Option<String> {
     args.iter()
@@ -320,6 +332,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             load_document,
             resolve_asset,
+            resolve_wikilinks,
             save_document,
             drain_pending_open_paths,
             vellum_lib::widget::register_widget,

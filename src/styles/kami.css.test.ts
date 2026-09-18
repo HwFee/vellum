@@ -438,3 +438,57 @@ describe("kami.css editing view (block-level inline editing)", () => {
     expect(css).not.toMatch(/\.top-bar__dirty/);
   });
 });
+
+/// 2026-09-18 Owner 定稿的四项形态（①inline title ②属性卡去盒子 ④callout 素）。
+/// 这些是设计约束：改样式前先读这里的断言，别把已经定下的形态改回去。
+describe("kami.css 文档标题 / 属性卡 / 提示块定稿形态", () => {
+  it("文档标题与正文同宽、贴顶上移，左缘逐像素对齐", () => {
+    const rule = css.match(/\.document-title\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(rule).not.toBe("");
+    expect(rule).toMatch(/max-width:\s*min\(800px,\s*100%\)/);
+    expect(rule).toMatch(/margin:\s*0 auto/);
+    expect(rule).toMatch(/padding:\s*0 32px/);
+    // 与正文 H1 同级字号（Obsidian 的 inline title 与 H1 同尺度）
+    expect(rule).toMatch(/font-size:\s*30px/);
+
+    // 贴顶：有标题时正文区顶部留白从 70px 收窄，正文自身不再叠 40px 顶距（:has() 判定）
+    expect(css).toMatch(/\.document-scroll__content:has\(\.document-title\)\s*\{[^}]*padding-top:\s*42px/s);
+    expect(css).toMatch(/\.document-content:has\(\.document-title\)\s+\.markdown-body\s*\{[^}]*padding-top:\s*20px/s);
+  });
+
+  it("属性卡去外框与底色，改成上下发丝线的键值两列表", () => {
+    const card = css.match(/\.md-props\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(card).not.toBe("");
+    expect(card).not.toMatch(/background/);
+    expect(card).not.toMatch(/border:\s*1px solid/);
+    expect(card).not.toMatch(/border-radius/);
+    expect(card).toMatch(/border-top:\s*1px solid var\(--hairline\)/);
+
+    const row = css.match(/\.md-props__row\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(row).toMatch(/display:\s*grid/);
+    expect(row).toMatch(/grid-template-columns:\s*78px minmax\(0,\s*1fr\)/);
+    expect(row).toMatch(/border-bottom:\s*1px solid var\(--hairline\)/);
+
+    // tags 退成中点分隔的普通文字：不再有蓝底 chip
+    const chip = css.match(/\.md-props__chip\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(chip).not.toMatch(/background/);
+    expect(chip).toMatch(/color:\s*var\(--olive\)/);
+    expect(css).toMatch(/\.md-props__chip \+ \.md-props__chip::before\s*\{[^}]*content:\s*"· "/s);
+  });
+
+  it("callout 为素形态：无底色、发丝竖线，type 靠标题字色区分", () => {
+    const callout = css.match(/\.markdown-body blockquote\.callout\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(callout).not.toBe("");
+    expect(callout).not.toMatch(/background/);
+    expect(callout).toMatch(/border-left:\s*2px solid var\(--hairline\)/);
+    expect(callout).toMatch(/border-radius:\s*0/);
+
+    const title = css.match(/\.markdown-body \.callout__title\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(title).toMatch(/color:\s*var\(--brand\)/);
+
+    // 警示族：竖线沉一档 + 标题转淡墨，不引第二个色相
+    const warn = css.match(/\.markdown-body blockquote\.callout--warning,[^}]*\}/s)?.[0] ?? "";
+    expect(warn).toMatch(/border-left-color:\s*var\(--stone\)/);
+    expect(warn).not.toMatch(/background/);
+  });
+});

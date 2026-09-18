@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildOutlineTree, extractOutline, slugify } from "./outline";
+import { buildOutlineTree, extractOutline, matchHeadingByFragment, slugify } from "./outline";
 
 describe("extractOutline", () => {
   it("extracts h1, h2, h3 in order", () => {
@@ -206,5 +206,71 @@ describe("buildOutlineTree", () => {
 
   it("returns an empty array for no headings", () => {
     expect(buildOutlineTree([])).toEqual([]);
+  });
+});
+
+describe("matchHeadingByFragment", () => {
+  // 语料里最常见的写法：`[[note#Day 10]]`，片段就是标题原文
+  it("Day 10 形态的片段按标题原文整段命中", () => {
+    const headings = extractOutline("# 台账\n\n## Day 10\n\n## Day 11\n");
+
+    expect(matchHeadingByFragment(headings, "Day 10")).toEqual({
+      id: "day-10",
+      level: 2,
+      text: "Day 10",
+    });
+    expect(matchHeadingByFragment(headings, "  Day 11  ")).toEqual({
+      id: "day-11",
+      level: 2,
+      text: "Day 11",
+    });
+  });
+
+  // 优先级 1 > 2：大小写不敏感那条在前也必须让位给逐字节相等的那条
+  it("优先级：逐字节相等（trim 后）先于大小写不敏感相等", () => {
+    const headings = [
+      { id: "day-10-fold", level: 2 as const, text: "DAY 10" },
+      { id: "day-10", level: 2 as const, text: "Day 10" },
+    ];
+
+    expect(matchHeadingByFragment(headings, "Day 10")?.id).toBe("day-10");
+  });
+
+  it("优先级：折叠空白 + 大小写不敏感是第二条", () => {
+    const headings = [
+      { id: "hello-world", level: 1 as const, text: "Hello, World!" },
+      { id: "hello-world-1", level: 2 as const, text: "hello   world" },
+    ];
+
+    expect(matchHeadingByFragment(headings, "  HELLO \t world ")?.id).toBe("hello-world-1");
+  });
+
+  it("优先级：前两条都不中时按 slug 相等命中（写在片段里的是 slug 写法）", () => {
+    const headings = [{ id: "hello-world", level: 1 as const, text: "Hello, World!" }];
+
+    expect(matchHeadingByFragment(headings, "hello world")?.id).toBe("hello-world");
+  });
+
+  // 真实语料：cpp-pointer-vs-reference.md 里的 `#常见错误（周复盘②追问实证）`
+  it("CJK + 全角标点 + 圈码的片段按标题原文命中", () => {
+    const headings = extractOutline("# 指针与引用\n\n## 常见错误（周复盘②追问实证）\n");
+
+    const matched = matchHeadingByFragment(headings, "常见错误（周复盘②追问实证）");
+    expect(matched?.text).toBe("常见错误（周复盘②追问实证）");
+    expect(matched?.id).toBe(slugify("常见错误（周复盘②追问实证）"));
+  });
+
+  it("只认整段相等：子串、前后缀一律不匹配", () => {
+    const headings = extractOutline("## Day 10\n\n## 骨架状态与下一步\n");
+
+    expect(matchHeadingByFragment(headings, "Day")).toBeUndefined();
+    expect(matchHeadingByFragment(headings, "Day 10 台账")).toBeUndefined();
+    expect(matchHeadingByFragment(headings, "骨架")).toBeUndefined();
+  });
+
+  it("落空与空片段都返回 undefined（调用方据此退回原有行为）", () => {
+    expect(matchHeadingByFragment(extractOutline("# 标题\n"), "不存在的标题")).toBeUndefined();
+    expect(matchHeadingByFragment(extractOutline("# 标题\n"), "   ")).toBeUndefined();
+    expect(matchHeadingByFragment([], "标题")).toBeUndefined();
   });
 });

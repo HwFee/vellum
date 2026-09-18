@@ -393,3 +393,199 @@ mod save_tests {
         assert!(check_save_gates(Some(&canonical), &canonical, false).is_ok());
     }
 }
+
+mod wikilink_tests {
+    use super::*;
+    use crate::document::resolve_wikilink_map;
+    use std::collections::HashMap;
+
+    /// 建一篇笔记（自动补目录）并返回路径。
+    fn write(dir: &std::path::Path, relative: &str, body: &str) -> PathBuf {
+        let path = dir.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&path, body).unwrap();
+        path
+    }
+
+    /// 库根（含 `.obsidian`）+ 一篇文档；返回 (test_dir, 文档路径)。
+    fn vault(name: &str) -> (TestDir, PathBuf) {
+        let root = TestDir::new(name);
+        fs::create_dir_all(root.path().join(".obsidian")).unwrap();
+        let doc = write(root.path(), "index.md", "# 索引\n");
+        (root, doc)
+    }
+
+    fn resolve(from: &std::path::Path, targets: &[&str]) -> HashMap<String, Option<String>> {
+        let owned: Vec<String> = targets.iter().map(|target| target.to_string()).collect();
+        resolve_wikilink_map(from, &owned)
+    }
+
+    fn path_of(map: &HashMap<String, Option<String>>, target: &str) -> Option<String> {
+        map.get(target).cloned().flatten()
+    }
+
+    fn canonical(path: &std::path::Path) -> String {
+        dunce::canonicalize(path).unwrap().to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn resolves_exact_relative_path_below_the_document_directory() {
+        let (root, doc) = vault("vellum_wikilink_exact");
+        let note = write(root.path(), "sibling.md", "# 兄弟\n");
+
+        let map = resolve(&doc, &["sibling"]);
+
+        assert_eq!(path_of(&map, "sibling"), Some(canonical(&note)));
+    }
+
+    #[test]
+    fn appends_md_and_markdown_extensions() {
+        let (root, doc) = vault("vellum_wikilink_ext");
+        let md = write(root.path(), "notes/alpha.md", "a\n");
+        let markdown = write(root.path(), "notes/beta.markdown", "b\n");
+
+        let map = resolve(&doc, &["notes/alpha", "notes/beta"]);
+
+        assert_eq!(path_of(&map, "notes/alpha"), Some(canonical(&md)));
+        assert_eq!(path_of(&map, "notes/beta"), Some(canonical(&markdown)));
+    }
+
+    #[test]
+    fn accepts_targets_that_already_carry_an_extension() {
+        let (root, doc) = vault("vellum_wikilink_explicit_ext");
+        let note = write(root.path(), "wiki/gamma.md", "g\n");
+
+        let map = resolve(&doc, &["wiki/gamma.md", "wiki/gamma.markdown"]);
+
+        assert_eq!(path_of(&map, "wiki/gamma.md"), Some(canonical(&note)));
+        assert_eq!(path_of(&map, "wiki/gamma.markdown"), None);
+    }
+
+    #[test]
+    fn walks_up_to_an_ancestor_directory() {
+        let (root, _) = vault("vellum_wikilink_ancestor");
+        let deep = write(root.path(), "wiki/concepts/deep.md", "d\n");
+        let sibling = write(root.path(), "wiki/x.md", "x\n");
+
+        // 目标写的是「相对库根」的路径：从 wiki/concepts/ 起逐级向上，在 wiki/ 命中 x，
+        // 在库根命中 wiki/x.md
+        let map = resolve(&deep, &["x", "wiki/x"]);
+
+        assert_eq!(path_of(&map, "x"), Some(canonical(&sibling)));
+        assert_eq!(path_of(&map, "wiki/x"), Some(canonical(&sibling)));
+    }
+
+    #[test]
+    fn falls_back_to_a_unique_basename_in_the_vault() {
+        let (root, _) = vault("vellum_wikilink_basename");
+        let deep = write(root.path(), "wiki/concepts/deep.md", "d\n");
+        let entity = write(root.path(), "wiki/entities/firecrawl.md", "f\n");
+
+        // `wiki/entities/firecrawl` 相对任何祖先目录都不存在，只有唯一 basename 兜底能命中
+        let map = resolve(&deep, &["firecrawl", "wiki/entities/firecrawl"]);
+
+        assert_eq!(path_of(&map, "firecrawl"), Some(canonical(&entity)));
+        assert_eq!(path_of(&map, "wiki/entities/firecrawl"), Some(canonical(&entity)));
+    }
+
+    #[test]
+    fn matches_basenames_case_insensitively() {
+        let (root, _) = vault("vellum_wikilink_case");
+        let deep = write(root.path(), "wiki/concepts/deep.md", "d\n");
+        let note = write(root.path(), "wiki/entities/Firecrawl.md", "f\n");
+
+        let map = resolve(&deep, &["firecrawl"]);
+
+        assert_eq!(path_of(&map, "firecrawl"), Some(canonical(&note)));
+    }
+
+    #[test]
+    fn dangling_targets_resolve_to_none() {
+        let (root, doc) = vault("vellum_wikilink_dangling");
+        write(root.path(), "wiki/entities/firecrawl.md", "f\n");
+
+        let map = resolve(&doc, &["wiki/entities/opencode", "电磁场与电磁波-第1章-矢量分析"]);
+
+        assert_eq!(path_of(&map, "wiki/entities/opencode"), None);
+        assert_eq!(path_of(&map, "电磁场与电磁波-第1章-矢量分析"), None);
+        // key 集合与传入的目标逐字节相同（渲染层按原串查表）
+        assert_eq!(map.len(), 2);
+    }
+
+    #[test]
+    fn ambiguous_basename_picks_the_shortest_path_deterministically() {
+        let (root, doc) = vault("vellum_wikilink_ambiguous");
+        let shallow = write(root.path(), "dup.md", "浅\n");
+        write(root.path(), "a/b/dup.md", "深\n");
+
+        let map = resolve(&doc, &["dup"]);
+
+        assert_eq!(path_of(&map, "dup"), Some(canonical(&shallow)));
+    }
+
+    #[test]
+    fn rejects_parent_directory_targets() {
+        let (root, _) = vault("vellum_wikilink_dotdot");
+        let deep = write(root.path(), "wiki/deep.md", "d\n");
+        let outside = write(root.path(), "secret.md", "s\n");
+
+        // 前置条件：父目录里确实有 secret.md（只有 `..` 判定能拦下它）
+        assert!(root.path().join("secret.md").is_file());
+        assert!(deep.is_file());
+
+        let map = resolve(&deep, &["../secret"]);
+
+        assert_eq!(path_of(&map, "../secret"), None);
+        assert_ne!(path_of(&map, "../secret"), Some(canonical(&outside)));
+    }
+
+    #[test]
+    fn rejects_absolute_targets() {
+        let (root, doc) = vault("vellum_wikilink_absolute");
+        let note = write(root.path(), "absolute.md", "a\n");
+
+        let map = resolve(&doc, &[canonical(&note).as_str(), "/etc/hosts", "C:\\Windows\\win.ini"]);
+
+        for (target, resolved) in &map {
+            assert_eq!(resolved, &None, "{target} 不该被解析出路径");
+        }
+    }
+
+    #[test]
+    fn rejects_empty_and_control_character_targets() {
+        let (_root, doc) = vault("vellum_wikilink_invalid");
+
+        let map = resolve(&doc, &["", "   ", "bad\0name"]);
+
+        assert_eq!(path_of(&map, ""), None);
+        assert_eq!(path_of(&map, "   "), None);
+        assert_eq!(path_of(&map, "bad\0name"), None);
+    }
+
+    #[test]
+    fn missing_document_directory_is_graceful() {
+        let missing = std::env::temp_dir()
+            .join("vellum_wikilink_no_such_dir")
+            .join("note.md");
+
+        let map = resolve(&missing, &["definitely-absent-target-xyz"]);
+
+        assert_eq!(path_of(&map, "definitely-absent-target-xyz"), None);
+    }
+
+    #[test]
+    fn skips_basename_fallback_without_a_vault_marker() {
+        let outside = TestDir::new("vellum_wikilink_no_vault");
+        let doc = write(outside.path(), "notes/index.md", "# 索引\n");
+        let entity = write(outside.path(), "elsewhere/firecrawl.md", "f\n");
+        assert!(entity.is_file());
+
+        // 没有 .obsidian 标记（且 temp 祖先里也没有）：不做全库 basename 兜底，
+        // 免得「任何同名的文件」都被认成链接目标
+        let map = resolve(&doc, &["firecrawl"]);
+
+        assert_eq!(path_of(&map, "firecrawl"), None);
+    }
+}
