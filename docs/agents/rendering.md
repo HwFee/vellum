@@ -36,6 +36,7 @@
 - 目錄 header + 搜索框固定在滚动区外，只有大纲列表在 `.outline-panel__scroll` 内滚动，跟随滚动以它为参照容器。
 - **不要**把搜索框改回 sticky 或放回滚动容器内——会重新引入「搜索框遮挡激活项」和「连点导航按钮时搜索框上浮误点」。
 - 侧边栏宽度可调：`useOutlineWidth`（200–320px，默认 240，双击手柄复位）覆写根 `--outline-width` 变量，`--outline-shift` 由 calc 派生自动跟随。
+- 启动时侧边栏**恒为关闭**：`App.tsx` 必须传 `useOutlineOpen(false)`，该 hook 启动时不读取持久化状态（用户交互后的状态仍照写，只是不回读）。改回 `true` 会让侧栏每次启动都自行展开——这是产品决定，不是待修项。
 - 手柄 `.outline-resize-handle` 必须作 aside 的**兄弟节点**外置（aside 有 `overflow:hidden`）。
 - `JumpToBottom`：距底 >300px 浮现的右下角跳底按钮，z 序须低于窄屏遮罩（750）；点击走 `animateScrollTo` 缓动，用户输入可被全局监听打断。
 

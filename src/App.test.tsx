@@ -161,19 +161,6 @@ vi.mock("./hooks/useDocumentEditor", async (importOriginal) => {
   };
 });
 
-// 侧栏初始态覆盖点：真机里 App 恒以「开启」启动，而「Ctrl+K 是本次进程内第一次侧栏操作」
-// 才是快捷键监听早于滚动输入监听的那种注册顺序（首次 Ctrl+K 被误判成用户滚动的场景）。
-// 与 heavyCommitMs 同一处置：包装真实 hook、只换参数，不 mock 掉 hook 自身。
-const outlineInitialOverride = vi.hoisted(() => ({ value: undefined as boolean | undefined }));
-vi.mock("./hooks/useOutlineOpen", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./hooks/useOutlineOpen")>();
-  return {
-    ...actual,
-    useOutlineOpen: (initialOpen: boolean = false) =>
-      actual.useOutlineOpen(outlineInitialOverride.value ?? initialOpen),
-  };
-});
-
 async function loadDocument() {
   backendInvoke.mockResolvedValueOnce(loadedDoc);
   vi.mocked(open).mockResolvedValueOnce("C:/notes/readme.md");
@@ -204,7 +191,6 @@ beforeEach(() => {
   vi.mocked(listen).mockReset();
   vi.mocked(listen).mockResolvedValue(() => {});
   heavyCommitMsOverride.value = undefined;
-  outlineInitialOverride.value = undefined;
   windowMock.reset();
 });
 
@@ -1913,22 +1899,22 @@ describe("App outline integration", () => {
     vi.mocked(open).mockClear();
   });
 
-  it("toggles the outline panel closed and open", async () => {
+  it("toggles the outline panel open and closed", async () => {
     await loadDocument();
     const toggle = screen.getByRole("button", { name: "切换大纲" });
 
-    // 默认打开
-    expect(document.querySelector(".outline-sidebar--open")).toBeInTheDocument();
-
-    // 点击关闭
-    fireEvent.click(toggle);
+    // 默认关闭
     expect(document.querySelector(".outline-sidebar--open")).not.toBeInTheDocument();
 
-    // 再点击打开
+    // 点击打开
     fireEvent.click(toggle);
     expect(document.querySelector(".outline-sidebar--open")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Intro" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Section" })).toBeInTheDocument();
+
+    // 再点击关闭
+    fireEvent.click(toggle);
+    expect(document.querySelector(".outline-sidebar--open")).not.toBeInTheDocument();
   });
 
   it("侧栏开关引起的宽度回流期间钉住视口（Chromium 原生锚定不补偿行内尺寸变化）", async () => {
@@ -1939,21 +1925,25 @@ describe("App outline integration", () => {
     mockScrollable(container, 3000);
     // 真机几何：正文更窄 ⇒ 行数更多 ⇒ 文档更高。开侧栏时首块文档坐标 3100，关闭后 2500
     mockSidebarReflow(container, intro, { open: 3100, closed: 2500 });
+    const toggle = screen.getByRole("button", { name: "切换大纲" });
 
-    fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
-
-    // 关闭后文档整体变矮 600px，视口顶部那块内容必须仍在原位 ⇒ 补偿 600px
-    expect(container.scrollTop).toBe(2400);
-    expect(intro.getBoundingClientRect().top).toBe(100);
+    // 打开：文档整体变高 600px、内容下移 ⇒ 补偿 600px 把视口顶部那块钉回原位
+    fireEvent.click(toggle);
+    expect(container.scrollTop).toBe(3600);
+    expect(intro.getBoundingClientRect().top).toBe(-500);
     // 同时进入布局过渡窗（热重载延迟合并提交、widget 高度过渡关停）
     expect(document.querySelector(".app-shell--layout-shifting")).toBeInTheDocument();
+
+    // 关闭：文档整体变矮 600px、内容上移 ⇒ 反向补偿，内容仍在同一视口位置
+    fireEvent.click(toggle);
+    expect(container.scrollTop).toBe(3000);
+    expect(intro.getBoundingClientRect().top).toBe(-500);
   });
 
   it("Ctrl+K 打开侧栏同样钉住视口（快捷键不得被当成用户滚动而取消钉住）", async () => {
-    // 起始关闭：让 Ctrl+K 成为本实例里的**第一次**侧栏操作——真机首次按 Ctrl+K 时
-    // 快捷键监听注册在滚动输入监听之前，时间戳会落在钉住开始之后；「任何 keydown 都
-    // 记时间戳」的写法会在这一拍当场取消钉住（而这正是快捷键路径比顶栏按钮跳的原因）
-    outlineInitialOverride.value = false;
+    // 起始关闭（默认态）：让 Ctrl+K 成为本实例里的**第一次**侧栏操作——真机首次按
+    // Ctrl+K 时快捷键监听注册在滚动输入监听之前，时间戳会落在钉住开始之后；「任何
+    // keydown 都记时间戳」的写法会在这一拍当场取消钉住（而这正是快捷键路径比顶栏按钮跳的原因）
     await loadDocument();
 
     const container = document.querySelector(".document-scroll") as HTMLElement;
@@ -2087,7 +2077,8 @@ describe("App outline integration", () => {
     window.innerWidth = 500;
 
     await loadDocument();
-    // 默认打开
+    // 默认关闭：先打开，才谈得上「选章后自动关闭」
+    fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
     expect(document.querySelector(".outline-sidebar--open")).toBeInTheDocument();
 
     const intro = document.getElementById("intro")!;
@@ -2103,7 +2094,10 @@ describe("App outline integration", () => {
     window.innerWidth = 500;
 
     await loadDocument();
-    // 默认打开即显示 scrim
+    // 默认关闭：不渲染遮罩
+    expect(document.querySelector(".outline-scrim")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
     expect(document.querySelector(".outline-scrim")).toBeInTheDocument();
   });
 
@@ -2111,7 +2105,7 @@ describe("App outline integration", () => {
     window.innerWidth = 500;
 
     await loadDocument();
-    // 默认打开即显示 scrim
+    fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
     const scrim = document.querySelector(".outline-scrim");
     expect(scrim).toBeInTheDocument();
     fireEvent.click(scrim!);
@@ -2123,7 +2117,7 @@ describe("App outline integration", () => {
     window.innerWidth = 500;
 
     await loadDocument();
-    // 默认打开
+    fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
     expect(document.querySelector(".outline-sidebar--open")).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "Escape" });
@@ -2134,12 +2128,12 @@ describe("App outline integration", () => {
   it("adds the outline-open layout class to the body", async () => {
     await loadDocument();
 
-    // 默认打开即带 outline-open 类
-    expect(document.querySelector(".app-shell__body--outline-open")).toBeInTheDocument();
-
-    // 关闭后移除
-    fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
+    // 默认关闭：不带 outline-open 类
     expect(document.querySelector(".app-shell__body--outline-open")).not.toBeInTheDocument();
+
+    // 打开后带上
+    fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
+    expect(document.querySelector(".app-shell__body--outline-open")).toBeInTheDocument();
   });
 
   it("keeps rendered images mounted when outline state changes", async () => {

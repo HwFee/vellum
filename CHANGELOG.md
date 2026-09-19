@@ -4,6 +4,13 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.8.1] - 2026-09-19
+
+### 修复
+
+- **启动时侧边栏默认展开**：`useOutlineOpen` 自身的语义是「启动恒为关闭，且不读取持久化状态」（`src/hooks/useOutlineOpen.ts` 的注释与单测都按此写），但 `App.tsx` 传的是 `useOutlineOpen(true)`，把这个默认整个覆盖掉了 ⇒ 每次启动应用侧栏都自行展开。现改为 `useOutlineOpen(false)`。持久化行为不变：用户交互后的开关状态仍写入共享 settings Store，仅启动时不回读；五条开启入口（顶栏按钮 / `Ctrl+K` / 窄屏选章 / 遮罩 / 窄屏 `Escape`）照旧全部走 `beginWidthTransition()`，宽度回流期的视口钉住不受影响。
+- **随附的测试与文档同步**：`App.test.tsx` 中 7 条以「默认打开」为前提的用例改为以默认关闭为前提——侧栏开关用例两个方向都走一遍；宽度回流钉住用例补上「打开」方向，同时保留原先只覆盖的「关闭」方向（真机观测到跳位的正是这个方向）。`docs/agents/rendering.md` 的「侧栏布局与宽度」新增一条约束，避免日后被改回 `true`；测试里那个「真机里 App 恒以开启启动」的初始态覆盖点（`outlineInitialOverride`）随之删除。
+
 ## [1.8.0] - 2026-09-18
 
 ### 更改

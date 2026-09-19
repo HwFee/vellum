@@ -88,7 +88,7 @@ export default function App() {
   const restoreCancelRef = useRef<(() => void) | null>(null);
   // headings 供事件回调读取最新值（滚动保存等 effect 只注册一次，避免闭包过期）
   const headingsRef = useRef<OutlineHeading[]>([]);
-  const [isOutlineOpen, toggleOutline, setIsOutlineOpen] = useOutlineOpen(true);
+  const [isOutlineOpen, toggleOutline, setIsOutlineOpen] = useOutlineOpen(false);
   const isNarrow = useIsNarrow();
   const [outlineWidth, setOutlineWidth] = useOutlineWidth();
   const outlineWidthRef = useRef(outlineWidth);
