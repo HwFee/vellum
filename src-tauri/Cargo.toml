@@ -22,6 +22,7 @@ tauri = { version = "2", features = ["devtools", "custom-protocol"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-store = "2"
+tauri-plugin-updater = "2"
 urlencoding = "2"
 uuid = { version = "1", features = ["v4"] }
 windows-sys = { version = "0.61", features = [

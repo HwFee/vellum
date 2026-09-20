@@ -201,8 +201,39 @@ mod tests {
             .as_str()
             .expect("security.csp must be a string");
 
-        let expected_csp = "default-src 'self'; connect-src ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self' data:; frame-src http://vellum-widget.localhost";
+        let expected_csp = "default-src 'self'; connect-src ipc: http://ipc.localhost https://github.com; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self' data:; frame-src http://vellum-widget.localhost";
         assert_eq!(csp, expected_csp);
+    }
+
+    /// 自动更新（task 10）：三处配置缺一，`check()` 就整条走不通——endpoints 为空时
+    /// `UpdaterBuilder::build()` 直接返回 `EmptyEndpoints`，`createUpdaterArtifacts` 缺失则
+    /// 打包不产出 `.sig`，签名校验永远失败。pubkey 由 `tauri signer generate` 产出后替换占位。
+    #[test]
+    fn tauri_conf_declares_updater_plugin_and_artifacts() {
+        let conf_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json");
+        let content = std::fs::read_to_string(&conf_path).expect("read tauri.conf.json");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&content).expect("parse tauri.conf.json");
+
+        let endpoints = parsed["plugins"]["updater"]["endpoints"]
+            .as_array()
+            .expect("plugins.updater.endpoints must be an array");
+        assert_eq!(
+            endpoints,
+            &vec![serde_json::json!(
+                "https://github.com/HwFee/vellum/releases/latest/download/latest.json"
+            )]
+        );
+
+        let pubkey = parsed["plugins"]["updater"]["pubkey"]
+            .as_str()
+            .expect("plugins.updater.pubkey must be a string");
+        assert!(!pubkey.is_empty());
+
+        assert_eq!(
+            parsed["bundle"]["createUpdaterArtifacts"],
+            serde_json::json!(true)
+        );
     }
 
     #[test]
@@ -326,6 +357,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(pending_open_paths)
         .manage(AppState::default())
         .manage(WidgetState::default())

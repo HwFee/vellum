@@ -23,13 +23,14 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self' data:; frame-src http://vellum-widget.localhost"
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost https://github.com; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self' data:; frame-src http://vellum-widget.localhost"
     }
   },
   "bundle": {
     "active": true,
     "targets": ["nsis"],
     "category": "Productivity",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -45,5 +46,13 @@
         "mimeType": "text/markdown"
       }
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "PLACEHOLDER_REPLACE_WITH_TAURI_SIGNER_GENERATE_PUBKEY",
+      "endpoints": [
+        "https://github.com/HwFee/vellum/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
