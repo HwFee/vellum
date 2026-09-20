@@ -42,6 +42,9 @@ const windowMock = vi.hoisted(() => {
       close: ReturnType<typeof vi.fn>;
       destroy: ReturnType<typeof vi.fn>;
     }>,
+    /// 按序记录的 setTitle 参数：窗口标题由 App 在多个 getCurrentWindow() 实例上写入，
+    /// 逐实例断言会漏（每次调用都新建实例），故集中记在一个桶里
+    titles: [] as string[],
     /// 关窗请求被处理的次数（>1 即「close 重试」）
     replays: 0,
     /// 窗口真正被销毁的次数（未拦截的关窗各计一次）
@@ -89,6 +92,7 @@ const windowMock = vi.hoisted(() => {
     reset() {
       mock.closeHandlers.length = 0;
       mock.instances.length = 0;
+      mock.titles.length = 0;
       mock.replays = 0;
       mock.destroyed = 0;
       mock.recursion = false;
@@ -109,6 +113,10 @@ vi.mock("@tauri-apps/api/window", () => ({
         return Promise.resolve();
       }),
       show: vi.fn(() => Promise.resolve()),
+      setTitle: vi.fn((title: string) => {
+        windowMock.titles.push(title);
+        return Promise.resolve();
+      }),
       onCloseRequested: vi.fn((handler: CloseHandler) => {
         windowMock.closeHandlers.push(handler);
         return Promise.resolve(() => {});
@@ -3070,4 +3078,58 @@ test("升级用户：旧 key 的失效条目被摘掉后不再复活（错误页
   // 错误页里重新冒出一行「最近打开」（以及一行点不开的 gone）
   expect(screen.queryByText("最近打开")).toBeNull();
   expect(screen.queryByText("gone")).toBeNull();
+});
+
+// ===== 窗口标题随文档（Task 5） =====
+
+describe("窗口标题随文档", () => {
+  it("空态写应用名，打开文档后写「文件名 — 素笺」", async () => {
+    await loadDocument();
+
+    expect(windowMock.titles).toEqual(["素笺", "readme — 素笺"]);
+  });
+
+  it("标题取文件名而非正文 H1（与 h1.document-title 同源），且只落在 OS 标题上", async () => {
+    // loadedDoc 的 fileName 是 readme.md、正文 H1 是「Intro」：标题必须是前者
+    await loadDocument();
+
+    await waitFor(() =>
+      expect(windowMock.titles[windowMock.titles.length - 1]).toBe("readme — 素笺")
+    );
+    expect(screen.getByRole("heading", { name: "readme" })).toBeInTheDocument();
+    // 设计红线：顶栏不显示文件名——标题不进 DOM，只交给 setTitle
+    expect(screen.queryByText("readme — 素笺")).toBeNull();
+  });
+
+  it("无文档（加载失败）复位应用名，切文档的过渡帧不写空标题", async () => {
+    await loadDocument();
+
+    backendInvoke.mockImplementation(async (command: string) => {
+      if (command === "load_document") throw "Cannot open file";
+      return undefined;
+    });
+    vi.mocked(open).mockResolvedValueOnce("C:/notes/missing.md");
+    fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Cannot open file");
+
+    // 序列里没有夹在中间的「素笺」：loading 帧沿用上一篇标题，任务栏不闪
+    expect(windowMock.titles).toEqual(["素笺", "readme — 素笺", "素笺"]);
+  });
+
+  it("热重载不重写标题（依赖是标题串，不是每次渲染都换引用的 state）", async () => {
+    await loadDocument();
+    expect(windowMock.titles).toEqual(["素笺", "readme — 素笺"]);
+
+    backendInvoke.mockImplementation(async (command: string) =>
+      command === "load_document"
+        ? { ...loadedDoc, markdown: "# Intro\n\n追加了一段。" }
+        : undefined
+    );
+    await act(async () => {
+      fileChangedHandler()(undefined);
+    });
+
+    expect(await screen.findByText("追加了一段。")).toBeInTheDocument();
+    expect(windowMock.titles).toEqual(["素笺", "readme — 素笺"]);
+  });
 });

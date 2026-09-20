@@ -39,6 +39,9 @@ const MarkdownDocument = lazy(() => import("./components/MarkdownDocument"));
 /// App 每次渲染新建 Map 会让 memo 化的正文层整体重解析。
 const EMPTY_WIKILINKS: ReadonlyMap<string, string | null> = new Map();
 
+/// 应用名：窗口标题的后半段（无文档时整条标题），与 `tauri.conf.json` 的窗口标题同值
+const APP_NAME = "素笺";
+
 export default function App() {
   const [state, setState] = useState<DocumentState>({ status: "empty" });
   // 最近打开列表（新→旧）：空态列表与「启动恢复上一篇」共用同一份状态
@@ -707,6 +710,27 @@ export default function App() {
   const activeDocument = state.status === "ready" ? state.document : undefined;
   currentMarkdownRef.current = activeDocument?.markdown ?? "";
   wikilinksRef.current = state.status === "ready" ? state.wikilinks : EMPTY_WIKILINKS;
+
+  // 窗口标题（OS 级 setTitle，**不是**顶栏文本——顶栏不显示文件名是设计红线）：
+  // 有文档时「文件名 — 素笺」（fileNameToTitle 与正文 h1.document-title 同源），
+  // 无文档（空态）与加载失败复位为应用名。
+  // loading 是切文档的过渡帧：null 表示本次不改写标题，沿用上一篇的——否则任务栏
+  // 会在换文档时闪一帧「素笺」。
+  const windowTitle =
+    state.status === "ready"
+      ? `${fileNameToTitle(state.document.fileName)} — ${APP_NAME}`
+      : state.status === "loading"
+        ? null
+        : APP_NAME;
+
+  // 依赖是标题串而非 state 对象：编辑提交（markdown 变、state 换引用）不该重写标题。
+  // 写标题失败（权限缺失/非 Tauri 环境）静默降级——它是装饰性副作用，不该冒泡成错误页
+  useEffect(() => {
+    if (windowTitle === null) return;
+    void getCurrentWindow()
+      .setTitle(windowTitle)
+      .catch(() => {});
+  }, [windowTitle]);
 
   /// 文档 markdown 的唯一写入点：提交新内容与失败回退都经此，保持引用稳定
   const applyMarkdown = useCallback((next: string) => {
