@@ -1263,7 +1263,15 @@ export default function App() {
                   加载中...
                 </section>
               ) : null}
-              {state.status === "error" ? <ErrorState message={state.message} path={state.path} onRetry={handleOpen} /> : null}
+              {state.status === "error" ? (
+                <ErrorState
+                  message={state.message}
+                  path={state.path}
+                  onRetry={handleOpen}
+                  recentFiles={recentFiles}
+                  onOpenRecent={(path) => void loadPathRef.current(path)}
+                />
+              ) : null}
               {state.status === "ready" ? (
                 <>
                   {/* 文档标题（Obsidian 的 inline title）：取自文件名，落在正文首行。

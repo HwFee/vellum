@@ -1,8 +1,8 @@
-import { basename, compactPath, dirname, fileNameToTitle } from "../lib/path";
+import { RecentFilesList } from "./RecentFilesList";
 
 type EmptyStateProps = {
   onOpen: () => void;
-  /// 最近打开列表（新的在前）；为空则不渲染该区块
+  /// 最近打开列表（新的在前）；为空则列表区块不渲染
   recentFiles: string[];
   onOpenRecent: (path: string) => void;
 };
@@ -16,26 +16,7 @@ export function EmptyState({ onOpen, recentFiles, onOpenRecent }: EmptyStateProp
       <button className="button button-primary" type="button" onClick={onOpen}>
         打开文件…
       </button>
-      {recentFiles.length > 0 ? (
-        <div className="empty-recents">
-          <h2 className="empty-recents__title">最近打开</h2>
-          <ul className="empty-recents__list">
-            {recentFiles.map((path) => (
-              <li key={path}>
-                <button
-                  className="empty-recents__link"
-                  type="button"
-                  title={path}
-                  onClick={() => onOpenRecent(path)}
-                >
-                  <span className="empty-recents__name">{fileNameToTitle(basename(path))}</span>
-                  <span className="empty-recents__dir">{compactPath(dirname(path))}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      <RecentFilesList recentFiles={recentFiles} onOpenRecent={onOpenRecent} />
       <p className="empty-hint">或将 .md 文件拖入窗口</p>
     </section>
   );

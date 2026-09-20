@@ -123,7 +123,7 @@ const lastOpenedGet = vi.fn(() => Promise.resolve<string | undefined>(undefined)
 const storeGet = vi.fn((key: string): Promise<unknown> =>
   key === "lastOpenedPath" ? lastOpenedGet() : Promise.resolve(undefined)
 );
-const storeSet = vi.fn(() => Promise.resolve());
+const storeSet = vi.fn((_key: string, _value: unknown) => Promise.resolve());
 
 vi.mock("@tauri-apps/plugin-store", () => ({
   Store: {
@@ -2980,4 +2980,44 @@ test("拖放：over 续亮提示态；非 Markdown 文件不打开；leave 熄�
     handler({ payload: { type: "leave" } });
   });
   expect(dropTarget()).toBeNull();
+});
+
+test("错误态里点最近列表的失效条目：停留在 ErrorState（不递归），失效条目被摘掉", async () => {
+  // 可变的内存 Store：removeRecent 的写入必须能被下一次读取看见，
+  // 否则测的只是「按固定列表再算一遍」而不是真实的列表收缩
+  let stored: unknown = ["C:/notes/gone.md", "C:/notes/kept.md"];
+  storeGet.mockImplementation((key: string) =>
+    Promise.resolve(key === "recentFiles" ? stored : undefined)
+  );
+  storeSet.mockImplementation((key: string, value: unknown) => {
+    if (key === "recentFiles") stored = value;
+    return Promise.resolve();
+  });
+  // 所有加载都失败：启动恢复的 gone.md 与随后点击的 kept.md
+  backendInvoke.mockImplementation(async (command: string) => {
+    if (command === "load_document") throw "Cannot open file";
+    return undefined;
+  });
+
+  render(<App />);
+
+  // 启动恢复 gone.md 失败 ⇒ 错误页，且错误页里就带着替代入口（kept.md）
+  expect(await screen.findByRole("alert")).toHaveTextContent("Cannot open file");
+  await waitFor(() => expect(storeSet).toHaveBeenCalledWith("recentFiles", ["C:/notes/kept.md"]));
+  const kept = await screen.findByRole("button", { name: /kept/ });
+
+  await act(async () => {
+    fireEvent.click(kept);
+  });
+
+  // 依然停在错误页，没有递归/重试风暴：load_document 恰好两次（启动恢复一次 + 点击一次）
+  expect(screen.getByRole("alert")).toHaveTextContent("Cannot open file");
+  expect(
+    backendInvoke.mock.calls.filter(([command]) => command === "load_document")
+  ).toHaveLength(2);
+
+  // kept.md 也失效 ⇒ 摘掉后列表为空，整个区块不渲染（错误页本身仍在）
+  await waitFor(() => expect(stored).toEqual([]));
+  expect(screen.queryByText("最近打开")).toBeNull();
+  expect(screen.getByRole("button", { name: "重新打开" })).toBeInTheDocument();
 });

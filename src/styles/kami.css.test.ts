@@ -614,37 +614,37 @@ describe("kami.css reader-polish task-4 新增（2026-09-20）", () => {
     expect(css.indexOf(".document-scroll--drop-target")).toBeLessThan(css.indexOf(".mdlog-widget"));
   });
 
-  it("空态最近列表：行内按钮无框线、hover ivory 底 + 文件名靛青，文件名 500 字重、目录 mono 10px stone", () => {
-    const link = css.match(/\.empty-recents__link\s*\{[^}]*\}/s)?.[0] ?? "";
+  it("最近列表（空态/错误态共用）：行内按钮无框线、hover ivory 底 + 文件名靛青，文件名 500 字重、目录 mono 10px stone", () => {
+    const link = css.match(/\.recent-files__link\s*\{[^}]*\}/s)?.[0] ?? "";
     expect(link).not.toBe("");
     expect(link).toMatch(/background:\s*transparent/);
     expect(link).toMatch(/border:\s*0/);
     expect(link).toMatch(/border-radius:\s*3px/);
     expect(link).toMatch(/transition:\s*background 0\.15s ease/);
 
-    const hover = css.match(/\.empty-recents__link:hover\s*\{[^}]*\}/s)?.[0] ?? "";
+    const hover = css.match(/\.recent-files__link:hover\s*\{[^}]*\}/s)?.[0] ?? "";
     expect(hover).toMatch(/background:\s*var\(--ivory\)/);
 
     const hoverName =
-      css.match(/\.empty-recents__link:hover\s+\.empty-recents__name\s*\{[^}]*\}/s)?.[0] ?? "";
+      css.match(/\.recent-files__link:hover\s+\.recent-files__name\s*\{[^}]*\}/s)?.[0] ?? "";
     expect(hoverName).toMatch(/color:\s*var\(--brand\)/);
 
-    const name = css.match(/\.empty-recents__name\s*\{[^}]*\}/s)?.[0] ?? "";
+    const name = css.match(/\.recent-files__name\s*\{[^}]*\}/s)?.[0] ?? "";
     expect(name).toMatch(/font-weight:\s*500/);
 
-    const dir = css.match(/\.empty-recents__dir\s*\{[^}]*\}/s)?.[0] ?? "";
+    const dir = css.match(/\.recent-files__dir\s*\{[^}]*\}/s)?.[0] ?? "";
     expect(dir).toMatch(/font:\s*10px\/1\.5 var\(--mono\)/);
     expect(dir).toMatch(/color:\s*var\(--stone\)/);
 
     // 列表行是键盘可达的按钮：必须给 focus-visible 描边
-    const focus = css.match(/\.empty-recents__link:focus-visible\s*\{[^}]*\}/s)?.[0] ?? "";
+    const focus = css.match(/\.recent-files__link:focus-visible\s*\{[^}]*\}/s)?.[0] ?? "";
     expect(focus).toMatch(/outline:\s*2px solid var\(--brand\)/);
 
     const motion =
-      css.match(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[^}]*\.empty-recents__link[^}]*transition:\s*none/s)?.[0] ?? "";
+      css.match(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[^}]*\.recent-files__link[^}]*transition:\s*none/s)?.[0] ?? "";
     expect(motion).not.toBe("");
 
-    expect(css.indexOf(".empty-recents")).toBeLessThan(css.indexOf(".mdlog-widget"));
+    expect(css.indexOf(".recent-files")).toBeLessThan(css.indexOf(".mdlog-widget"));
   });
 
   it("拖放提示行带 .empty-state 前缀（同级的 .empty-state p 是 0,1,1，裸类名压不过它）", () => {
