@@ -126,6 +126,18 @@ textarea {
   white-space: nowrap;
 }
 
+/* mdlog 记录中小章：与 .editor-toast 同族（tag-bg 实色底 + mono 10px），字色用靛青 */
+.top-bar__recording {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--tag-bg);
+  color: var(--brand);
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 0.04em;
+}
+
 .top-bar__actions {
   display: flex;
   align-items: center;
@@ -357,7 +369,8 @@ textarea {
   opacity: 0;
   pointer-events: none;
   transition: transform 250ms ease, opacity 250ms ease;
-  z-index: 800;
+  /* 高于窄屏遮罩（950）：浮层模式下侧栏本身必须保持可交互，遮罩只封侧栏之外 */
+  z-index: 960;
   background: var(--parchment);
   border-right: 1px solid var(--hairline);
   display: flex;
@@ -381,7 +394,7 @@ textarea {
   width: 10px;
   margin-left: -5px;
   cursor: col-resize;
-  z-index: 810;
+  z-index: 970;
   touch-action: none;
 }
 
@@ -628,7 +641,9 @@ mark.search-match--current {
   right: 0;
   bottom: 0;
   background: rgba(20, 20, 19, 0.15);
-  z-index: 750;
+  /* 950：高于自定义滚动条（900）与重载印章（900），低于侧栏（960）——
+     窄屏浮层时侧栏外一律不可交互，侧栏本身仍可用 */
+  z-index: 950;
   animation: outline-scrim-fade 250ms ease forwards;
   pointer-events: auto;
 }
@@ -741,6 +756,16 @@ mark.search-match--current {
   transition: margin-left 250ms ease;
 }
 
+/* tabIndex=0 的滚动容器：鼠标点焦不画环，键盘聚焦给 1px 靛青内描边（克制款） */
+.document-scroll:focus {
+  outline: none;
+}
+
+.document-scroll:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--brand);
+}
+
 .document-scroll::-webkit-scrollbar {
   display: none;
 }
@@ -764,7 +789,7 @@ mark.search-match--current {
   user-select: none;
 }
 
-/* 跳转到底部：右下角浮钮，距底超过阈值才浮现；z 序低于窄屏遮罩（750），
+/* 跳转到底部：右下角浮钮，距底超过阈值才浮现；z 序低于窄屏遮罩（950），
    遮罩在位时按钮随之不可点 */
 .jump-bottom {
   position: fixed;
@@ -893,6 +918,44 @@ mark.search-match--current {
   color: var(--olive);
 }
 
+/* 空态/错态眉题：mono 10px 大写感元信息，灰石灰字色 */
+.empty-eyebrow {
+  color: var(--stone);
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 4px;
+  text-transform: uppercase;
+}
+
+/* 实色按钮（button-contained）：warm-sand 底 + 发丝内描边，悬停仅加深底色并浮一丝投影 */
+.button.button-primary {
+  padding: 7px 16px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--warm-sand);
+  color: var(--dark-warm);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 13px;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.button.button-primary:hover {
+  background: color-mix(in srgb, var(--warm-sand) 80%, var(--border));
+  box-shadow: inset 0 0 0 1px var(--hairline), 0 1px 2px rgba(20, 20, 19, 0.04);
+}
+
+.button.button-primary:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button.button-primary {
+    transition: none;
+  }
+}
+
 @media (max-width: 720px) {
   .markdown-body,
   .empty-state,
@@ -908,6 +971,7 @@ mark.search-match--current {
 .error-state code {
   display: inline-block;
   max-width: 100%;
+  margin-bottom: 16px;
   overflow-wrap: anywhere;
 }
 

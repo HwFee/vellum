@@ -110,6 +110,20 @@ describe("kami.css outline frameless docked panel", () => {
     const rule = css.match(/@media\s*\(max-width:\s*719px\)\s*\{[^}]*\.app-shell__body--outline-open\s*\.document-scroll\s*\{[^}]*\}/s)?.[0] ?? "";
     expect(rule).toMatch(/margin-left:\s*0/);
   });
+
+  it("窄屏纱罩高于自定义滚动条与重载印章（950），但低于侧栏本身（960）", () => {
+    const scrim = css.match(/\.outline-scrim\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(scrim).toMatch(/z-index:\s*950/);
+    const scrollbar = css.match(/\.custom-scrollbar\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(scrollbar).toMatch(/z-index:\s*900/);
+    const reloadNote = css.match(/\.reload-note\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(reloadNote).toMatch(/z-index:\s*900/);
+    // 纱罩只封侧栏之外：侧栏与拖宽手柄必须仍在纱罩之上，否则浮层模式侧栏被罩住不可交互
+    const sidebar = css.match(/\.outline-sidebar\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(sidebar).toMatch(/z-index:\s*960/);
+    const handle = css.match(/\.outline-resize-handle\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(handle).toMatch(/z-index:\s*970/);
+  });
 });
 
 describe("kami.css outline reduced motion", () => {
@@ -541,5 +555,42 @@ describe("kami.css 阅读设置变量消费", () => {
     const mdlogIndex = css.indexOf(".mdlog-widget");
     expect(popoverIndex).toBeGreaterThan(-1);
     expect(popoverIndex).toBeLessThan(mdlogIndex);
+  });
+});
+
+describe("kami.css reader-polish task-3 小修（2026-09-20）", () => {
+  it("空态/错态眉题与实色按钮样式补齐（EmptyState/ErrorState 引用的类不再缺失）", () => {
+    const eyebrow = css.match(/\.empty-eyebrow\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(eyebrow).not.toBe("");
+    expect(eyebrow).toMatch(/font:\s*500 10px/);
+    expect(eyebrow).toMatch(/letter-spacing:\s*4px/);
+    expect(eyebrow).toMatch(/color:\s*var\(--stone\)/);
+
+    const button = css.match(/\.button\.button-primary\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(button).not.toBe("");
+    expect(button).toMatch(/background:\s*var\(--warm-sand\)/);
+    expect(button).toMatch(/box-shadow:\s*inset 0 0 0 1px var\(--hairline\)/);
+    expect(button).toMatch(/border-radius:\s*6px/);
+    expect(button).toMatch(/padding:\s*7px 16px/);
+    expect(button).toMatch(/font-weight:\s*500/);
+
+    const hover = css.match(/\.button\.button-primary:hover\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(hover).toMatch(/0 1px 2px rgba\(20,\s*20,\s*19,\s*0\.04\)/);
+  });
+
+  it("document-scroll 键盘聚焦给 1px 靛青内描边（克制款 focus-visible）", () => {
+    const rule = css.match(/\.document-scroll:focus-visible\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(rule).not.toBe("");
+    expect(rule).toMatch(/box-shadow:\s*inset 0 0 0 1px var\(--brand\)/);
+  });
+
+  it("顶栏记录中小章与 editor-toast 同族（tag-bg 底 + mono 10px）", () => {
+    const chip = css.match(/\.top-bar__recording\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(chip).not.toBe("");
+    expect(chip).toMatch(/background:\s*var\(--tag-bg\)/);
+    expect(chip).toMatch(/color:\s*var\(--brand\)/);
+    expect(chip).toMatch(/font:\s*500 10px/);
+    // 新规则不得落入 mdlog 区段扫描范围
+    expect(css.indexOf(".top-bar__recording")).toBeLessThan(css.indexOf(".mdlog-widget"));
   });
 });
