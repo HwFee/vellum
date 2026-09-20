@@ -506,6 +506,29 @@ textarea {
   transition: color 150ms ease;
 }
 
+/* 大纲深层级（h4–h6，2026-09-20 收录）：缩进在 l3（基础 16px）之上每级再 +14px
+   ——l4 30 / l5 44 / l6 58；字号从 13.5px 收到 12px，颜色转淡墨（l4 橄榄、
+   l5/l6 沉一档到石色），深层级不参与中文数字编号（编号仍只给 h1）。
+   本组必须排在 .outline-panel__link--active 之前：同为 0,1,0 特异度，靠顺序
+   让激活态（靛青 + 500 字重）压过层级配色；:hover 是 0,2,0，不受位置影响。 */
+.outline-panel__link--l4 {
+  padding-left: 30px;
+  font-size: 12px;
+  color: var(--olive);
+}
+
+.outline-panel__link--l5 {
+  padding-left: 44px;
+  font-size: 12px;
+  color: var(--stone);
+}
+
+.outline-panel__link--l6 {
+  padding-left: 58px;
+  font-size: 12px;
+  color: var(--stone);
+}
+
 .outline-panel__link:hover {
   color: var(--brand);
 }

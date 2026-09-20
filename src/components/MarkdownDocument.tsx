@@ -19,7 +19,7 @@ import { rehypeEditUnits } from "../lib/rehypeEditUnits";
 import { rehypeObsidian } from "../lib/rehypeObsidian";
 import { CodeBlock } from "./CodeBlock";
 import { WidgetSandbox } from "./WidgetSandbox";
-import type { OutlineHeading } from "../types";
+import type { HeadingLevel, OutlineHeading } from "../types";
 import type { PluggableList } from "unified";
 
 type MarkdownDocumentProps = {
@@ -274,12 +274,12 @@ function useHeadingIdResolver(headings?: OutlineHeading[]) {
   fallbackCounter.current = 0;
 
   // 【不变量约束（React 19 并发渲染合规，C5）】：
-  // resolveHeadingId 必须且仅允许在渲染期被组件（components.h1/h2/h3）同步调用。
+  // resolveHeadingId 必须且仅允许在渲染期被组件（components.h1–h6）同步调用。
   // headingsRef 在每次渲染函数体中赋值，usedIds/fallbackCounter 也在同一次渲染中重置。
   // 严禁将其放入事件处理器、useEffect/useLayoutEffect 或 setTimeout 等异步回调中调用，
   // 否则在 React 19 并发中断/重放渲染时，读取到的将是未提交帧或已被废弃 pass 的 stale headings。
   return useCallback(
-    (level: 1 | 2 | 3, text: string) => {
+    (level: HeadingLevel, text: string) => {
       const candidates = headingsRef.current?.filter((h) => h.level === level && h.text === text) ?? [];
       for (const candidate of candidates) {
         if (!usedIds.current.has(candidate.id)) {
@@ -434,6 +434,43 @@ const MarkdownBody = memo(function MarkdownBody({
           >
             {children}
           </h3>
+        );
+      },
+      // h4–h6 与 h1–h3 同一套 id 分配器：大纲收录到 h6，条目点击依赖正文标题带 id
+      h4: ({ children, ...props }) => {
+        const mark = unitMarkProps(props);
+        return (
+          <h4
+            id={resolveHeadingId(4, extractText(children))}
+            data-vellum-unit={mark.unit}
+            data-vellum-locked={mark.locked}
+          >
+            {children}
+          </h4>
+        );
+      },
+      h5: ({ children, ...props }) => {
+        const mark = unitMarkProps(props);
+        return (
+          <h5
+            id={resolveHeadingId(5, extractText(children))}
+            data-vellum-unit={mark.unit}
+            data-vellum-locked={mark.locked}
+          >
+            {children}
+          </h5>
+        );
+      },
+      h6: ({ children, ...props }) => {
+        const mark = unitMarkProps(props);
+        return (
+          <h6
+            id={resolveHeadingId(6, extractText(children))}
+            data-vellum-unit={mark.unit}
+            data-vellum-locked={mark.locked}
+          >
+            {children}
+          </h6>
         );
       },
       a: ({ href, children, ...rest }) => {

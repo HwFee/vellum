@@ -1,5 +1,5 @@
 import type { Heading, Node, Parent, Root } from "mdast";
-import type { OutlineHeading } from "../types";
+import type { HeadingLevel, OutlineHeading } from "../types";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { toString } from "mdast-util-to-string";
 import { gfm } from "micromark-extension-gfm";
@@ -23,7 +23,7 @@ function isParent(node: Node): node is Parent {
 function isAtxHeading(sourceLines: string[], node: Heading): boolean {
   const lineIndex = (node.position?.start?.line ?? 1) - 1;
   const line = sourceLines[lineIndex] ?? "";
-  return /^#{1,3}\s/.test(line.trimStart());
+  return /^#{1,6}\s/.test(line.trimStart());
 }
 
 export function extractOutline(markdown: string): OutlineHeading[] {
@@ -41,7 +41,7 @@ export function extractOutline(markdown: string): OutlineHeading[] {
       const heading = node as Heading;
       if (
         heading.depth >= 1 &&
-        heading.depth <= 3 &&
+        heading.depth <= 6 &&
         isAtxHeading(lines, heading)
       ) {
         const text = toString(heading).trim();
@@ -55,7 +55,7 @@ export function extractOutline(markdown: string): OutlineHeading[] {
         }
         usedIds.add(id);
 
-        headings.push({ id, level: heading.depth as 1 | 2 | 3, text });
+        headings.push({ id, level: heading.depth as HeadingLevel, text });
       }
     }
 

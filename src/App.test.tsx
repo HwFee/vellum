@@ -2228,6 +2228,39 @@ describe("App outline integration", () => {
     expect(container.scrollTop).toBe(0);
   });
 
+  it("文档内锚点指向 h4 标题同样被接管（h4 与 h1–h3 同一套 id）", async () => {
+    backendInvoke.mockResolvedValueOnce({
+      ...loadedDoc,
+      markdown: "# Intro\n\n#### Finer detail\n\n[去细节](#finer-detail)",
+    });
+    vi.mocked(open).mockResolvedValueOnce("C:/notes/deep-anchor.md");
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Finer detail" })).toBeInTheDocument()
+    );
+
+    const container = document.querySelector(".document-scroll") as HTMLElement;
+    mockScrollable(container, 300);
+    vi.spyOn(container, "getBoundingClientRect").mockReturnValue({ top: 0 } as DOMRect);
+    const detail = document.getElementById("finer-detail")!;
+    vi.spyOn(detail, "getBoundingClientRect").mockReturnValue({ top: 500, bottom: 520 } as DOMRect);
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      frames.push(cb);
+      return frames.length;
+    });
+
+    // 滚到目标（300 + 500），且点击不发 hash 跳转
+    expect(fireEvent.click(screen.getByText("去细节"))).toBe(false);
+    while (frames.length > 0) {
+      frames.shift()!(performance.now() + 5000);
+    }
+
+    expect(container.scrollTop).toBe(800);
+    expect(window.location.hash).toBe("");
+  });
+
   it("找不到目标且非顶部约定的锚点：不动，也不让浏览器改写 hash", async () => {
     backendInvoke.mockResolvedValueOnce({
       ...loadedDoc,
@@ -2276,6 +2309,30 @@ describe("App outline integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "Section" }));
 
     // 点击后应启动 rAF 缓动滚动动画
+    await waitFor(() => expect(raf).toHaveBeenCalled());
+  });
+
+  it("大纲收录 h4–h6：点 h4 条目走同一条缓动跳转路径", async () => {
+    backendInvoke.mockResolvedValueOnce({
+      ...loadedDoc,
+      markdown: "# Intro\n\n### Sub\n\n#### Finer detail\n\nBody text.",
+    });
+    vi.mocked(open).mockResolvedValueOnce("C:/notes/deep.md");
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Finer detail" })).toBeInTheDocument()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
+
+    // 条目点击靠 getElementById 取目标：h4 与 h1–h3 同一套 id 分配器，正文标题必须带 id
+    const detail = document.getElementById("finer-detail");
+    expect(detail).not.toBeNull();
+    vi.spyOn(detail!, "getBoundingClientRect").mockReturnValue({ top: 500 } as DOMRect);
+    const raf = vi.spyOn(window, "requestAnimationFrame");
+
+    fireEvent.click(screen.getByRole("button", { name: "Finer detail" }));
+
     await waitFor(() => expect(raf).toHaveBeenCalled());
   });
 

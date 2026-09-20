@@ -74,11 +74,13 @@ function OutlineItems({
     <ul className="outline-panel__list">
       {nodes.map((node, index) => {
         const numeral = node.level === 1 ? toChineseNumeral(index + 1) : null;
+        // 层级类恒带（l1–l6）：l4–l6 的缩进档与淡色在 kami.css 里按它命中；
+        // 编号仍只给 h1（中文数字是「章」的记号，深层级不参与）
         return (
           <li key={node.id} className="outline-panel__item">
             <button
               type="button"
-              className={`outline-panel__link ${node.id === activeHeadingId ? "outline-panel__link--active" : ""}`}
+              className={`outline-panel__link outline-panel__link--l${node.level} ${node.id === activeHeadingId ? "outline-panel__link--active" : ""}`}
               aria-label={node.text || undefined}
               title={node.text || undefined}
               onClick={() => onSelectHeading?.(node.id)}

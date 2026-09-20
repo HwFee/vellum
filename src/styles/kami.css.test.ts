@@ -666,3 +666,67 @@ describe("kami.css reader-polish task-4 新增（2026-09-20）", () => {
     expect(rule).toMatch(/font-size:\s*11px/);
   });
 });
+
+describe("kami.css reader-polish task-7 大纲深层级（2026-09-20）", () => {
+  it("l4–l6 缩进在 l3 之上每级 +14px、字号 12px，色阶 olive → stone（不引新颜色）", () => {
+    const l4 = css.match(/\.outline-panel__link--l4\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(l4).not.toBe("");
+    expect(l4).toMatch(/padding-left:\s*30px/);
+    expect(l4).toMatch(/font-size:\s*12px/);
+    expect(l4).toMatch(/color:\s*var\(--olive\)/);
+
+    const l5 = css.match(/\.outline-panel__link--l5\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(l5).not.toBe("");
+    expect(l5).toMatch(/padding-left:\s*44px/);
+    expect(l5).toMatch(/font-size:\s*12px/);
+    expect(l5).toMatch(/color:\s*var\(--stone\)/);
+
+    const l6 = css.match(/\.outline-panel__link--l6\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(l6).not.toBe("");
+    expect(l6).toMatch(/padding-left:\s*58px/);
+    expect(l6).toMatch(/font-size:\s*12px/);
+    expect(l6).toMatch(/color:\s*var\(--stone\)/);
+  });
+
+  it("层级配色排在激活态规则之前（同为 0,1,0 特异度，靠顺序让靛青压过它）", () => {
+    // 用行首锚定的正则取**规则**位置：注释里提到过激活态选择器，indexOf 会命中注释
+    const l6Rule = css.search(/^\.outline-panel__link--l6\s*\{/m);
+    const activeRule = css.search(/^\.outline-panel__link--active\s*\{/m);
+    expect(l6Rule).toBeGreaterThan(-1);
+    expect(activeRule).toBeGreaterThan(-1);
+    expect(activeRule).toBeGreaterThan(l6Rule);
+  });
+
+  it("深层级规则落在既有 outline 段落内，且在首个 .mdlog-widget 之前", () => {
+    const l4Rule = css.search(/^\.outline-panel__link--l4\s*\{/m);
+    expect(l4Rule).toBeGreaterThan(css.indexOf(".outline-panel__list .outline-panel__list"));
+    expect(l4Rule).toBeLessThan(css.indexOf(".outline-search {"));
+    expect(l4Rule).toBeLessThan(css.indexOf(".mdlog-widget"));
+  });
+
+  it("真级联：激活态压过 l5 的层级配色（同特异度靠顺序，jsdom 计算样式）", () => {
+    const styleEl = document.createElement("style");
+    styleEl.textContent = css;
+    document.head.appendChild(styleEl);
+
+    const make = (className: string) => {
+      const el = document.createElement("button");
+      el.className = className;
+      el.textContent = "Detail";
+      document.body.appendChild(el);
+      return el;
+    };
+    const plain = make("outline-panel__link outline-panel__link--l5");
+    const active = make("outline-panel__link outline-panel__link--l5 outline-panel__link--active");
+
+    const plainColor = window.getComputedStyle(plain).color;
+    const activeColor = window.getComputedStyle(active).color;
+    expect(plainColor).toContain("stone");
+    expect(activeColor).toContain("brand");
+    expect(activeColor).not.toBe(plainColor);
+
+    document.body.removeChild(plain);
+    document.body.removeChild(active);
+    document.head.removeChild(styleEl);
+  });
+});

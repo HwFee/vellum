@@ -23,6 +23,7 @@
 
 ## 大纲跟随
 
+- 大纲收录 **h1–h6**（`outline.ts` 的 `extractOutline`）：条目 id 与正文标题 id 同源——`MarkdownDocument` 的 `components.h1–h6` 走同一个 `resolveHeadingId` 分配器，条目点击/片段跳转都靠 `getElementById` 取目标，**新增层级时这两处必须一起改**（层级类型 `HeadingLevel` 在 `types.ts`）。l4–l6 只在侧栏里降档（缩进 / 12px / `--olive`→`--stone`），中文数字编号仍只给 h1。
 - 大纲对**所有**正文滚动始终跟随（普通滚动、搜索输入/删除/导航统一行为）。
 - 跟随走自定义 `animateScrollTo` 缓动；同容器新动画自动顶掉旧的、从当前位置接续，高频 `activeHeadingId` 变化不会抖动。
 - 不要再加「搜索期间不跟随」之类的门禁。

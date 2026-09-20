@@ -10,6 +10,16 @@ const sampleHeadings: OutlineHeading[] = [
   { id: "subsection", level: 3, text: "Subsection" },
 ];
 
+// 深层级（h4–h6）：大纲收录到 h6，条目带自己的层级类（l4–l6 的缩进/字号/颜色在 kami.css）
+const deepHeadings: OutlineHeading[] = [
+  { id: "title", level: 1, text: "Title" },
+  { id: "section-a", level: 2, text: "Section A" },
+  { id: "subsection", level: 3, text: "Subsection" },
+  { id: "detail", level: 4, text: "Detail" },
+  { id: "finer", level: 5, text: "Finer" },
+  { id: "finest", level: 6, text: "Finest" },
+];
+
 const searchDefaults = {
   searchQuery: "",
   onSearchChange: () => {},
@@ -43,6 +53,35 @@ describe("OutlinePanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Section A" }));
     expect(handleSelect).toHaveBeenCalledWith("section-a");
+  });
+
+  it("h4–h6 条目带层级类，但编号仍只给 h1", () => {
+    render(<OutlinePanel headings={deepHeadings} {...searchDefaults} />);
+
+    for (const [level, text] of [
+      [1, "Title"],
+      [2, "Section A"],
+      [3, "Subsection"],
+      [4, "Detail"],
+      [5, "Finer"],
+      [6, "Finest"],
+    ] as const) {
+      expect(screen.getByRole("button", { name: text })).toHaveClass(`outline-panel__link--l${level}`);
+    }
+
+    // 中文数字是「章」的记号：只给 h1，深层级不带「四、」这类编号
+    expect(screen.getByRole("button", { name: "Title" })).toHaveTextContent("一、");
+    expect(screen.getByRole("button", { name: "Detail" })).not.toHaveTextContent("、");
+  });
+
+  it("点击 h4 条目把 id 交给 onSelectHeading（跳转与 h1–h3 同一条路径）", () => {
+    const handleSelect = vi.fn();
+    render(
+      <OutlinePanel headings={deepHeadings} onSelectHeading={handleSelect} {...searchDefaults} />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Detail" }));
+    expect(handleSelect).toHaveBeenCalledWith("detail");
   });
 
   it("shows empty message when no headings", () => {

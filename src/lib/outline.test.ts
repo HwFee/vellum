@@ -11,9 +11,75 @@ describe("extractOutline", () => {
     ]);
   });
 
-  it("ignores h4, h5, h6", () => {
+  it("stops at h6: seven hashes are a paragraph, not a heading", () => {
+    expect(extractOutline("####### Not a heading\n")).toEqual([]);
+  });
+
+  it("extracts h4–h6 nested under h1–h3 in a mixed long document", () => {
+    const markdown = [
+      "# 第一章",
+      "## 第一节",
+      "### 小节",
+      "#### 细节",
+      "##### 更细",
+      "###### 最细",
+      "## 第二节",
+      "#### 第二节的细节",
+      "",
+    ].join("\n");
+
+    const outline = extractOutline(markdown);
+    expect(outline.map((h) => [h.level, h.text])).toEqual([
+      [1, "第一章"],
+      [2, "第一节"],
+      [3, "小节"],
+      [4, "细节"],
+      [5, "更细"],
+      [6, "最细"],
+      [2, "第二节"],
+      [4, "第二节的细节"],
+    ]);
+
+    // 嵌套逻辑与 h1–h3 同一套：h4–h6 挂到最近的上级标题下，同级/更高级另起一枝
+    expect(buildOutlineTree(outline)).toEqual([
+      {
+        id: "第一章", level: 1, text: "第一章",
+        children: [
+          {
+            id: "第一节", level: 2, text: "第一节",
+            children: [
+              {
+                id: "小节", level: 3, text: "小节",
+                children: [
+                  {
+                    id: "细节", level: 4, text: "细节",
+                    children: [
+                      {
+                        id: "更细", level: 5, text: "更细",
+                        children: [{ id: "最细", level: 6, text: "最细", children: [] }],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            id: "第二节", level: 2, text: "第二节",
+            children: [{ id: "第二节的细节", level: 4, text: "第二节的细节", children: [] }],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("extracts h4, h5, h6", () => {
     const markdown = `#### H4\n##### H5\n###### H6\n`;
-    expect(extractOutline(markdown)).toEqual([]);
+    expect(extractOutline(markdown)).toEqual([
+      { id: "h4", level: 4, text: "H4" },
+      { id: "h5", level: 5, text: "H5" },
+      { id: "h6", level: 6, text: "H6" },
+    ]);
   });
 
   it("deduplicates ids", () => {
@@ -210,6 +276,17 @@ describe("buildOutlineTree", () => {
 });
 
 describe("matchHeadingByFragment", () => {
+  // h4–h6 也进大纲 ⇒ 片段能落到深层级标题上（wikilink 片段跳转与点大纲共用同一条路径）
+  it("h4 片段按标题原文命中（深层级同样可跳）", () => {
+    const headings = extractOutline("# 台账\n\n#### Day 10\n");
+
+    expect(matchHeadingByFragment(headings, "Day 10")).toEqual({
+      id: "day-10",
+      level: 4,
+      text: "Day 10",
+    });
+  });
+
   // 语料里最常见的写法：`[[note#Day 10]]`，片段就是标题原文
   it("Day 10 形态的片段按标题原文整段命中", () => {
     const headings = extractOutline("# 台账\n\n## Day 10\n\n## Day 11\n");

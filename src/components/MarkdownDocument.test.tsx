@@ -196,6 +196,19 @@ describe("MarkdownDocument", () => {
     expect(screen.getByRole("heading", { name: "Section" })).toHaveAttribute("id", "section");
   });
 
+  it("h4–h6 与 h1–h3 同源分配 id：大纲条目的 id 就是正文标题 id（点击跳转靠 getElementById）", () => {
+    const markdown = ["# Title", "", "### Sub", "", "#### Detail", "", "###### Finest"].join("\n");
+    const headings = extractOutline(markdown);
+
+    render(<MarkdownDocument markdown={markdown} headings={headings} />);
+
+    expect(screen.getByRole("heading", { name: "Detail" })).toHaveAttribute("id", "detail");
+    expect(screen.getByRole("heading", { name: "Finest" })).toHaveAttribute("id", "finest");
+    for (const heading of headings) {
+      expect(document.getElementById(heading.id)).not.toBeNull();
+    }
+  });
+
   it("handles duplicate heading text with unique ids from the outline", () => {
     render(
       <MarkdownDocument

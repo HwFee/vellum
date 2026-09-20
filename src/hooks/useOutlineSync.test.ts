@@ -81,6 +81,34 @@ describe("useOutlineSync", () => {
     document.body.removeChild(container);
   });
 
+  it("h4–h6 同在跟随范围内（层级只影响侧栏降档，跟随按 id 工作）", () => {
+    const headings: OutlineHeading[] = [
+      { id: "title", level: 1, text: "Title" },
+      { id: "detail", level: 4, text: "Detail" },
+      { id: "finest", level: 6, text: "Finest" },
+    ];
+
+    const container = document.createElement("div");
+    container.innerHTML =
+      '<h1 id="title">Title</h1><h4 id="detail">Detail</h4><h6 id="finest">Finest</h6>';
+    document.body.appendChild(container);
+
+    const { result } = renderHook(() => {
+      const contentRef = useRef<HTMLDivElement | null>(container as unknown as HTMLDivElement);
+      return useOutlineSync(contentRef, headings);
+    });
+
+    expect(observers[0].observedElements).toEqual([
+      document.getElementById("title"),
+      document.getElementById("detail"),
+      document.getElementById("finest"),
+    ]);
+    // 顶部兜底激活文档顺序第一个标题（h1）
+    expect(result.current).toBe("title");
+
+    document.body.removeChild(container);
+  });
+
   it("returns undefined when no headings are provided", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
