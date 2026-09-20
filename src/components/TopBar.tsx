@@ -181,7 +181,8 @@ export function TopBar({
         {readerSettings && onReaderSettingsChange && (
           <>
             <span className="top-bar__divider" aria-hidden="true" />
-            {/* 弹层的定位上下文：absolute 于齿轮下方右侧，点外部 / Escape 由 SettingsPopover 自理 */}
+            {/* 弹层的定位上下文：absolute 于齿轮下方、左缘对齐（齿轮在左簇末尾，右对齐会
+                把弹层左缘推出窗口），点外部 / Escape 由 SettingsPopover 自理 */}
             <div className="settings-anchor">
               <button
                 ref={settingsButtonRef}

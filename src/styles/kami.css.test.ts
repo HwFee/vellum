@@ -567,6 +567,18 @@ describe("kami.css 阅读设置变量消费", () => {
     expect(popoverIndex).toBeGreaterThan(-1);
     expect(popoverIndex).toBeLessThan(mdlogIndex);
   });
+
+  it("设置弹层左缘对齐齿轮（右对齐会把弹层推出窗口左缘）", () => {
+    // 齿轮在顶栏左侧按钮簇末尾（x≈193），弹层宽 236px：`right: 0` 实测 left = −15px，
+    // 14px 内边距整个被窗口左缘切掉、行标签与「恢复默认」贴死边缘（2026-09-20 真机截图）。
+    const anchor = css.match(/\.settings-anchor\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(anchor).toMatch(/position:\s*relative/);
+
+    const popover = css.match(/^\.settings-popover\s*\{[^}]*\}/m)?.[0] ?? "";
+    expect(popover).not.toBe("");
+    expect(popover).toMatch(/left:\s*0/);
+    expect(popover).not.toMatch(/right:\s*0/);
+  });
 });
 
 describe("kami.css reader-polish task-3 小修（2026-09-20）", () => {

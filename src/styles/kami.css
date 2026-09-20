@@ -266,7 +266,12 @@ textarea {
   background: var(--hairline);
 }
 
-/* 齿轮与弹层的定位上下文：弹层绝对定位于齿轮下方、右缘与齿轮对齐 */
+/* 齿轮与弹层的定位上下文：弹层绝对定位于齿轮下方，**左缘**与齿轮对齐。
+   齿轮在顶栏左侧按钮簇末尾（实测 x≈193），弹层宽 236px——右对齐（`right: 0`）会把弹层
+   左缘推到窗口外（实测 left = −15px：14px 内边距整个被切掉，行标签与「恢复默认」贴死在
+   窗口左缘），故只能左对齐、让弹层向右伸进窗口内部。
+   右缘保护刻意不加：窗口最小宽 520px（`tauri.conf.json` 的 minWidth），左对齐后弹层右缘
+   约 431px，留 ~89px 余量（headless Chrome 实测 520/980 两档都不裁）。 */
 .settings-anchor {
   position: relative;
   display: inline-flex;
@@ -275,7 +280,7 @@ textarea {
 .settings-popover {
   position: absolute;
   top: calc(100% + 8px);
-  right: 0;
+  left: 0;
   z-index: 850;
   width: 236px;
   padding: 10px 14px 12px;
