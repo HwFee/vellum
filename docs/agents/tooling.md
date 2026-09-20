@@ -187,15 +187,20 @@ node promo/build-assets.mjs
 
 - 自动更新走 `tauri-plugin-updater`：Rust 侧在 `src-tauri/src/main.rs` 注册（`tauri_plugin_updater::Builder::new().build()`），npm 侧 `@tauri-apps/plugin-updater`；检查挂在 `src/main.tsx` 的启动路径上。
   - **只在生产构建里跑**（`import.meta.env.PROD` 守卫）：dev 实例不该被 release 包自动替换。无更新 / 检查失败 / 更新失败一律静默（失败时把已出的提示撤掉，只落 console）；拿到更新就**先出提示再下载**——Windows 上安装会拉起安装器并退出进程，这条提示是「应用即将关闭」的唯一预警。
-- **发布前必须先有签名密钥对**：`npm run tauri signer generate -- -w ~/.tauri/vellum.key`（等价于 `tauri signer generate`，会一并打印公钥），把**公钥**填进 `tauri.conf.json` 的 `plugins.updater.pubkey`。
+- **发布前必须先有签名密钥对**：`npm run tauri signer generate -- -w "%USERPROFILE%\.tauri\vellum.key"`（等价于 `tauri signer generate`，会一并打印公钥），把**公钥**填进 `tauri.conf.json` 的 `plugins.updater.pubkey`。
+  - **`-w` 要给 Windows 绝对路径**：cmd 不展开 `~`，写 `~/.tauri/vellum.key` 会在当前目录建出一个名字真叫 `~` 的目录（Git Bash 里 `~` 才有意义，别照抄 Unix 文档）。
   - 当前 `pubkey` 是占位串 `PLACEHOLDER_REPLACE_WITH_TAURI_SIGNER_GENERATE_PUBKEY`：占位状态下 `download()` 的签名校验必然失败 ⇒ 更新链路整体 inert，不会误装任何包。这也是「自动更新不会在开发机上乱动」的第二层保险。
   - 私钥与其密码只进 CI secret（`TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`），**不入库**。
-- `bundle.createUpdaterArtifacts: true` 已开：打包额外产出安装包的 `.sig` 签名文件（NSIS 下是 `*-setup.exe` 与 `*-setup.nsis.zip` 各一份 `.sig`）。
+- **时序红线：先换真公钥，再让 CI 产出并上传 `latest.json`**（反过来做会伤到每个用户）：`check()` 只看 endpoint 上的 `version`，**不验签**——只要 `latest.json` 在，占位 pubkey 期间的每个实例都会把 ~21MB 安装包整个下完，然后卡在 `download()` 的签名校验上失败。用户看到的是提示条闪一下又消失（失败静默），代价是白下载一次；每次启动都来一遍。正确顺序：① `signer generate` ② 公钥进 `tauri.conf.json` 并发版 ③ 才开始产 `latest.json`。
+- `bundle.createUpdaterArtifacts: true` 已开：打包额外产出安装包的 `.sig`（2026-09-20 实测 NSIS 只产出**一份** `bundle/nsis/*-setup.exe.sig`，没有 `.nsis.zip`——`.exe` 本体就是更新包，插件侧走 `extract_exe`）。
 - **开了它之后，打包就必须有私钥**（2026-09-20 实测，别被误导）：`npx tauri bundle`（`npm run tauri build` 同理）会**先把安装包产出来**，再报
   `A public key has been found, but no private key. Make sure to set TAURI_SIGNING_PRIVATE_KEY environment variable.`
   并以**退出码 1** 结束——即 `bundle/nsis/*.exe` 在，命令算失败，且没有 `.sig`。
+  - 实测**只有 `TAURI_SIGNING_PRIVATE_KEY`（密钥串本身）被认**；把 `TAURI_SIGNING_PRIVATE_KEY_PATH` 指到 Windows 路径那次仍报 no private key（未深究，CI 用密钥串即可）。设对之后退出码 0，并多出一行 `Finished 1 updater signature at: ...\*-setup.exe.sig`。
   - 只想在本地验证打包链路：要么设 `TAURI_SIGNING_PRIVATE_KEY`（+ `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`），要么临时把 `bundle.createUpdaterArtifacts` 改回 `false`（验证完记得改回来，否则不发 `.sig`，更新链路永远失败）。
 - **`latest.json` 不由本地打包产出**：按 Tauri 的格式（`version` / `pub_date` / `platforms."windows-x86_64".{url,signature}`）由 CI / 发布流程生成，作为 release 资产上传；endpoint 固定指向 `https://github.com/HwFee/vellum/releases/latest/download/latest.json`。
+- **`plugins.updater.requireSignedVersion` 现在不能开**（2026-09-20 实测，评审建议的硬化项）：插件从签名 trusted comment 里读 `version:` 字段来比对 endpoint 公告的版本（`tauri-plugin-updater/src/updater.rs` 的 `verify_signed_version`），开了之后**签名里没有该字段就直接 `Err(MissingSignedVersion)`**。而本仓库 pin 的 CLI（`@tauri-apps/cli` 2.11.4）签出来的 trusted comment 只有 `timestamp:` 与 `file:`——把刚打出来的 `*-setup.exe.sig` base64 解开看，形如
+  `trusted comment: timestamp:1789901448\tfile:Vellum_1.8.1_x64-setup.exe`，**没有 `version:`**。结论：现在打开它 = 每一次更新都验签失败（更新链路整体死掉），比默认的「可被构造响应强制降级」更糟。等 CLI 版本开始在 trusted comment 里写 `version:`（用同一手法解一个 `.sig` 确认）之后再开，并注意届时旧 release 的签名仍无该字段、需要重签重发。
 - CSP 的 `connect-src` 额外放了 endpoint 域名 `https://github.com`。实际的 HTTP 请求在 Rust 侧（reqwest）发出，CSP 管不到它——这一条是防御性声明，别据此推断「更新走 webview fetch」。
 - 真机更新链路（拉起 NSIS 安装器 → 进程退出 → 重启到新版本）**需要真公钥 + 真实 release 才能验证**，未纳入本轮验收；Windows 上 `install()` 会先 `ShellExecuteW` 安装器再 `std::process::exit(0)`，因此「重启后生效」那条提示在 Windows 上基本看不到（下载阶段那条能看到）。
 
