@@ -219,7 +219,8 @@ export default function App() {
     [beginWidthTransition, setReaderSettings]
   );
 
-  // 全局快捷键：⌘K / Ctrl+K 聚焦搜索框，Ctrl+E 切换编辑视图，Ctrl+S 提交当前块。
+  // 全局快捷键：⌘K / Ctrl+K 聚焦搜索框，Ctrl+B 切换侧栏开关（所有宽度下，含侧栏已开时
+  // 关闭——搜索框聚焦也不吞），Ctrl+E 切换编辑视图，Ctrl+S 提交当前块。
   // 依赖里只有侧栏开关（其余经 editorRef/callback ref 读取），热重载与每次按键都不重新订阅。
   useEffect(() => {
     function handleGlobalShortcut(event: KeyboardEvent) {
@@ -244,8 +245,15 @@ export default function App() {
         return;
       }
 
+      if (key === "b") {
+        event.preventDefault();
+        toggleOutlinePinned();
+        return;
+      }
+
       if (key === "k") {
         event.preventDefault();
+        // 侧栏已开（搜索框可能已聚焦）时只保焦，第二次按下不动作；关闭走 Ctrl+B
         if (!isOutlineOpen) {
           setOutlineOpenPinned(true);
         }
@@ -255,7 +263,7 @@ export default function App() {
     }
     window.addEventListener("keydown", handleGlobalShortcut);
     return () => window.removeEventListener("keydown", handleGlobalShortcut);
-  }, [isOutlineOpen, setOutlineOpenPinned]);
+  }, [isOutlineOpen, setOutlineOpenPinned, toggleOutlinePinned]);
 
   const scheduleRecheck = useCallback((liveState: MdlogState | null) => {
     if (recheckTimerRef.current !== null) {
@@ -1117,6 +1125,7 @@ export default function App() {
         onOpen={handleOpen}
         isOutlineOpen={isOutlineOpen}
         onToggleOutline={toggleOutlinePinned}
+        isRecording={isMdlogActive}
         isEditing={editor.viewMode === "editing"}
         canEdit={!isMdlogActive}
         onToggleEdit={handleToggleEdit}
@@ -1159,8 +1168,8 @@ export default function App() {
           />
         </aside>
         {/* 侧边栏宽度手柄：骑跨侧栏右缘边线（aside overflow:hidden，须作兄弟节点外置），
-            拖拽调宽 200–320px，双击复位默认宽度 */}
-        {isOutlineOpen && (
+            拖拽调宽 200–320px，双击复位默认宽度；窄屏下正文不位移（浮层模式），拖了无意义，不渲染 */}
+        {isOutlineOpen && !isNarrow && (
           <div
             className="outline-resize-handle"
             role="separator"
@@ -1186,7 +1195,7 @@ export default function App() {
                   加载中...
                 </section>
               ) : null}
-              {state.status === "error" ? <ErrorState message={state.message} path={state.path} /> : null}
+              {state.status === "error" ? <ErrorState message={state.message} path={state.path} onRetry={handleOpen} /> : null}
               {state.status === "ready" ? (
                 <>
                   {/* 文档标题（Obsidian 的 inline title）：取自文件名，落在正文首行。

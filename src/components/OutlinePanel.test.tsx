@@ -69,6 +69,38 @@ describe("OutlinePanel", () => {
     }
   });
 
+  it("idle 态搜索框 kbd chip 提示 Ctrl K（Windows 应用，不用 ⌘）", () => {
+    render(<OutlinePanel headings={sampleHeadings} {...searchDefaults} />);
+    expect(screen.getByText("Ctrl K")).toBeInTheDocument();
+  });
+
+  it("查询非空且 0 匹配时计数位显示「无匹配」，计数容器带 aria-live", () => {
+    render(
+      <OutlinePanel headings={sampleHeadings} {...searchDefaults} searchQuery="zzz" matchCount={0} />
+    );
+    const count = screen.getByText("无匹配");
+    expect(count).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("有查询时显示清除按钮，点击清空并保焦", () => {
+    const handleSearchChange = vi.fn();
+    const inputRef = createRef<HTMLInputElement>();
+    render(
+      <OutlinePanel
+        headings={sampleHeadings}
+        {...searchDefaults}
+        searchQuery="sec"
+        matchCount={2}
+        onSearchChange={handleSearchChange}
+        searchInputRef={inputRef}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "清除搜索" }));
+    expect(handleSearchChange).toHaveBeenCalledWith("");
+    expect(document.activeElement).toBe(inputRef.current);
+  });
+
   it("follows the active outline item even while search is active", () => {
     // 激活项在列表滚动区视口下方，跟随触发时一定会启动 rAF 缓动动画
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {

@@ -52,6 +52,15 @@ function ChevronDownIcon() {
   );
 }
 
+function ClearIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="7" y1="7" x2="17" y2="17" />
+      <line x1="17" y1="7" x2="7" y2="17" />
+    </svg>
+  );
+}
+
 function OutlineItems({
   nodes,
   activeHeadingId,
@@ -170,8 +179,8 @@ export function OutlinePanel({
         />
         {isSearching ? (
           <span className="outline-search__results">
-            <span className="outline-search__count">
-              {matchCount > 0 ? `${activeMatchIndex + 1}/${matchCount}` : "0/0"}
+            <span className="outline-search__count" aria-live="polite">
+              {matchCount > 0 ? `${activeMatchIndex + 1}/${matchCount}` : "无匹配"}
             </span>
             <button type="button" className="outline-search__nav" onClick={onPrevMatch} aria-label="上一个匹配" title="上一个 (Shift+Enter)">
               <ChevronUpIcon />
@@ -179,9 +188,21 @@ export function OutlinePanel({
             <button type="button" className="outline-search__nav" onClick={onNextMatch} aria-label="下一个匹配" title="下一个 (Enter)">
               <ChevronDownIcon />
             </button>
+            <button
+              type="button"
+              className="outline-search__nav outline-search__clear"
+              aria-label="清除搜索"
+              title="清除搜索"
+              onClick={() => {
+                onSearchChange("");
+                searchInputRef.current?.focus();
+              }}
+            >
+              <ClearIcon />
+            </button>
           </span>
         ) : (
-          <kbd className="outline-search__kbd">⌘K</kbd>
+          <kbd className="outline-search__kbd">Ctrl K</kbd>
         )}
       </div>
 

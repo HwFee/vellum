@@ -2380,6 +2380,23 @@ test("空态按 Ctrl+E 不进入编辑视图（顶栏不呈按下态）", () => 
   );
 });
 
+test("Ctrl+B 切换侧栏开关，焦点在搜索框上时也能关闭", () => {
+  render(<App />);
+  expect(document.querySelector(".outline-sidebar--open")).toBeNull();
+
+  fireEvent.keyDown(window, { key: "b", ctrlKey: true });
+  expect(document.querySelector(".outline-sidebar--open")).toBeInTheDocument();
+
+  // 侧栏已开且搜索框聚焦：Ctrl+K 只保焦不关闭，关闭必须走 Ctrl+B
+  const searchInput = screen.getByLabelText("搜索文档内容");
+  searchInput.focus();
+  fireEvent.keyDown(searchInput, { key: "k", ctrlKey: true });
+  expect(document.querySelector(".outline-sidebar--open")).toBeInTheDocument();
+
+  fireEvent.keyDown(searchInput, { key: "b", ctrlKey: true });
+  expect(document.querySelector(".outline-sidebar--open")).toBeNull();
+});
+
 test("全局 Ctrl+S 拦截 WebView 默认保存并在有活动块时提交", async () => {
   await loadDocument();
 

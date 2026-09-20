@@ -18,6 +18,24 @@ describe("TopBar", () => {
     expect(screen.getByRole("button", { name: "打开文件" })).toBeInTheDocument();
   });
 
+  it("大纲切换与打开文件按钮补 tooltip，与编辑切换一致", () => {
+    render(<TopBar onOpen={vi.fn()} isOutlineOpen={false} onToggleOutline={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "切换大纲" })).toHaveAttribute(
+      "title",
+      "切换大纲（Ctrl+B）"
+    );
+    expect(screen.getByRole("button", { name: "打开文件" })).toHaveAttribute("title", "打开文件");
+  });
+
+  it("mdlog 记录中时在路径右侧显示「记录中」小章", () => {
+    const { rerender } = render(<TopBar onOpen={vi.fn()} parentPath="C:/notes" />);
+    expect(screen.queryByText("记录中")).toBeNull();
+
+    rerender(<TopBar onOpen={vi.fn()} parentPath="C:/notes" isRecording />);
+    expect(screen.getByText("记录中")).toBeInTheDocument();
+  });
+
   it("calls onToggleOutline when the outline toggle is clicked", () => {
     const handleToggle = vi.fn();
     render(<TopBar onOpen={vi.fn()} isOutlineOpen={false} onToggleOutline={handleToggle} />);

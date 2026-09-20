@@ -76,6 +76,8 @@ type TopBarProps = {
   onOpen: () => void;
   isOutlineOpen?: boolean;
   onToggleOutline?: () => void;
+  /// mdlog 记录中：路径右侧显示「记录中」小章（记录状态不只出现在文档尾部）
+  isRecording?: boolean;
   /// 是否处于编辑视图（按钮呈按下态）
   isEditing?: boolean;
   /// mdlog 记录中为 false：按钮禁用并提示断开连接后才能修改
@@ -91,6 +93,7 @@ export function TopBar({
   onOpen,
   isOutlineOpen = false,
   onToggleOutline,
+  isRecording = false,
   isEditing = false,
   canEdit = true,
   onToggleEdit,
@@ -124,7 +127,7 @@ export function TopBar({
         >
           {isEditing ? <BookIcon /> : <PenIcon />}
         </button>
-        <button className="open-button" type="button" aria-label="打开文件" onClick={onOpen}>
+        <button className="open-button" type="button" aria-label="打开文件" title="打开文件" onClick={onOpen}>
           <OpenIcon />
         </button>
         {readerSettings && onReaderSettingsChange && (
@@ -160,6 +163,7 @@ export function TopBar({
         <div className="top-bar__path">
           {parentPath ? compactPath(parentPath) : "未打开文件"}
         </div>
+        {isRecording && <span className="top-bar__recording">记录中</span>}
       </div>
       <div className="window-controls" data-tauri-drag-region="false">
         <button

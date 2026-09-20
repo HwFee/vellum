@@ -22,6 +22,7 @@ export function OutlineToggle({ isOpen, onToggle }: OutlineToggleProps) {
       className="outline-toggle"
       aria-label="切换大纲"
       aria-pressed={isOpen}
+      title="切换大纲（Ctrl+B）"
       onClick={onToggle}
     >
       <OutlineIcon />
