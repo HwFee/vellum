@@ -38,7 +38,7 @@
 - **`.button.button-primary` 补 `height: 32px` 与 `:active`**：内边距单独撑高会随字体度量漂，两个页面的实色按钮高度对不齐；按下态只压深底色、不位移（正文 `button:active` 的 1px 下沉是正文控件的语汇）。
 - **`SettingsPopover` 的 `Escape` 加 `stopPropagation`**：窄屏下 `Escape` 同时是「关侧栏」的入口，不拦会一次按键关两层。
 - **打印隐藏 `.mdlog-live` 的规则曾因级联顺序失效**：它原先写在主打印段（文件前段），而 `.mdlog-live` 的屏幕态规则（`display: flex`）在 mdlog 区段、也就是主打印段**之后**——媒体查询不参与特异度与来源序，同特异度（0,1,0）下靠后的屏幕态规则照样胜出，打印件里那枚「记录中 · PI」小章根本没被隐藏（它是状态指示器，不是文档内容，打印件里不该出现）。现移入文件末尾那段打印规则（与交互块那条同段，收纳的都是「屏幕态规则排在主段之后」的选择器），`kami.css.test.ts` 同步补两条断言（主段清单**不含** `.mdlog-live`、末段覆写排在屏幕态规则之后）。headless Chrome 打印媒体实测：修前 `print` 下仍是 `flex`，修后 `none`（同一引擎里另做了「覆写放屏幕态之前 ⇒ 输掉」的对照）。
-- **测试补齐**：`ErrorState` 的「重新打开」接线用例（连点两次各触发一次、未接线时不渲染按钮）、`Ctrl+P` 的 `printSpy.mockRestore()`（本套件没有全局 `restoreMocks`，不还原会跟着后面的用例跑）与 `Ctrl+Shift+P` 不打印用例、`useReaderSettings` 的「启动恢复只读不写」用例、`OutlinePanel` 的 pending 用例、`SettingsPopover` 的 Escape 不冒泡用例、`kami.css.test.ts` 的实色按钮 / 清除按钮 / 打印隐藏清单与级联顺序断言、`scrollInput` 的 Alt 例外用例。测试数 903 → **913**（45 个测试文件）。
+- **测试补齐**：`ErrorState` 的「重新打开」接线用例（连点两次各触发一次、未接线时不渲染按钮）、`Ctrl+P` 的 `printSpy.mockRestore()`（本套件没有全局 `restoreMocks`，不还原会跟着后面的用例跑）与 `Ctrl+Shift+P` 不打印用例、`useReaderSettings` 的「启动恢复只读不写」用例、`OutlinePanel` 的 pending 用例、`SettingsPopover` 的 Escape 不冒泡用例、`kami.css.test.ts` 的实色按钮 / 清除按钮 / 打印隐藏清单与级联顺序断言、`scrollInput` 的 Alt 例外用例、弹层锚定断言（`left: 0` 且不得 `right: 0`）。测试数 903 → **914**（45 个测试文件）。
 
 ### 工具
 

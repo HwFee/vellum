@@ -140,7 +140,7 @@ node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/ex
   - **顶栏去标题 + 标题贴顶后为 165.59KB**（`index-BrRc41wR.js`，−0.09KB：`.top-bar__title` 连同它的 DOM 一并移除，抵消了 `:has()` 两条上移规则）。
 - 阅读器完善计划（2026-09-20，task 2–12）：
   - **计划各任务落地后为 184.19KB**（controller 记录，未逐任务留档）：设置面板 / 最近打开 / 导航历史 / h1–h6 大纲 / 任务勾选 / 打印样式 / 自动更新 / UI 修复批量一批增量累计 +18.6KB（设置变量消费、`recentFiles.ts`、`navHistory.ts`、`taskList.ts`、`scrollRestore` 复用、updater 启动检查、几处渲染与快捷键接线）。
-  - **终验 fix wave 后为 184.43KB**（`index-icw-KE6P.js`，gzip 52.53KB，再 +0.24KB：代际 getter 接线、搜索 pending 抑帧、`Ctrl+P` 守卫、提示条 key 前缀、`isScrollInputKey`、阅读设置落盘改 effect）——**2026-09-20 终验实测**（`npm test` 45 文件 / 913 用例全绿、`npm run build` 通过）。同一轮复审的打印级联修复只改了 CSS 与断言：JS 尺寸不变（184.43KB / gzip 52.53KB），只换了内容哈希（`index-BJne7Dx_.js` → `index-icw-KE6P.js`）；入口 CSS 从 33.41KB / gzip 6.82KB 涨到 **33.43KB / gzip 6.83KB**（`index-j3mC1w28.css`，**+13 字节 = 末尾段新增 `.mdlog-live{display:none}`（25 字节）− 主段清单去掉 `,.mdlog-live`（12 字节）**，即规则挪位本身；与注释无关——生产 CSS 经压缩、注释已被剥离，`grep -c` 在产物里找不到注释文字）。
+  - **终验 fix wave 后为 184.43KB**（`index-icw-KE6P.js`，gzip 52.53KB，再 +0.24KB：代际 getter 接线、搜索 pending 抑帧、`Ctrl+P` 守卫、提示条 key 前缀、`isScrollInputKey`、阅读设置落盘改 effect）——**2026-09-20 终验实测**（`npm test` 45 文件 / 914 用例全绿（终验后又 +1：弹层锚定断言）、`npm run build` 通过）。同一轮复审的打印级联修复只改了 CSS 与断言：JS 尺寸不变（184.43KB / gzip 52.53KB），只换了内容哈希（`index-BJne7Dx_.js` → `index-icw-KE6P.js`）；入口 CSS 从 33.41KB / gzip 6.82KB 涨到 **33.43KB / gzip 6.83KB**（`index-j3mC1w28.css`，**+13 字节 = 末尾段新增 `.mdlog-live{display:none}`（25 字节）− 主段清单去掉 `,.mdlog-live`（12 字节）**，即规则挪位本身；与注释无关——生产 CSS 经压缩、注释已被剥离，`grep -c` 在产物里找不到注释文字）。
 - 若后续继续增长，按裁定 F11 的退路把单元计算移回 lazy 侧。
 
 ## 注意事项
