@@ -161,7 +161,7 @@ node promo/build-assets.mjs
   - **顶栏去标题 + 标题贴顶后为 165.59KB**（`index-BrRc41wR.js`，−0.09KB：`.top-bar__title` 连同它的 DOM 一并移除，抵消了 `:has()` 两条上移规则）。
 - 阅读器完善计划（2026-09-20，task 2–12）：
   - **计划各任务落地后为 184.19KB**（controller 记录，未逐任务留档）：设置面板 / 最近打开 / 导航历史 / h1–h6 大纲 / 任务勾选 / 打印样式 / 自动更新 / UI 修复批量一批增量累计 +18.6KB（设置变量消费、`recentFiles.ts`、`navHistory.ts`、`taskList.ts`、`scrollRestore` 复用、updater 启动检查、几处渲染与快捷键接线）。
-  - **终验 fix wave 后为 184.43KB**（`index-icw-KE6P.js`，gzip 52.53KB，再 +0.24KB：代际 getter 接线、搜索 pending 抑帧、`Ctrl+P` 守卫、提示条 key 前缀、`isScrollInputKey`、阅读设置落盘改 effect）——**2026-09-20 终验实测**（`npm test` 45 文件 / 913 用例全绿、`npm run build` 通过；入口 CSS `index-j3mC1w28.css` 33.43KB / gzip 6.83KB，含复审轮那条打印级联修复的注释——CSS 尺寸与 JS 尺寸都不变，只换了内容哈希）。
+  - **终验 fix wave 后为 184.43KB**（`index-icw-KE6P.js`，gzip 52.53KB，再 +0.24KB：代际 getter 接线、搜索 pending 抑帧、`Ctrl+P` 守卫、提示条 key 前缀、`isScrollInputKey`、阅读设置落盘改 effect）——**2026-09-20 终验实测**（`npm test` 45 文件 / 913 用例全绿、`npm run build` 通过）。同一轮复审的打印级联修复只改了 CSS 注释与断言：JS 尺寸不变（184.43KB / gzip 52.53KB），只换了内容哈希（`index-BJne7Dx_.js` → `index-icw-KE6P.js`）；入口 CSS 从 33.41KB / gzip 6.82KB 涨到 **33.43KB / gzip 6.83KB**（`index-j3mC1w28.css`，注释 +0.02KB）。
 - 若后续继续增长，按裁定 F11 的退路把单元计算移回 lazy 侧。
 
 ## 注意事项
@@ -189,7 +189,7 @@ node promo/build-assets.mjs
   - **只在生产构建里跑**（`import.meta.env.PROD` 守卫）：dev 实例不该被 release 包自动替换。无更新 / 检查失败 / 更新失败一律静默（失败时把已出的提示撤掉，只落 console）；拿到更新就**先出提示再下载**——Windows 上安装会拉起安装器并退出进程，这条提示是「应用即将关闭」的唯一预警。
 - **发布前必须先有签名密钥对**：`npm run tauri signer generate -- -w "%USERPROFILE%\.tauri\vellum.key"`（等价于 `tauri signer generate`，会一并打印公钥），把**公钥**填进 `tauri.conf.json` 的 `plugins.updater.pubkey`。
   - **`-w` 要给 Windows 绝对路径**：cmd 不展开 `~`，写 `~/.tauri/vellum.key` 会在当前目录建出一个名字真叫 `~` 的目录（Git Bash 里 `~` 才有意义，别照抄 Unix 文档）。
-  - 当前 `pubkey` 是占位串 `PLACEHOLDER_REPLACE_WITH_TAURI_SIGNER_GENERATE_PUBKEY`：占位状态下 `download()` 的签名校验必然失败 ⇒ 更新链路整体 inert，不会误装任何包。这也是「自动更新不会在开发机上乱动」的第二层保险。
+  - 当前 `pubkey` 是占位串 `PLACEHOLDER_REPLACE_WITH_TAURI_SIGNER_GENERATE_PUBKEY`：占位状态下 `download()` 的签名校验必然失败 ⇒ **install 步 inert**（不会误装任何包，这也是「自动更新不会在开发机上乱动」的第二层保险），但 **download 步不 inert**：`check()` 不验签，endpoint 上只要有 `latest.json`，安装包会被真的下完（~21MB，见下条时序红线）。
   - 私钥与其密码只进 CI secret（`TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`），**不入库**。
 - **时序红线：先换真公钥，再让 CI 产出并上传 `latest.json`**（反过来做会伤到每个用户）：`check()` 只看 endpoint 上的 `version`，**不验签**——只要 `latest.json` 在，占位 pubkey 期间的每个实例都会把 ~21MB 安装包整个下完，然后卡在 `download()` 的签名校验上失败。用户看到的是提示条闪一下又消失（失败静默），代价是白下载一次；每次启动都来一遍。正确顺序：① `signer generate` ② 公钥进 `tauri.conf.json` 并发版 ③ 才开始产 `latest.json`。
 - `bundle.createUpdaterArtifacts: true` 已开：打包额外产出安装包的 `.sig`（2026-09-20 实测 NSIS 只产出**一份** `bundle/nsis/*-setup.exe.sig`，没有 `.nsis.zip`——`.exe` 本体就是更新包，插件侧走 `extract_exe`）。
