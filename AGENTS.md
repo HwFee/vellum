@@ -19,7 +19,7 @@ Tauri 2 + React 19 桌面 Markdown 阅读器，Windows 10/11 x64。
 ```bash
 npm run dev          # Vite 开发服务器（端口 1420）
 npm run build        # tsc + vite build
-npm test             # vitest run（45 测试文件，903 用例）
+npm test             # vitest run（45 测试文件，912 用例）
 npm run tauri        # Tauri CLI
 node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wisdom 真实笔记库；库不存在则整体跳过）
 ```
@@ -48,10 +48,10 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 5. `.vellum-unit-wrap` 必须 `display: contents`；`BlockEditor` 的隐藏/锁高/自增高/测量作用在 `resolveTarget()` 选出的「首个有布局盒的元素」上。 → `docs/agents/rendering.md`
 6. 沙箱根溢出保护三条：出网前注入 / 样式必须落在文档内部 / 只作用 `html`、不碰 `body`。 → `docs/agents/widgets.md`
 7. 离屏 widget 停帧降载**禁止改成 `display:none`**（用 `--parked` = `visibility: hidden`）。 → `docs/agents/widgets.md`
-8. **侧栏开关与拖宽的全部入口**（顶栏按钮 / `Ctrl+K` / 窄屏 Escape 与遮罩 / 窄屏选章 / 拖宽手柄）都必须走 `beginWidthTransition()`。 → `docs/agents/rendering.md`
+8. **侧栏开关与拖宽的全部入口**（顶栏按钮 / `Ctrl+B` / `Ctrl+K` / 窄屏 Escape 与遮罩 / 窄屏选章 / 拖宽手柄）都必须走 `beginWidthTransition()`。 → `docs/agents/rendering.md`
 9. 热重载滚动恢复不要改回纯像素恢复；阅读位置恢复不要改回一次性 `ratio × scrollHeight`。 → `docs/agents/rendering.md`
 10. 打包前必须先 `taskkill /IM vellum.exe /F`（`Get-Process vellum` 为空），否则链接阶段报 `os error 5 拒绝访问`。 → `docs/agents/tooling.md`
-11. capabilities 必须有 `core:window:allow-destroy`；CSP 必须含 `connect-src ipc: http://ipc.localhost`。 → `docs/agents/tooling.md`
+11. capabilities 必须有 `core:window:allow-destroy`、`core:window:allow-set-title` 与 `updater:default`；CSP 必须含 `connect-src ipc: http://ipc.localhost`。 → `docs/agents/tooling.md`
 12. `.pi/skills/` 与 `extensions/mdlog` 是目录联接：`git ls-files .pi/skills/` 有输出就是错；别用 `rm -rf` 删那个路径（会顺着联接删真身）。 → `docs/agents/tooling.md`
 13. kami.css 新规则只要含 `.mdlog-widget` 字样，就必须放在首个该选择器出现处**之后**。 → `docs/agents/widgets.md`
 14. katex 版本必须与 rehype-katex 嵌套依赖的 katex 严格同版（当前均 0.16.47）。 → `docs/agents/rendering.md`
@@ -63,6 +63,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 ## 关键路径
 
 - 应用字体资源：`public/fonts/`（~17MB）。
+- 前端状态与持久化：`src/lib/recentFiles.ts`（最近 8 篇，Store key `recentFiles`，含 `lastOpenedPath` 迁移）、`src/lib/navHistory.ts`（wikilink 前进/后退两栈，条目自带三级位置记录）、`src/lib/taskList.ts`（任务标记定位与翻转，绝对偏移纯函数）、`src/hooks/useReaderSettings.ts`（字号/栏宽/行高，覆写根 CSS 变量，改值前须走 `beginWidthTransition()`）。
 - pi 扩展实体：`extensions/mdlog/`（pi 的加载位 `~/.pi/agent/extensions/mdlog` 是指向它的目录联接）；技能联接：`.pi/skills/<skill-name>` → 全局库 `C:/Users/17445/Desktop/HwFee-skills/skills/`。
 - 宣传品：落地页 `promo/index.html`；对外素材 `promo/assets/`（真实窗口截图 / 海报帧 / 社交分享卡）。
 - 真机探针：`scripts/cdp-*.mjs`（`cdp-verify` / `cdp-perf-scroll` / `cdp-sidebar-jump` / `cdp-anchor-synthetic` / `cdp-obsidian-verify`）。

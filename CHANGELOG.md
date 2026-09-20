@@ -4,6 +4,40 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.9.0] - 2026-09-20
+
+### 新增
+
+- **阅读设置面板（顶栏弹层）**：顶栏左侧按钮簇末尾加一枚齿轮幽灵按钮（28×28，`aria-label="阅读设置"`），弹层里三行分段选择器——正文字号 13 / 14 / 16 / 18、栏宽 720 / 800 / 960、行高 1.5 / 1.55 / 1.7，底部「恢复默认」+ mono 小字「自动保存」。设置写进与 `outlineWidth` 同一个 settings Store（key `readerSettings`，逐字段校验、非法值回退默认），生效方式是在 `documentElement` 上覆写 `--reader-font-size` / `--reader-column-width` / `--reader-line-height`，`kami.css` 的正文、表格与文档标题消费这三个变量并带默认值回退——变量挂在根元素、与文档无关，热重载与换文档后继续生效。标题字号阶梯（30 / 21 / 17）与行内 code 的 12px 不随设置缩放（设计定稿）。栏宽 / 字号改动会引起整篇重排，故与侧栏拖宽同路径：改值前先走 `beginWidthTransition()` 钉住视口。点外部或 `Escape` 关闭，`Escape` 分支 `stopPropagation`（栈式语义：窄屏下不连带关侧栏）。
+- **最近打开 + 拖放打开 + 空状态重做**：新增 `src/lib/recentFiles.ts`（Store key `recentFiles`，最多 8 条、按 `isSamePath` 去重置顶，读旧 key `lastOpenedPath` 迁移），每次成功打开文档即置顶，启动恢复改读列表首条。空态重做：保留既有文案与「打开文件…」按钮，下方加「最近打开」列表（文件名 500 字重 + 右侧 mono 10px stone 目录路径，hover ivory 底、文件名转靛青；列表为空则不渲染），再下方一行小字「或将 .md 文件拖入窗口」。拖放走 `getCurrentWebviewWindow().onDragDropEvent`：`enter` / `over` 时正文区亮一道 1px 靛青内描边，`drop` 取**第一个** Markdown 路径走既有打开管线，`leave` 熄灭；非 Markdown 整体忽略。打不开的条目从列表里摘掉，错误页复用同一份最近列表（`RecentFilesList`）。
+- **窗口标题随文档**：`capabilities` 补 `core:window:allow-set-title`，打开文档后走 OS 级 `setTitle("文件名 — 素笺")`（文件名与正文 `h1.document-title` 同源），无文档与加载失败复位为「素笺」，切换文档的 loading 过渡帧**不改写**标题（否则任务栏会闪一帧「素笺」）。顶栏依旧不显示文件名（设计红线）——这条是窗口标题，不是顶栏文本。
+- **wikilink 前进/后退历史**：新增 `src/lib/navHistory.ts`，栈条目 = 离开那篇的路径 + 三级阅读位置记录（两个栈的栈顶方向刻意相反：back 栈顶在末尾、forward 栈顶在开头，故「后退再前进」的次序与浏览器一致）。入栈判据只有一条：**点 wikilink 换文档**（压入 back、清空 forward）；对话框 / 拖放 / 最近列表 / 启动恢复都是「新导航」，不清 back、只作废 forward；后退/前进自身两侧都不动。快捷键 `Alt+←` / `Alt+→`（必须 `preventDefault`：WebView2 把它们当自己的历史导航加速键，不吞就会连页面一起导航走）与顶栏左侧 ‹ › 两个幽灵按钮（无路可走时禁用、不可点）。落位复用 `scrollRestore.ts` 的既有管线，条目自带的位置记录优先于持久化存储里那一份（不受一次失败的写入影响）。换文档在途期间前进/后退整体忽略（不动栈、不发加载）。
+- **大纲收录 h4–h6**：`outline.ts` 的提取范围从 h1–h3 扩到 h1–h6（条目 id 与正文标题 id 同源，新增层级时两侧必须一起改），侧栏里 l4–l6 每级 +14px 缩进、字号降到 12px、色阶 olive → stone（不引新颜色）；中文数字编号仍只给 h1（「章」的记号，深层级不参与）。真实语料（wisdom 库 191 篇）里 0 个 h5/h6。
+- **任务列表勾选写回**：阅读视图里点 GFM 复选框即改源码——`<li>` 的源码起点 → `useDocumentEditor.toggleTask` → `taskList.ts` 在**所属块单元区间内**按序号翻转标记（`*` / `+` / 有序列表、多空格 / Tab 分隔、`[X]` 都认，勾选字符沿用文档里已有的大小写风格），走既有原子写盘管线。乐观更新（`flushSync` 让复选框当场翻转）+ 失败回滚 + `写入失败` 提示。回滚必须过两道守卫：文档代际未变、内存里仍是我写的那份（任一条不成立只报失败、不动内存）。勾选在途串行（`taskChainRef`），链上的后续调用读此刻的源码 / 单元 / 代际，而不是各自那次点击的闭包快照。门禁与块编辑同款：mdlog 记录中拦在写盘口、只读块（HTML / widget / frontmatter 及其容器）静默忽略、编辑视图整体不接管。定位信息只能来自 `<li>`（GFM 复选框不带源码位置），原始 HTML 里的 `<input>` 一律保持 disabled。
+- **打印样式（两段 `@media print`）**：打印只做三件事——隐藏界面件（顶栏 / 侧栏 / 拖宽手柄 / 纱罩 / 自定义滚动条 / 跳底按钮 / 印章 / 编辑提示条 / 设置弹层 / 记录中的呼吸小章）、放开版心（屏幕态把正文关在「`100vh` + `overflow:hidden`」的壳里，不放开就只印得出第一屏；列宽放开到 100%、侧栏位移与 42px 顶距显式归零）、分页保护（代码块 / 表格 / 引用 / 图片不跨页，标题不留在页脚）。屏幕态规则一字不动。位置约束由 `kami.css.test.ts` 锁死：主段不含 `.mdlog-widget` 字样且排在首个该选择器之前，含该字样的一半（隐 chrome 题头栏、恢复 `--parked` 停帧 iframe）在文件末尾。正文字号沿用 `--reader-font-size`（用户的阅读设置就是他的选择），不设 `@page`。`Ctrl+P` 绑定 `window.print()`（`typeof window.print === "function"` 守卫：拿不到实现时既不动作也不吞键；`Ctrl+Shift+P` 不归它）。**真机未验证**：WebView2 的打印对话框是否真的弹出仍属未测项（现有证据只有微软 WebView2 打印文档 + headless Chrome 的 `printToPDF` 引擎级验证），故 README 暂不写这条快捷键。
+- **自动更新（tauri-plugin-updater）**：Rust 侧注册插件、npm 侧 `@tauri-apps/plugin-updater`，启动时**只在生产构建**里静默 `check()`（dev 实例不该被 release 包自动替换），有更新先出提示再下载安装（Windows 上安装会拉起安装器并退出进程，这条提示是「应用即将关闭」的唯一预警），无更新 / 检查失败 / 安装失败一律静默、只落 console。`capabilities` 补 `updater:default`（`check` / `download` / `install` / `download-and-install` 四命令同属这一套），CSP 的 `connect-src` 加 endpoint 域名（实际请求在 Rust 侧由 reqwest 发出，这条是防御性声明）。`pubkey` 当前是占位串 ⇒ 更新链路整体 inert；`bundle.createUpdaterArtifacts: true` 已开，发布前必须先 `tauri signer generate` 并填公钥——开了它之后打包**必须先有私钥**，否则会先产出安装包、再以退出码 1 报「没有私钥」（实测，别被前半段的产物误导）。
+
+### 更改
+
+- **UI 修复批量（2026-09-20）**：`Ctrl+B` 在**所有宽度**下切换侧栏开关（侧栏已开且搜索框聚焦时也能关，`Ctrl+K` 只保焦不动作），开关照旧先走 `beginWidthTransition()`；顶栏大纲与打开文件按钮补 `title`（「切换大纲（Ctrl+B）」/「打开文件」）；`ErrorState` 加「重新打开」实色按钮（触发打开文件对话框），空态与错误页共用 `.button.button-primary`（warm-sand 底 + 发丝内描边 + 6px 圆角，高度写死 32px 让两个页面逐像素同高）与 `.empty-eyebrow`；搜索框有查询时右侧出清除 × 按钮（点击清空并保焦），查询非空且 0 匹配时计数位显示「无匹配」、计数容器带 `aria-live="polite"`；窄屏不渲染拖宽手柄（正文不位移，拖了无意义）；`.narrow-scrim` 的 z-index 抬到 950（高于自定义滚动条与印章，浮层时侧栏外不可交互）；`.document-scroll` 补克制的 `:focus-visible` 内描边；mdlog 记录中时顶栏路径右侧加一枚「记录中」小章（mono 10px、brand 字色），让记录状态不只出现在文档尾部。
+
+### 修复
+
+- **勾选回滚的代际判据改为同步读**（`getDocumentGeneration` getter）：装入路径（`loadPath` / `reloadCurrent`）递增的是 App 的 ref，此刻**渲染尚未提交**，按 prop 快照镜像代际会漏掉「ref 递增 → 渲染提交」这段调度窗——窗内落盘失败的勾选会以为还是同一篇文档，把上一篇的 markdown 写进新文档的内存。新增一条不做 rerender、只改 getter 背后值的用例把窗口钉住。
+- **两个提示条的 key 撞车**：`.reload-note`（`key={reloadTick}`）与 `.editor-toast`（`key={editor.toast.id}`）都从 1 起计数，同屏时撞 key（React 会复用错节点、动画不重播）。两处 key 加字符串前缀。
+- **搜索 pending 帧闪「无匹配」**：`useDeferredValue` 的 pending 态（输入已变、deferred 词未跟进）下 `matchCount` 还是上一轮查询的结果，凭它下「无匹配」的结论会闪一帧假话（大文档上这一帧能停留可见的时长）。App 把 `searchQueryPending` 传给 `OutlinePanel`，pending 时计数位显示「…」。
+- **阅读设置落盘挪出 setState updater**：updater 在 StrictMode 下会被调用两次（副作用幂等只是运气好），且可能早于本次状态真正提交就发起 IPC。改成挂在 `settings` 的 effect 上（只在提交之后跑，落盘值就是屏幕上的值），并用「用户改过」的闸门避免启动读盘那次 setState 触发原样回写。
+- **`Ctrl+P` 分支补 `return` 与 `!shiftKey`**：缺 `return` 时该分支会继续往下走后面的判断（当前无害，但下一条快捷键加在它之后就会踩到）；`Ctrl+Shift+P` 是另一个组合键，不该打印、也不该吞键。
+- **打印隐藏清单补 `.mdlog-live`**：记录中的呼吸小章是状态指示器而非文档内容，打印件里不该出现（该选择器不含 `.mdlog-widget` 字样，故仍留在主打印段）。
+- **`.outline-search__clear` 惰性类补样式**：类名在 `OutlinePanel.tsx` 里用了却没有规则，清除按钮与上/下导航同宽同高（22×22，在 200px 最窄侧栏里挤掉输入框约 25px）。现在 16×16 命中区、12px 图标，hover 转 brand（与 `.outline-search__nav` 同一套幽灵按钮语汇）。
+- **`.button.button-primary` 补 `height: 32px` 与 `:active`**：内边距单独撑高会随字体度量漂，两个页面的实色按钮高度对不齐；按下态只压深底色、不位移（正文 `button:active` 的 1px 下沉是正文控件的语汇）。
+- **`SettingsPopover` 的 `Escape` 加 `stopPropagation`**：窄屏下 `Escape` 同时是「关侧栏」的入口，不拦会一次按键关两层。
+- **测试补齐**：`ErrorState` 的「重新打开」接线用例（连点两次各触发一次、未接线时不渲染按钮）、`Ctrl+P` 的 `printSpy.mockRestore()`（本套件没有全局 `restoreMocks`，不还原会跟着后面的用例跑）与 `Ctrl+Shift+P` 不打印用例、`useReaderSettings` 的「启动恢复只读不写」用例、`OutlinePanel` 的 pending 用例、`SettingsPopover` 的 Escape 不冒泡用例、`kami.css.test.ts` 的实色按钮 / 清除按钮 / 打印隐藏清单断言、`scrollInput` 的 Alt 例外用例。测试数 903 → **912**（45 个测试文件）。
+
+### 工具
+
+- **文档收口**：README 的 Features 补设置面板、最近打开与拖放、前进/后退、大纲到 h6、勾选写回、自动更新，Usage 补 `Ctrl+B` / `Alt+←` / `Alt+→` / 拖放与测试计数（45 个测试文件 / 912 用例）；`AGENTS.md` 红线 8 的侧栏入口枚举补 `Ctrl+B`、红线 11 补 `core:window:allow-set-title` 与 `updater:default`，关键路径登记 `recentFiles` / `navHistory` / `taskList` / `useReaderSettings`；`docs/agents/rendering.md` 补侧栏入口、文件索引补 `navHistory.ts`；Alt 例外契约归位到 `src/lib/scrollInput.ts`（`isScrollInputKey`，带单测）；`docs/agents/tooling.md` 的入口 chunk 尺寸历史更新到终验实测值。
+
 ## [1.8.1] - 2026-09-19
 
 ### 修复

@@ -159,6 +159,9 @@ node promo/build-assets.mjs
   - **wikilink 片段跳转后为 165.56KB**（`index-BII2CVuq.js`，再 +0.54KB：`matchHeadingByFragment` + `loadPath` 片段接线 + 片段跳转共用 `scrollHeadingIntoView`）。
   - **文档标题进正文后为 165.68KB**（`index-B3G__s3X.js`，再 +0.12KB：`fileNameToTitle` + `.document-title` 渲染）。
   - **顶栏去标题 + 标题贴顶后为 165.59KB**（`index-BrRc41wR.js`，−0.09KB：`.top-bar__title` 连同它的 DOM 一并移除，抵消了 `:has()` 两条上移规则）。
+- 阅读器完善计划（2026-09-20，task 2–12）：
+  - **计划各任务落地后为 184.19KB**（controller 记录，未逐任务留档）：设置面板 / 最近打开 / 导航历史 / h1–h6 大纲 / 任务勾选 / 打印样式 / 自动更新 / UI 修复批量一批增量累计 +18.6KB（设置变量消费、`recentFiles.ts`、`navHistory.ts`、`taskList.ts`、`scrollRestore` 复用、updater 启动检查、几处渲染与快捷键接线）。
+  - **终验 fix wave 后为 184.43KB**（`index-BJne7Dx_.js`，gzip 52.53KB，再 +0.24KB：代际 getter 接线、搜索 pending 抑帧、`Ctrl+P` 守卫、提示条 key 前缀、`isScrollInputKey`、阅读设置落盘改 effect）——**2026-09-20 终验实测**（`npm test` 45 文件 / 912 用例全绿、`npm run build` 通过；入口 CSS `index-DVWEL_0H.css` 33.41KB / gzip 6.82KB）。
 - 若后续继续增长，按裁定 F11 的退路把单元计算移回 lazy 侧。
 
 ## 注意事项
@@ -209,6 +212,7 @@ node promo/build-assets.mjs
   - **必须先派一次 wheel 再等 6s**，否则阅读位置落位守护的缓动动画会污染测量。
 - 真机锚定规则对照：`scripts/cdp-anchor-synthetic.mjs`——纯合成滚动容器里「改宽度 vs 改字号」的锚定矩阵，确认「行内尺寸变化不补偿」是**浏览器规则**（同一容器改字号正常补偿、改宽度恒为 0），与项目结构无关。
 - 真机 Obsidian 验收：`scripts/cdp-obsidian-verify.mjs`——完整说明（断言清单、定稿形态三条真机证据、边框宽度按区间判、实测数字）见 `docs/agents/obsidian.md`。
+- **待办真机项：`Ctrl+P` 打印**（2026-09-20 起挂起，未验证）。WebView2 有 `ShowPrintUI` / `Print` / `PrintToPdf` 三条 API，微软反馈 #42 也确认 `window.print()` 经 `ExecuteScript` 可用，但本机从未真的弹过一次打印对话框。验证方式：先 `taskkill /IM vellum.exe /F` → `npm run tauri build` → 以 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` 起 release exe → 按 `scripts/cdp-verify.mjs` 的模式连 CDP，`Runtime.evaluate` 里看 `typeof window.print`，再用 `Input.dispatchKeyEvent` 派一次真实 `Ctrl+P` 看对话框是否弹出（**别**在无头/自动化里直接调 `window.print()`：原生打印对话框是模态的，脚本侧关不掉）。确认通过后 README 的 Usage 才能补这条快捷键（`docs/agents/rendering.md` 打印一节同理）。
 
 ### `tauri/custom-protocol` feature
 

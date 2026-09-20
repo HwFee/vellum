@@ -40,6 +40,9 @@ Markdown files directly from File Explorer.
 
 - **纸墨排版。** 正文 14px / 1.55 行高 / 0.4px 字距，列宽 `min(800px, 100%)` 居中；
   层级只靠字号、字重、留白与 ivory 填充承担——标题没有前导短线，引用没有侧线，表格默认没有斑马纹。
+- **阅读设置。** 顶栏齿轮打开弹层：正文字号 13 / 14 / 16 / 18、栏宽 720 / 800 / 960、
+  行高 1.5 / 1.55 / 1.7 三段可调，改动即时生效并记住（标题字号阶梯与版式不受影响，
+  改栏宽时会先把视口钉在原来那一行上，不跳位）。
 - **GitHub Flavored Markdown。** 表格、任务列表、删除线、引用、围栏代码，以及脚注。
 - **数学公式。** KaTeX 行内与行间公式，含 Pandoc 式货币保护（`$5 和 $10` 不会被误判成公式）。
 - **代码高亮。** 20 种常用语言（PrismLight，不会为每种语言生成 chunk），带语言标签与复制按钮。
@@ -49,10 +52,12 @@ Markdown files directly from File Explorer.
 
 ### 寻 · Finding
 
-- **大纲。** h1–h3 收成左侧目录，随正文滚动实时高亮当前章节，点击缓动跳转。
+- **大纲。** h1–h6 收成左侧目录（h4–h6 缩进更深、字号更小），随正文滚动实时高亮当前章节，点击缓动跳转。
 - **全文检索。** <kbd>Ctrl</kbd>+<kbd>K</kbd> 聚焦，匹配项在正文里就地高亮，上一个 / 下一个逐个跳。
 - **可调侧栏。** 200–320px 拖拽调宽，双击手柄复位；窄屏自动收成浮层。
 - **文档内锚点。** `[文字](#id)` 由应用接管：缓动滚到目标并顺带点亮大纲，不改写 URL 与历史。
+- **前进 / 后退。** <kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>Alt</kbd>+<kbd>→</kbd>（或顶栏的 ‹ ›）
+  退回刚才经 wikilink 打开的上一条笔记，并回到你离开它时的位置。
 - **阅读位置记忆。** 标题锚点 → 顶层块序号 → 比例兜底的三级记录，图片与字体把版面撑开时持续重锚。
 - **换版不跳位。** 开关侧栏 / 拖宽会改正文宽度、整篇重排，此时用视口锚点钉住你正在看的那一行
   （Chromium 原生滚动锚定不补偿「行内尺寸变化驱动的重排」，这一步必须自己做）。
@@ -61,6 +66,8 @@ Markdown files directly from File Explorer.
 
 - **块级就地编辑。** <kbd>Ctrl</kbd>+<kbd>E</kbd> 进入编辑视图，点任意可编辑块直接改——
   不动版式、不切分屏：源码覆盖层与渲染态同字号同行高，草稿变长就自增高把下文推下去。
+- **勾选写回。** 阅读视图里点任务列表的复选框就直接改源码（读、写都不用先进编辑视图），
+  写盘失败会回滚并把失败原因告诉你。
 - **编辑信号在页边。** hover 浮出淡 `¶`；只读块（原生 HTML / 交互块）常驻灰 `×`；
   正在编辑的块由一道靛青边轨与页边的 `¶` 标记，正文本身保持阅读时的样子。
 - **提交即落盘。** <kbd>Ctrl</kbd>+<kbd>S</kbd> 或失焦提交，临时文件 + 原子重命名写回；
@@ -79,17 +86,27 @@ Markdown files directly from File Explorer.
 ### 底子 · Foundations
 
 - **Tauri 2 + WebView2。** 约 21 MB 安装包；无框原生窗口，整栏可拖拽，方形窗口控制件。
+- **最近打开与拖放。** 启动回到上次读的那一篇；空态与错误页都列出最近 8 篇，也可以直接把
+  `.md` 文件拖进窗口打开。
 - **多实例。** 双击几个 `.md` 就开几个窗口，各自加载各自的文档，阅读位置按文件路径键控。
+- **窗口标题随文档。** 任务栏显示「文件名 — 素笺」（顶栏依旧不显示文件名）。
+- **自动更新。** 启动时静默检查新版本，有更新先提示再下载安装；失败一律不打扰。
 - **离线优先。** 没有云、没有账号、不联网；打开的是磁盘上的那个文件，写回的也是它。
 - **真机验收。** 数学 / 搜索 / 编辑 / 滚动这类热路径都有 CDP 真机探针与回归测试
-  （38 个测试文件 / 766 个用例）。
+  （45 个测试文件 / 912 个用例）。
 
 ## Usage
 
 1. Run the installer and finish setup.
 2. Double-click any `.md` or `.markdown` file in File Explorer.
-3. To open another file, click the folder icon in the top-right corner.
-4. Press <kbd>Ctrl</kbd>+<kbd>E</kbd> to edit in place, <kbd>Ctrl</kbd>+<kbd>K</kbd> to search.
+3. To open another file, click the folder icon in the top-right corner — or drag a `.md` file onto
+   the window, or pick one from **最近打开** in the empty state.
+4. Press <kbd>Ctrl</kbd>+<kbd>E</kbd> to edit in place, <kbd>Ctrl</kbd>+<kbd>K</kbd> to search,
+   <kbd>Ctrl</kbd>+<kbd>B</kbd> to toggle the outline.
+5. Follow a `[[wikilink]]`, then <kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>Alt</kbd>+<kbd>→</kbd> to step
+   back and forward through the notes you visited.
+6. Click a task list checkbox in the reading view to write the change straight back to the file.
+7. Tune type size, column width and line height from the gear button in the top bar.
 
 ## System Requirements
 

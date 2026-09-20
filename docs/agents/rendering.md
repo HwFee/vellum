@@ -20,6 +20,7 @@
 - 输入变长 / 替换 / 上一个下一个按钮：保持立即滚动。
 - `searchQueryPending`（App 传入，urgent 渲染期间 deferred 搜索词未跟进时为 true）：此时 `activeMatchIndex` 被重置为 0 只是输入的副产物。
 - 该状态下搜索 effect **不得**据此滚动，否则删除时页面会秒跳到旧词首个匹配、防抖形同虚设。
+- 同一位也传给 `OutlinePanel`（`searchQueryPending` prop）：pending 时计数位显示「…」而不是「无匹配」——此刻的 `matchCount` 还是上一轮查询的结果，凭它下结论会闪一帧假话。
 
 ## 大纲跟随
 
@@ -56,7 +57,8 @@
 - 不要改回纯像素恢复——视口上方内容同步变高（流式代码块收合成 widget 等）时旧像素对应另一处内容会跳。
 - 且程序化像素覆盖会顶掉 Chromium 原生滚动锚定对异步 iframe 高度上报的补偿。
 - 热重载滚动恢复在用户滚动输入（滚轮/触摸/按键/滚动条拖拽）后 300ms 内跳过（`lastUserScrollAtRef`）：否则提交瞬间会把用户刚滚出去的距离当「漂移」拽回。
-- 键盘只在**会滚动的键**上记时间戳（清单在 `lib/scrollInput.ts`，带单元测试）。
+- 键盘只在**会滚动的键**上记时间戳：判据是 `lib/scrollInput.ts` 的 `isScrollInputKey(event)`（清单与修饰键例外都归该模块，带单元测试）——**Alt 例外不写在调用方**。
+- `Alt+←` / `Alt+→` 是历史导航（另一条快捷键），箭头键本身在清单里，靠 `!altKey` 排除；判据散在 `App.tsx` 里各写一份，漏一处就等于「按后退键被当成用户接管」、宽度过渡期的钉住当场取消。
 - 任何按键都记会把 `Ctrl+K` 等快捷键误判成用户接管，而 `Ctrl+K` 开侧栏时视口钉住会被当场取消、宽度回流没人补偿（快捷键路径重新跳动）。
 - 文档内锚点链接（`[文字](#id)`）由 App 接管点击（`scrollToContentFragment` + `.document-scroll` 上的事件委托）：目标在正文里走缓动滚动（与大纲点击同一路径），`#`/`#top`/`#main` 视为回到顶部。
 - **编辑视图下不接管**（那里点击是「进入块编辑」）。
@@ -76,7 +78,7 @@
 - 于是 scrollTop 原地不动、视口内容整段平移（关侧栏向上跳 ~3600px，开回来再跳回原位，观感即「页面闪到别处、开回来又恢复」）。
 - 解法：事件入口（**状态更新之前**，此刻仍是旧布局）先 `captureViewportAnchor` 记下视口顶部首个可见块 + 偏移。
 - 再在窗内逐帧按该锚点补偿；首帧补偿放在 `useLayoutEffect` 里、绘制前同步完成，用户滚动输入立即交还控制权。
-- **侧栏开关的全部入口**（顶栏按钮 / `Ctrl+K` / 窄屏 Escape 与遮罩 / 窄屏选章）与拖宽手柄都必须走 `beginWidthTransition()`。
+- **侧栏开关的全部入口**（顶栏按钮 / `Ctrl+B` / `Ctrl+K` / 窄屏 Escape 与遮罩 / 窄屏选章）与拖宽手柄都必须走 `beginWidthTransition()`。
 - 漏一个入口，该路径就会闪；别指望原生锚定接手。
 
 ## 数学公式
@@ -120,20 +122,21 @@
 - 定位信息只能来自 `<li>`：GFM 复选框由 `mdast-util-to-hast` 生成，**不带源码位置**（`<input>` 恒 disabled）；原始 HTML 里的 `<input>` 带位置。`MarkdownDocument` 的 `li` / `input` 两条覆盖渲染据此分工——只摘 GFM 复选框的 disabled，原始 HTML 的 disabled 一律留着。
 - 覆盖渲染只在**阅读视图 + 有 `onToggleTask`** 时挂上：编辑视图与未接线调用方的 `components` 与从前逐字相同（复选框保持 disabled，块激活那条路不受影响）。
 - 门禁与回滚与块编辑同款：mdlog 记录中拦在写盘口（`mdlogActive` 来自 `read_mdlog_state` 的 `?? null` 归一）、只读块（HTML / widget / frontmatter 及其容器）静默忽略、编辑视图整体不接管（组件侧不挂覆盖渲染 + hook 里 `viewMode !== "reading"` 兜底）、落盘失败回滚乐观更新并弹 `写入失败`。
-- **回滚必须过两道守卫**（缺一个就会写坏内存）：① 文档代际未变（App 每次「由外部装入内容」——换文档 / 热重载——递增 `documentGeneration`，只由装入路径递增，编辑自己的写入不算），跨代际回滚会把上一篇的 markdown 写进新文档；② 内存里仍是我写的那份（`markdownRef.current === next`），被别的写路径顶掉时那份更新的状态才是磁盘的未来。任一条不成立就只报失败、不动内存。
-- 勾选**在途串行**（`taskChainRef`）：两次并发会让后一次以「前一次的乐观结果」为基准，前一次失败回滚就把后一次一起抹掉。链上的后续调用读 `markdownRef` / `unitsRef` / `generationRef` 的**此刻值**，不得用自己那次点击的闭包快照。
+- **回滚必须过两道守卫**（缺一个就会写坏内存）：① 文档代际未变（App 每次「由外部装入内容」——换文档 / 热重载——递增 `documentGenerationRef`，只由装入路径递增，编辑自己的写入不算），跨代际回滚会把上一篇的 markdown 写进新文档；② 内存里仍是我写的那份（`markdownRef.current === next`），被别的写路径顶掉时那份更新的状态才是磁盘的未来。任一条不成立就只报失败、不动内存。
+- 代际**必须经 getter 同步读**（`getDocumentGeneration: () => documentGenerationRef.current`，hook 里存成 ref 后当场调用）：装入路径递增的是 App 的 ref，那一刻**渲染尚未提交**，按 prop 快照镜像会漏掉「ref 递增 → 渲染提交」这段调度窗——窗内失败的勾选会以为还是同一篇文档，把旧内容写回新文档（`useDocumentEditor.test.ts` 有一条不做 rerender、只改 getter 背后值的用例钉住这个窗口）。
+- 勾选**在途串行**（`taskChainRef`）：两次并发会让后一次以「前一次的乐观结果」为基准，前一次失败回滚就把后一次一起抹掉。链上的后续调用读 `markdownRef` / `unitsRef` / 代际 getter 的**此刻值**，不得用自己那次点击的闭包快照。
 - 勾选态由源码字符串单向驱动（`checked` 受控 + `readOnly` + `flushSync(onMarkdownChange)`）：**不得**改成 `defaultChecked`——那样落盘失败回滚后复选框不会回到源码状态。
 - 勾选**不**递增 `reloadTick`、不播印章、不做滚动补偿（同块编辑提交）；watcher 回声照旧由「磁盘 vs 内存比对」抑制。
 
 ## 打印样式（2026-09-20 新增）
 
 - 两段 `@media print` 都在 `kami.css`，都**不动屏幕态规则**：**主段**（隐藏界面件 / 放开版心 / 分页保护）排在首个 mdlog widget 选择器**之前**，**末段**（隐 chrome 题头栏、恢复停帧 iframe）含该字样、排在其**之后**。主段的注释里也**不得**出现该字样——`kami.css.test.ts` 用 `indexOf` 找扫描起点，注释同样会把它提前（本轮就是这么踩到的）。
-- 隐藏清单：`.top-bar` / `.outline-sidebar` / `.outline-resize-handle` / `.outline-scrim` / `.custom-scrollbar` / `.jump-bottom` / `.reload-note` / `.editor-toast` / `.editor-hint` / `.settings-popover`。
+- 隐藏清单：`.top-bar` / `.outline-sidebar` / `.outline-resize-handle` / `.outline-scrim` / `.custom-scrollbar` / `.jump-bottom` / `.reload-note` / `.editor-toast` / `.editor-hint` / `.settings-popover` / `.mdlog-live`（记录中的呼吸小章是状态指示器，不是文档内容；该选择器不含 `.mdlog-widget` 字样，故留在主段）。
 - 版心必须放开：屏幕态把正文关在「`100vh` + `overflow:hidden`/`scroll`」的壳里（窗口内滚动），不改成 `height:auto` + `overflow:visible` 就只印得出第一屏。侧栏开启时的 `--outline-shift` 位移与 `.document-scroll__content:has(.document-title)` 的 42px 顶距都是 0,2,0，打印段必须用同特异度显式归零——同特异度靠顺序取胜，所以打印段整体必须排在屏幕态规则之后（测试锁死）。
 - 列宽：`.markdown-body` 与 `.document-title` 的 `max-width` 打印下放开到 100%（左右 32px 内边距保留，标题与正文左缘的对齐关系不变）。**正文字号不另设**：沿用 `--reader-font-size`，用户的阅读设置就是他的选择。
 - 分页：`.code-block` / `.markdown-body pre` / `table` / `blockquote` / `img` 加 `break-inside: avoid`；`.document-title` 与 h1–h6 加 `break-after: avoid`；**不设 `@page`**，页边距交给浏览器默认。
 - 交互块：`--parked` 停帧（`visibility:hidden`）按**屏幕视口**判定，打印时落在后几页的 widget 会整块空白，故打印段里恢复 `visibility:visible`——这不是「停帧禁止用 `display:none`」那条红线的例外，只是打印媒体下的另一份取值。
-- `Ctrl+P` 走 `window.print()`（`App.tsx` 全局快捷键，`typeof window.print === "function"` 守卫；拿不到实现时既不动作也不 `preventDefault`，不无谓吞键）。WebView2 具备这条路径（Chromium 打印管线），但**真机未验证**。
+- `Ctrl+P` 走 `window.print()`（`App.tsx` 全局快捷键，`typeof window.print === "function"` 守卫；拿不到实现时既不动作也不 `preventDefault`，不无谓吞键；分支末尾 `return`，且带 Shift 的组合键（`Ctrl+Shift+P`）不归它）。WebView2 具备这条路径（Chromium 打印管线），但**真机未验证**：打印对话框是否真的弹出、打印件里 widget iframe 是否渲染都只有引擎级证据（headless Chrome `printToPDF`）+ 微软 WebView2 打印文档。**在真机确认之前，README 不写这条快捷键**；确认方式见 `docs/agents/tooling.md` 的真机探针一节（起 release exe + CDP）。
 
 ## 文件索引
 
@@ -149,7 +152,8 @@
 | `src/lib/scrollStick.ts` | 贴底判定 |
 | `src/lib/viewportAnchor.ts` | 热重载视口锚点（捕获/补偿原语） |
 | `src/lib/viewportPin.ts` | 宽度过渡期视口钉住（侧栏开关/拖宽不跳） |
-| `src/lib/scrollInput.ts` | 「用户滚动输入」的按键分类（快捷键不得误判） |
+| `src/lib/scrollInput.ts` | 「用户滚动输入」的按键分类（快捷键不得误判；Alt 例外也归这里：`isScrollInputKey`） |
+| `src/lib/navHistory.ts` | wikilink 前进/后退历史两栈（栈条目 = 路径 + 三级位置记录） |
 | `src/components/JumpToBottom.tsx` | 跳转到底部浮钮 |
 | `src/components/CodeBlock.tsx` | 代码高亮（PrismLight，20 种语言） |
 | `src/hooks/useOutlineWidth.ts` | 侧边栏宽度（200–320px，持久化） |
