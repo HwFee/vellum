@@ -445,7 +445,7 @@ describe("kami.css 文档标题 / 属性卡 / 提示块定稿形态", () => {
   it("文档标题与正文同宽、贴顶上移，左缘逐像素对齐", () => {
     const rule = css.match(/\.document-title\s*\{[^}]*\}/s)?.[0] ?? "";
     expect(rule).not.toBe("");
-    expect(rule).toMatch(/max-width:\s*min\(800px,\s*100%\)/);
+    expect(rule).toMatch(/max-width:\s*min\(var\(--reader-column-width,\s*800px\),\s*100%\)/);
     expect(rule).toMatch(/margin:\s*0 auto/);
     expect(rule).toMatch(/padding:\s*0 32px/);
     // 与正文 H1 同级字号（Obsidian 的 inline title 与 H1 同尺度）
@@ -490,5 +490,56 @@ describe("kami.css 文档标题 / 属性卡 / 提示块定稿形态", () => {
     const warn = css.match(/\.markdown-body blockquote\.callout--warning,[^}]*\}/s)?.[0] ?? "";
     expect(warn).toMatch(/border-left-color:\s*var\(--stone\)/);
     expect(warn).not.toMatch(/background/);
+  });
+});
+
+/// 阅读设置（2026-09-20，reader-polish task-2）：正文字号 / 栏宽 / 行高走
+/// --reader-font-size / --reader-column-width / --reader-line-height 三个根变量，
+/// 由 useReaderSettings 在 documentElement 上覆写；消费处必须带默认值回退。
+/// 标题字号阶梯（30/21/17）与行内 code 的 12px 不随设置缩放。
+describe("kami.css 阅读设置变量消费", () => {
+  it(":root 声明三个阅读变量的默认值，死变量 --content-max-width 已移除", () => {
+    const root = css.match(/:root\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(root).toMatch(/--reader-font-size:\s*14px/);
+    expect(root).toMatch(/--reader-column-width:\s*800px/);
+    expect(root).toMatch(/--reader-line-height:\s*1\.55/);
+    expect(css).not.toContain("--content-max-width");
+  });
+
+  it("正文列宽消费 --reader-column-width（默认值 800px 回退）", () => {
+    const rule = css.match(/\.markdown-body,\s*\.empty-state,\s*\.error-state\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(rule).not.toBe("");
+    expect(rule).toMatch(/max-width:\s*min\(var\(--reader-column-width,\s*800px\),\s*100%\)/);
+  });
+
+  it("正文字号与行高消费变量并带默认值回退；列表行高跟随正文", () => {
+    const body = css.match(/\.markdown-body\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(body).toMatch(/font-size:\s*var\(--reader-font-size,\s*14px\)/);
+    expect(body).toMatch(/line-height:\s*var\(--reader-line-height,\s*1\.55\)/);
+
+    const lists = css.match(/\.markdown-body ul,\s*\.markdown-body ol\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(lists).toMatch(/line-height:\s*inherit/);
+  });
+
+  it("表格字号比正文小一档并跟随变量；行内 code 保持 12px 不变", () => {
+    const table = css.match(/\.markdown-body table\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(table).toMatch(/font-size:\s*calc\(var\(--reader-font-size,\s*14px\)\s*-\s*1px\)/);
+
+    const inlineCode = css.match(/\.markdown-body code\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(inlineCode).toMatch(/font-size:\s*12px/);
+  });
+
+  it("标题字号阶梯保持设计定稿（h1 30 / h2 21 / h3 17），不随正文字号缩放", () => {
+    // 用全文件匹配而非首个命中：窄屏媒体查询里另有一组缩档字号（25px 等），不能误取
+    expect(css).toMatch(/\.markdown-body h1\s*\{[^}]*font-size:\s*30px/s);
+    expect(css).toMatch(/\.markdown-body h2\s*\{[^}]*font-size:\s*21px/s);
+    expect(css).toMatch(/\.markdown-body h3\s*\{[^}]*font-size:\s*17px/s);
+  });
+
+  it("设置弹层样式位于首个 .mdlog-widget 之前（避开 mdlog 区段的设计约束扫描）", () => {
+    const popoverIndex = css.indexOf(".settings-popover {");
+    const mdlogIndex = css.indexOf(".mdlog-widget");
+    expect(popoverIndex).toBeGreaterThan(-1);
+    expect(popoverIndex).toBeLessThan(mdlogIndex);
   });
 });

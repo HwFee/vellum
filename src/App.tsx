@@ -15,6 +15,7 @@ import { useIsNarrow } from "./hooks/useIsNarrow";
 import { useOutlineOpen } from "./hooks/useOutlineOpen";
 import { useOutlineSync } from "./hooks/useOutlineSync";
 import { OUTLINE_WIDTH_DEFAULT, useOutlineWidth } from "./hooks/useOutlineWidth";
+import { useReaderSettings, type ReaderSettings } from "./hooks/useReaderSettings";
 import { extractOutline, matchHeadingByFragment } from "./lib/outline";
 import { fileNameToTitle, isSamePath } from "./lib/path";
 import { extractWikilinkTargets } from "./lib/wikilink";
@@ -93,6 +94,8 @@ export default function App() {
   const [outlineWidth, setOutlineWidth] = useOutlineWidth();
   const outlineWidthRef = useRef(outlineWidth);
   outlineWidthRef.current = outlineWidth;
+  // 阅读设置（字号 / 栏宽 / 行高）：变量覆写挂在 documentElement，与文档无关
+  const [readerSettings, setReaderSettings] = useReaderSettings();
   // 布局过渡窗：侧边栏开关动画 / 拖宽期间，所有 widget iframe 随容器宽度集体重排，
   // 若恰逢 mdlog 追加触发的热重载（整篇重解析），主线程被「过渡重排 + 解析提交」
   // 双重工作饱和——页面完全卡死、过一会儿自愈（mdlog 连接中开关侧边栏卡死的根因）。
@@ -205,7 +208,16 @@ export default function App() {
   // 同步读 rect 会按新布局求值，从而在首帧就把视口内容钉回原位（否则每帧都可能闪）
   useLayoutEffect(() => {
     viewportPinRef.current?.applyNow();
-  }, [isOutlineOpen, outlineWidth]);
+  }, [isOutlineOpen, outlineWidth, readerSettings]);
+
+  // 阅读设置（字号 / 栏宽 / 行高）与侧栏拖宽同属「整篇重排」：改值前先钉住视口
+  const handleReaderSettingsChange = useCallback(
+    (patch: Partial<ReaderSettings>) => {
+      beginWidthTransition();
+      setReaderSettings(patch);
+    },
+    [beginWidthTransition, setReaderSettings]
+  );
 
   // 全局快捷键：⌘K / Ctrl+K 聚焦搜索框，Ctrl+E 切换编辑视图，Ctrl+S 提交当前块。
   // 依赖里只有侧栏开关（其余经 editorRef/callback ref 读取），热重载与每次按键都不重新订阅。
@@ -1108,6 +1120,8 @@ export default function App() {
         isEditing={editor.viewMode === "editing"}
         canEdit={!isMdlogActive}
         onToggleEdit={handleToggleEdit}
+        readerSettings={readerSettings}
+        onReaderSettingsChange={handleReaderSettingsChange}
       />
       <div className={`app-shell__body ${isOutlineOpen ? "app-shell__body--outline-open" : ""}`}>
         {/* 热重载提示（二）：印章，悬浮于窗口中下方、不随文档滚动；key 变化即重播 */}

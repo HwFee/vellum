@@ -1,6 +1,9 @@
+import { useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { compactPath } from "../lib/path";
+import type { ReaderSettings } from "../hooks/useReaderSettings";
 import { OutlineToggle } from "./OutlineToggle";
+import { SettingsPopover } from "./SettingsPopover";
 
 function MinimizeIcon() {
   return (
@@ -58,6 +61,16 @@ function BookIcon() {
   );
 }
 
+/// 阅读设置：齿轮 —— 线性风格与其它顶栏图标一致
+function GearIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
+
 type TopBarProps = {
   parentPath?: string;
   onOpen: () => void;
@@ -68,6 +81,9 @@ type TopBarProps = {
   /// mdlog 记录中为 false：按钮禁用并提示断开连接后才能修改
   canEdit?: boolean;
   onToggleEdit?: () => void;
+  /// 阅读设置（字号 / 栏宽 / 行高）：两者齐备时才渲染齿轮入口
+  readerSettings?: ReaderSettings;
+  onReaderSettingsChange?: (patch: Partial<ReaderSettings>) => void;
 };
 
 export function TopBar({
@@ -78,8 +94,12 @@ export function TopBar({
   isEditing = false,
   canEdit = true,
   onToggleEdit,
+  readerSettings,
+  onReaderSettingsChange,
 }: TopBarProps) {
   const window = getCurrentWindow();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
     <header className="top-bar" data-tauri-drag-region>
@@ -107,6 +127,33 @@ export function TopBar({
         <button className="open-button" type="button" aria-label="打开文件" onClick={onOpen}>
           <OpenIcon />
         </button>
+        {readerSettings && onReaderSettingsChange && (
+          <>
+            <span className="top-bar__divider" aria-hidden="true" />
+            {/* 弹层的定位上下文：absolute 于齿轮下方右侧，点外部 / Escape 由 SettingsPopover 自理 */}
+            <div className="settings-anchor">
+              <button
+                ref={settingsButtonRef}
+                className="open-button settings-toggle"
+                type="button"
+                aria-label="阅读设置"
+                aria-expanded={settingsOpen}
+                title="阅读设置"
+                onClick={() => setSettingsOpen((open) => !open)}
+              >
+                <GearIcon />
+              </button>
+              {settingsOpen && (
+                <SettingsPopover
+                  settings={readerSettings}
+                  onChange={onReaderSettingsChange}
+                  onClose={() => setSettingsOpen(false)}
+                  anchorRef={settingsButtonRef}
+                />
+              )}
+            </div>
+          </>
+        )}
       </div>
       {/* 文件名不在这里显示（它在正文首行，见 .document-title）；顶栏只报所在目录 */}
       <div className="top-bar__meta" data-tauri-drag-region>

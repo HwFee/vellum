@@ -38,7 +38,10 @@
   --border-soft: #e5e3d8;
   --hairline: #dddacc;
   --outline-width: 240px;
-  --content-max-width: min(1080px, 100%);
+  /* 阅读设置三变量：useReaderSettings 在 documentElement 上覆写，消费处一律带默认值回退 */
+  --reader-font-size: 14px;
+  --reader-column-width: 800px;
+  --reader-line-height: 1.55;
   --outline-gutter: 20px;
   --outline-shift: calc(var(--outline-width) + var(--outline-gutter));
   --serif: "TsangerJinKai02", "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", Charter, Georgia, Palatino, serif;
@@ -222,6 +225,117 @@ textarea {
 .open-button:focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: -2px;
+}
+
+/* ===== 阅读设置弹层（顶栏齿轮） ===== */
+/* 左侧按钮簇末尾的 1px 分隔竖线 */
+.top-bar__divider {
+  width: 1px;
+  height: 16px;
+  background: var(--hairline);
+}
+
+/* 齿轮与弹层的定位上下文：弹层绝对定位于齿轮下方、右缘与齿轮对齐 */
+.settings-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.settings-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 850;
+  width: 236px;
+  padding: 10px 14px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--ivory);
+  box-shadow: 0 4px 16px rgba(20, 20, 19, 0.08);
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.settings-popover__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+}
+
+.settings-popover__label {
+  color: var(--olive);
+  font-size: 12px;
+}
+
+.settings-popover__segments {
+  display: flex;
+  gap: 2px;
+}
+
+.settings-popover__segment {
+  min-width: 34px;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--stone);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.settings-popover__segment:hover {
+  background: var(--warm-sand);
+  color: var(--dark-warm);
+}
+
+.settings-popover__segment[aria-pressed="true"] {
+  background: var(--brand-tint);
+  color: var(--brand);
+}
+
+.settings-popover__segment:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
+.settings-popover__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+}
+
+.settings-popover__reset {
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--brand);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.settings-popover__reset:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.settings-popover__autosave {
+  color: var(--stone);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-popover__segment,
+  .settings-popover__reset {
+    transition: none;
+  }
 }
 
 .app-shell__body {
@@ -741,13 +855,16 @@ mark.search-match--current {
 .markdown-body,
 .empty-state,
 .error-state {
-  max-width: min(800px, 100%);
+  max-width: min(var(--reader-column-width, 800px), 100%);
   margin: 0 auto;
 }
 
 .markdown-body {
   padding: 40px 32px;
   background: transparent;
+  /* 阅读设置消费点：正文字号 / 行高随 --reader-* 变量，默认值与 :root 一致 */
+  font-size: var(--reader-font-size, 14px);
+  line-height: var(--reader-line-height, 1.55);
 }
 
 .empty-state,
@@ -812,7 +929,7 @@ mark.search-match--current {
 }
 
 .document-title {
-  max-width: min(800px, 100%);
+  max-width: min(var(--reader-column-width, 800px), 100%);
   margin: 0 auto;
   padding: 0 32px;
   color: var(--near-black);
@@ -980,7 +1097,8 @@ mark.search-match--current {
 .markdown-body ol {
   margin: 8px 0 14px;
   padding-left: 27px;
-  line-height: 1.55;
+  /* 跟随 .markdown-body 的行高变量（阅读设置），不再钉死 1.55 */
+  line-height: inherit;
 }
 
 .markdown-body li::marker {
@@ -1047,7 +1165,8 @@ mark.search-match--current {
   width: 100%;
   margin: 17px 0;
   border-collapse: collapse;
-  font-size: 13px;
+  /* 表格比正文小一档（默认 13px），跟随阅读设置的正文字号缩放 */
+  font-size: calc(var(--reader-font-size, 14px) - 1px);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1271,7 +1390,8 @@ mark.search-match--current {
 /* 就地编辑覆盖层：受控 textarea，高度由组件显式写回（裁定 F19）。
    选择器写成宿主容器的直接子元素（特异性 0,2,0）——必须压过阅读态输入控件的
    内描边/圆角/底色；覆盖层刻意不进正文容器（裁定 F23），这里把冲突属性显式归零，
-   防止未来接线漂移。字体度量取正文实际值（14px；行高由组件按块实测的 --blk-line 提供）。
+   防止未来接线漂移。字体度量取正文实际值（字号跟随阅读设置的 --reader-font-size；
+   行高由组件按块实测的 --blk-line 提供）。
    形态（2026-09-12 A2「页边字符」定稿）：**透明底 + 零框线**，编辑信号不在输入框上，
    而在块左页边（见下方 ¶/× 与 .block-editor__mark）；padding 左侧归零，
    让草稿文字与渲染态首字逐像素对齐。 */
@@ -1287,7 +1407,7 @@ mark.search-match--current {
   color: var(--near-black);
   font: inherit;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--reader-font-size, 14px);
   resize: none;
   overflow: hidden;
   outline: none;
