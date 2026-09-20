@@ -37,6 +37,9 @@ type MarkdownDocumentProps = {
   editable?: boolean;
   onActivateUnit?: (index: number, caretOffset: number) => void;
   onLockedUnitClick?: (reason: "html" | "widget" | "frontmatter") => void;
+  /** 阅读视图里点击任务列表复选框：实参是该列表项的源码起点（`-` / `*` / `1.` 的偏移）。
+   *  缺省时复选框保持 disabled（未接线的调用方与改动前逐字相同） */
+  onToggleTask?: (itemStart: number) => void;
   /** wikilink 目标 → 已解析的绝对路径（null = 库内找不到）。缺省时锚点不接任何行为 */
   wikilinks?: ReadonlyMap<string, string | null>;
   /** 点击库内链接（已解析）时回调：App 用它切换文档；第三参是 `#片段`（人读标题原文，
@@ -50,6 +53,8 @@ type HastElement = {
   tagName: string;
   properties?: Record<string, unknown>;
   children: HastNode[];
+  /// 源码位置（hast 的标准字段）：任务列表勾选靠它把 <li> 映射回源码偏移
+  position?: { start?: { offset?: number }; end?: { offset?: number } };
 };
 type HastNode = HastText | HastElement | { type: string; children?: HastNode[] };
 
@@ -342,6 +347,7 @@ type MarkdownBodyProps = {
   units: EditUnit[];
   wikilinks?: ReadonlyMap<string, string | null>;
   onOpenWikilink?: (path: string, target: string, fragment?: string) => void;
+  onToggleTask?: (itemStart: number) => void;
 };
 
 /// 真正执行 unified 解析管线的部分。props 全部是稳定引用（字符串或 memo 结果），
@@ -354,6 +360,7 @@ const MarkdownBody = memo(function MarkdownBody({
   units,
   wikilinks,
   onOpenWikilink,
+  onToggleTask,
 }: MarkdownBodyProps) {
   const resolveHeadingId = useHeadingIdResolver(headings);
 
@@ -396,6 +403,11 @@ const MarkdownBody = memo(function MarkdownBody({
       [rehypeKatex, KATEX_OPTIONS],
     ];
   }, [hasRawHtml, searchQuery, editable, editUnitOptions, obsidianOptions]);
+
+  // 任务勾选只在阅读视图接管，且必须有接管方（App 侧经 editorRef 读最新会话）。
+  // 两条都不满足时下方两条覆盖渲染整体不挂：编辑视图与未接线调用方的
+  // components 与改动前逐字相同（复选框保持 disabled）。
+  const taskToggleEnabled = !editable && typeof onToggleTask === "function";
 
   // components 对象必须 memo：内联创建会让 react-markdown 每次渲染都重走解析管线
   const components: Components = useMemo(
@@ -622,8 +634,67 @@ const MarkdownBody = memo(function MarkdownBody({
           </code>
         );
       },
+      // 任务列表勾选：<input> 上没有源码位置（GFM 生成时就不带），<li> 上有——
+      // 所以「点的是哪一项」由 <li> 交出去，勾选与写盘全在 App / useDocumentEditor 一侧。
+      ...(taskToggleEnabled
+        ? {
+            li: ({ node, children, ...props }) => {
+              const position = node?.position?.start?.offset;
+              const className = typeof props.className === "string" ? props.className : "";
+              // task-list-item 这个类是 mdast-util-to-hast 给 GFM 任务项加的；
+              // 没有源码位置就定位不到块单元与标记，宁可不接管
+              const toggleable =
+                className.split(/\s+/).includes("task-list-item") &&
+                typeof position === "number";
+              return (
+                <li
+                  {...props}
+                  onClick={
+                    toggleable
+                      ? (event) => {
+                          const target = event.target;
+                          // 只有点在复选框上才算勾选：点条目文字是选字/阅读，不该改文件
+                          if (
+                            !(target instanceof HTMLInputElement) ||
+                            target.type !== "checkbox"
+                          ) {
+                            return;
+                          }
+                          onToggleTask?.(position);
+                        }
+                      : undefined
+                  }
+                >
+                  {children}
+                </li>
+              );
+            },
+            input: ({ node, ...props }) => {
+              // GFM 任务复选框由 mdast-util-to-hast 生成：**不带源码位置**且恒为 disabled。
+              // disabled 控件不派发点击事件，要让它在 Vellum 里可点就必须摘掉。
+              // 原始 HTML 里的 <input>（rehype-raw 解析，带位置）一律不动：HTML 块只读，
+              // 作者写下的 disabled 该留着。
+              const isTaskCheckbox =
+                props.type === "checkbox" && node !== undefined && node.position === undefined;
+              if (!isTaskCheckbox) return <input {...props} />;
+
+              // checked 受控 + readOnly：勾选态由源码字符串单向驱动，乐观更新与失败回滚
+              // 都靠这次重渲染回到正确状态（readOnly 只是压掉 React 的受控告警；
+              // 复选框本身不认 readOnly，点击照常冒泡到上面的 <li>）
+              const { disabled: _disabled, ...rest } = props;
+              return <input {...rest} type="checkbox" checked={rest.checked === true} readOnly />;
+            },
+          }
+        : {}),
     }),
-    [resolveHeadingId, isTrustedMdlog, wikilinks, onOpenWikilink]
+    [
+      resolveHeadingId,
+      isTrustedMdlog,
+      wikilinks,
+      onOpenWikilink,
+      taskToggleEnabled,
+      onToggleTask,
+    ]
   );
 
   return (
@@ -651,6 +722,7 @@ export const MarkdownDocument = memo(function MarkdownDocument({
   onLockedUnitClick,
   wikilinks,
   onOpenWikilink,
+  onToggleTask,
 }: MarkdownDocumentProps) {
   const articleRef = useRef<HTMLElement>(null);
   const prevQueryRef = useRef("");
@@ -794,6 +866,7 @@ export const MarkdownDocument = memo(function MarkdownDocument({
         units={units}
         wikilinks={wikilinks}
         onOpenWikilink={onOpenWikilink}
+        onToggleTask={onToggleTask}
       />
     </article>
   );

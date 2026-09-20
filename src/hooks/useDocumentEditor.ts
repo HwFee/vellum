@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { buildEditUnits, spliceUnit, type EditUnit } from "../lib/editUnits";
+import { buildEditUnits, findUnitForRange, spliceUnit, type EditUnit } from "../lib/editUnits";
+import { toggleTaskMarkerInUnit } from "../lib/taskList";
 
 export type EditorViewMode = "reading" | "editing";
 export type EditorToast = { id: number; message: string };
@@ -198,6 +199,43 @@ export function useDocumentEditor({
     showToast,
   ]);
 
+  /// 阅读视图里点击任务列表复选框：在所属块单元内翻转对应标记并落盘。
+  /// 与块编辑**不是**同一条路（勾选不进入编辑会话、不碰草稿与 caret），但门禁与
+  /// 失败回滚与 commitActive 同款：mdlog 记录中只读、只读块不可点、落盘失败即回滚。
+  ///
+  /// itemStart 是列表项的源码起点（由 MarkdownDocument 从 <li> 的源码位置给出）。
+  const toggleTask = useCallback(
+    async (itemStart: number): Promise<void> => {
+      // 写盘口门禁（裁定 F25 同款）：记录中一切写盘入口都必须拦在这里。
+      // mdlogActive 本身来自 read_mdlog_state 的 `?? null` 归一（App 侧），不得另设判据。
+      if (mdlogActive) {
+        showToast("记录中 · 勾选已禁用");
+        return;
+      }
+      // 半开区间包含判定：end 取 itemStart + 1，避免命中「恰好结束在 itemStart」的前一块
+      const unit = findUnitForRange(units, itemStart, itemStart + 1);
+      // 只读块（HTML / widget / frontmatter）里的任务列表不可点：静默忽略，
+      // 与只读块在编辑视图里的「零文字浮层」定稿一致
+      if (!unit?.editable) return;
+
+      const next = toggleTaskMarkerInUnit(markdown, unit.start, unit.end, itemStart);
+      if (next === null || next === markdown) return;
+
+      // 乐观更新：先把新源码推给父级（复选框当场翻转），再落盘。
+      // flushSync 让这一步在本次点击内同步完成——异步推进会让「翻了一半」的
+      // 中间态在等待落盘期间被看见
+      flushSync(() => onMarkdownChange(next));
+      try {
+        await save(next);
+      } catch (error) {
+        // 与 commitActive 同一口径：内存必须与磁盘重新一致（提交即落盘、落盘失败即回退）
+        flushSync(() => onMarkdownChange(markdown));
+        showToast(`写入失败：${String(error)}`);
+      }
+    },
+    [markdown, mdlogActive, onMarkdownChange, save, showToast, units]
+  );
+
   const toggleView = useCallback(async () => {
     if (viewMode === "editing") {
       await commitActive();
@@ -230,6 +268,7 @@ export function useDocumentEditor({
     activateUnit,
     updateDraft,
     commitActive,
+    toggleTask,
     notifyInterrupted,
     resetSession,
     dismissToast,

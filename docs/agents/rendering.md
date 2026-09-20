@@ -114,6 +114,15 @@
 - 页边字符一律「绝对定位 + auto 偏移（静态位置）+ `margin-left: -26px`」。
 - **绝不给块自身加 `position:relative`**：代码块 / widget 根容器带 `overflow:hidden`，伪元素以它们为包含块时 `-26px` 处的字符会被整条裁掉（`kami.css.test.ts` 有反裁剪红线断言）。
 
+## 任务列表勾选写回（2026-09-20 新增）
+
+- 阅读视图里点 GFM 任务复选框 = 直接改源码：`<li>` 的源码起点 → `useDocumentEditor.toggleTask` → `taskList.ts` 在**所属块单元区间内**按序号翻转标记（`*` / `+` / 有序列表、多空格 / Tab 分隔、`[X]` 都认；勾选字符沿用文档里已有的大小写风格）。
+- 定位信息只能来自 `<li>`：GFM 复选框由 `mdast-util-to-hast` 生成，**不带源码位置**（`<input>` 恒 disabled）；原始 HTML 里的 `<input>` 带位置。`MarkdownDocument` 的 `li` / `input` 两条覆盖渲染据此分工——只摘 GFM 复选框的 disabled，原始 HTML 的 disabled 一律留着。
+- 覆盖渲染只在**阅读视图 + 有 `onToggleTask`** 时挂上：编辑视图与未接线调用方的 `components` 与从前逐字相同（复选框保持 disabled，块激活那条路不受影响）。
+- 门禁与回滚与块编辑同款：mdlog 记录中拦在写盘口（`mdlogActive` 来自 `read_mdlog_state` 的 `?? null` 归一）、只读块（HTML / widget / frontmatter 及其容器）静默忽略、落盘失败回滚乐观更新并弹 `写入失败`。
+- 勾选态由源码字符串单向驱动（`checked` 受控 + `readOnly` + `flushSync(onMarkdownChange)`）：**不得**改成 `defaultChecked`——那样落盘失败回滚后复选框不会回到源码状态。
+- 勾选**不**递增 `reloadTick`、不播印章、不做滚动补偿（同块编辑提交）；watcher 回声照旧由「磁盘 vs 内存比对」抑制。
+
 ## 文件索引
 
 | 文件 | 职责 |
@@ -123,6 +132,7 @@
 | `src/components/BlockEditor.tsx` | 就地编辑面（隐藏原块锁高、自增高推流、Esc/失焦提交） |
 | `src/hooks/useDocumentEditor.ts` | 编辑会话状态机（视图门禁、草稿、提交即落盘、提示条） |
 | `src/lib/editUnits.ts` | Markdown → 块单元（纯函数：区间、可编辑性、HTML/widget/frontmatter 结构性只读） |
+| `src/lib/taskList.ts` | GFM 任务标记的定位与翻转（绝对偏移，纯函数；勾选写回用） |
 | `src/lib/rehypeEditUnits.ts` | 编辑视图的块标记 rehype 插件（sanitize 之后、katex 之前） |
 | `src/lib/scrollStick.ts` | 贴底判定 |
 | `src/lib/viewportAnchor.ts` | 热重载视口锚点（捕获/补偿原语） |

@@ -1415,6 +1415,20 @@ mark.search-match--current {
   accent-color: var(--brand);
 }
 
+/* 任务列表勾选（reader-polish task-8）：阅读视图里的复选框可点，hover / 键盘聚焦
+   给 1px 靛青描边提示（单一强调色、无底色、无圆角变化——与设计语言一致）。
+   只作用在 GFM 任务项上：:not(:disabled) 同时把编辑视图（复选框保持 disabled）
+   与原始 HTML 里作者写死的 disabled 排除在外，它们不该有「可点」的观感。 */
+.markdown-body .task-list-item input[type="checkbox"]:not(:disabled) {
+  cursor: pointer;
+}
+
+.markdown-body .task-list-item input[type="checkbox"]:not(:disabled):hover,
+.markdown-body .task-list-item input[type="checkbox"]:not(:disabled):focus-visible {
+  outline: 1px solid var(--brand);
+  outline-offset: 1px;
+}
+
 .broken-asset {
   display: inline-block;
   max-width: 100%;

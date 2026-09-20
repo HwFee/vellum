@@ -431,3 +431,106 @@ describe("useDocumentEditor", () => {
     expect(save).not.toHaveBeenCalled();
   });
 });
+
+/// 任务列表勾选（reader-polish task-8）：阅读视图里点复选框直接回写源码。
+/// 与块编辑是两条路——不进入编辑会话、不碰草稿，但门禁与失败回滚同款。
+describe("useDocumentEditor · 任务列表勾选", () => {
+  it("阅读视图点复选框：先推新源码给父级（乐观更新）再落盘，且不进入编辑会话", async () => {
+    const markdown = "# 标题\n\n- [ ] a\n- [x] b\n";
+    const save = vi.fn(async (_next: string) => {});
+    const onChange = vi.fn();
+    const { result } = renderHook(() => useControlledEditor(markdown, save, onChange));
+
+    await act(async () => {
+      await result.current.editor.toggleTask(markdown.indexOf("- [x] b"));
+    });
+
+    const next = "# 标题\n\n- [ ] a\n- [ ] b\n";
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith(next);
+    expect(save).toHaveBeenCalledWith(next);
+    expect(result.current.markdown).toBe(next);
+    // 勾选不是编辑：没有活动块、没有草稿、视图仍是阅读
+    expect(result.current.editor.activeUnit).toBeNull();
+    expect(result.current.editor.viewMode).toBe("reading");
+    expect(result.current.editor.draft).toBe("");
+  });
+
+  it("连续两次勾选：第二次基于第一次的结果，往返回到原文", async () => {
+    const markdown = "- [ ] a\n";
+    const save = vi.fn(async (_next: string) => {});
+    const { result } = renderHook(() => useControlledEditor(markdown, save));
+
+    await act(async () => {
+      await result.current.editor.toggleTask(0);
+    });
+    expect(result.current.markdown).toBe("- [x] a\n");
+
+    await act(async () => {
+      await result.current.editor.toggleTask(0);
+    });
+    expect(result.current.markdown).toBe(markdown);
+    expect(save.mock.calls.map((call) => call[0])).toEqual(["- [x] a\n", markdown]);
+  });
+
+  it("落盘失败：回滚乐观更新（先 next 再原 markdown）并提示「写入失败」", async () => {
+    const markdown = "- [ ] a\n";
+    const save = vi.fn(async () => {
+      throw new Error("磁盘只读");
+    });
+    const onChange = vi.fn();
+    const { result } = renderHook(() => useControlledEditor(markdown, save, onChange));
+
+    await act(async () => {
+      await result.current.editor.toggleTask(0);
+    });
+
+    expect(onChange.mock.calls.map((call) => call[0])).toEqual(["- [x] a\n", markdown]);
+    expect(result.current.markdown).toBe(markdown);
+    expect(result.current.editor.toast?.message).toContain("写入失败");
+  });
+
+  // 约束 14 / 裁定 F25：记录中一切写盘入口都必须拦在写盘口，勾选不是例外
+  it("mdlog 记录中：不落盘、不改内存，提示勾选已禁用", async () => {
+    const markdown = "- [ ] a\n";
+    const { result, save, onMarkdownChange } = setup({ markdown, mdlogActive: true });
+
+    await act(async () => {
+      await result.current.toggleTask(0);
+    });
+
+    expect(save).not.toHaveBeenCalled();
+    expect(onMarkdownChange).not.toHaveBeenCalled();
+    expect(result.current.toast?.message).toContain("记录中");
+  });
+
+  it("只读块（列表项里有块级 HTML）里的任务列表不可点：不落盘、不提示", async () => {
+    const markdown = "- [ ] a\n  <div>x</div>\n";
+    const { result, save, onMarkdownChange } = setup({ markdown });
+    expect(result.current.units[0].editable).toBe(false);
+
+    await act(async () => {
+      await result.current.toggleTask(0);
+    });
+
+    expect(save).not.toHaveBeenCalled();
+    expect(onMarkdownChange).not.toHaveBeenCalled();
+    expect(result.current.toast).toBeNull();
+  });
+
+  it("点普通列表项 / 源码位置对不上：静默 no-op", async () => {
+    const markdown = "- a\n- b\n";
+    const { result, save, onMarkdownChange } = setup({ markdown });
+
+    await act(async () => {
+      await result.current.toggleTask(markdown.indexOf("- b"));
+    });
+    await act(async () => {
+      await result.current.toggleTask(9999);
+    });
+
+    expect(save).not.toHaveBeenCalled();
+    expect(onMarkdownChange).not.toHaveBeenCalled();
+    expect(result.current.toast).toBeNull();
+  });
+});

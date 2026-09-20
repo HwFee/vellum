@@ -1552,3 +1552,117 @@ plain block
     }
   });
 });
+
+/// 任务列表勾选（reader-polish task-8）：阅读视图里点复选框，把「点的是哪一项」交出去。
+/// <input> 由 mdast-util-to-hast 生成、不带源码位置，<li> 带——所以定位信息从 <li> 出。
+/// 写盘、门禁与回滚全在 useDocumentEditor（本文件只钉住接线与 DOM 形态）。
+describe("MarkdownDocument · 任务列表勾选", () => {
+  const boxesOf = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
+
+  it("阅读视图里复选框可点，回调收到被点列表项的源码起点", () => {
+    const markdown = "- [ ] a\n- [x] b\n";
+    const onToggleTask = vi.fn();
+    const { container } = render(
+      <MarkdownDocument markdown={markdown} onToggleTask={onToggleTask} />
+    );
+
+    const boxes = boxesOf(container);
+    expect(boxes).toHaveLength(2);
+    expect(boxes[0].disabled).toBe(false);
+    expect(boxes[1].checked).toBe(true);
+
+    fireEvent.click(boxes[1]);
+    expect(onToggleTask).toHaveBeenCalledWith(markdown.indexOf("- [x] b"));
+    fireEvent.click(boxes[0]);
+    expect(onToggleTask).toHaveBeenLastCalledWith(0);
+  });
+
+  it("嵌套任务项交出的是子项自己的起点，不是外层列表项", () => {
+    const markdown = "- [ ] a\n  - [x] b\n";
+    const onToggleTask = vi.fn();
+    const { container } = render(
+      <MarkdownDocument markdown={markdown} onToggleTask={onToggleTask} />
+    );
+
+    fireEvent.click(boxesOf(container)[1]);
+    expect(onToggleTask).toHaveBeenCalledWith(markdown.indexOf("- [x] b"));
+  });
+
+  it("点条目文字（不是复选框）不触发勾选：选字/阅读不该改文件", () => {
+    const onToggleTask = vi.fn();
+    render(<MarkdownDocument markdown={"- [ ] a\n"} onToggleTask={onToggleTask} />);
+
+    fireEvent.click(screen.getByText("a"));
+    expect(onToggleTask).not.toHaveBeenCalled();
+  });
+
+  it("勾选态由源码单向驱动：改 markdown 即跟着翻，未改源码时点击立刻回到源码状态", () => {
+    const onToggleTask = vi.fn();
+    const { container, rerender } = render(
+      <MarkdownDocument markdown={"- [ ] a\n"} onToggleTask={onToggleTask} />
+    );
+
+    const box = boxesOf(container)[0];
+    expect(box.checked).toBe(false);
+    // 受控：这一次点击只把「点了哪一项」交出去，勾选态本身等源码回填
+    fireEvent.click(box);
+    expect(onToggleTask).toHaveBeenCalledWith(0);
+    expect(box.checked).toBe(false);
+
+    rerender(<MarkdownDocument markdown={"- [x] a\n"} onToggleTask={onToggleTask} />);
+    expect(boxesOf(container)[0].checked).toBe(true);
+  });
+
+  it("未接线（没有 onToggleTask）时复选框保持 disabled：与改动前逐字相同", () => {
+    const { container } = render(<MarkdownDocument markdown={"- [ ] a\n"} />);
+
+    const box = boxesOf(container)[0];
+    expect(box.disabled).toBe(true);
+    expect(box).not.toHaveAttribute("readonly");
+  });
+
+  it("编辑视图里复选框保持 disabled、不接管点击（块激活那条路不受影响）", () => {
+    const onToggleTask = vi.fn();
+    const onActivateUnit = vi.fn();
+    const { container } = render(
+      <MarkdownDocument
+        markdown={"- [ ] a\n"}
+        editable
+        onActivateUnit={onActivateUnit}
+        onToggleTask={onToggleTask}
+      />
+    );
+
+    const box = boxesOf(container)[0];
+    expect(box.disabled).toBe(true);
+    expect(box).not.toHaveAttribute("readonly");
+
+    fireEvent.click(box);
+    expect(onToggleTask).not.toHaveBeenCalled();
+  });
+
+  it("原始 HTML 里的复选框不动（作者写下的 disabled 留着），GFM 任务项才可点", () => {
+    const markdown = [
+      "<div>",
+      '<ul><li class="task-list-item"><input type="checkbox" disabled> raw</li></ul>',
+      "</div>",
+      "",
+      "- [ ] real",
+      "",
+    ].join("\n");
+    const onToggleTask = vi.fn();
+    const { container } = render(
+      <MarkdownDocument markdown={markdown} onToggleTask={onToggleTask} />
+    );
+
+    const boxes = boxesOf(container);
+    expect(boxes).toHaveLength(2);
+    // 原始 HTML：位置来自 rehype-raw，一律不动（HTML 块只读，不可点）
+    expect(boxes[0].disabled).toBe(true);
+    // GFM 任务项：可点，且交出的是它自己的源码起点
+    expect(boxes[1].disabled).toBe(false);
+    fireEvent.click(boxes[1]);
+    expect(onToggleTask).toHaveBeenCalledWith(markdown.indexOf("- [ ] real"));
+  });
+});

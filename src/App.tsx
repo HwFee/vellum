@@ -920,6 +920,12 @@ export default function App() {
     void editorRef.current?.toggleView();
   }, []);
 
+  // 阅读视图里点任务列表复选框：与块激活同一套路（空依赖 + editorRef 读最新会话），
+  // 保住 memo 化正文的 components 引用稳定（否则每次渲染都重走解析管线）
+  const handleToggleTask = useCallback((itemStart: number) => {
+    void editorRef.current?.toggleTask(itemStart);
+  }, []);
+
   // 只读块（HTML / 交互块）在编辑视图里由「加粗灰色虚线框 + not-allowed 指针」表达，
   // 不再弹文字提示（2026-09-10 设计定稿：零文字浮层）——因此这里没有 locked 点击处理器。
 
@@ -1474,6 +1480,7 @@ export default function App() {
                       onMatchCountChange={handleMatchCountChange}
                       editable={editor.viewMode === "editing"}
                       onActivateUnit={handleActivateUnit}
+                      onToggleTask={handleToggleTask}
                       wikilinks={state.wikilinks}
                       onOpenWikilink={handleOpenWikilink}
                     />

@@ -3382,3 +3382,127 @@ describe("窗口标题随文档", () => {
     expect(windowMock.titles).toEqual(["素笺", "readme — 素笺"]);
   });
 });
+
+// ===== 任务列表勾选写回（reader-polish task-8） =====
+
+describe("任务列表勾选写回", () => {
+  const TASK_DOC = "# 待办\n\n- [ ] 甲\n- [x] 乙\n";
+
+  /// 只认正文里的复选框（顶栏/侧栏没有 checkbox，限定 .markdown-body 让断言不依赖页面结构）
+  function taskBoxes(): HTMLInputElement[] {
+    return Array.from(document.querySelectorAll<HTMLInputElement>('.markdown-body input[type="checkbox"]'));
+  }
+
+  async function loadTaskDoc(markdown: string = TASK_DOC): Promise<void> {
+    backendInvoke.mockImplementation(async (command: string) => {
+      if (command === "load_document") return { ...loadedDoc, markdown };
+      if (command === "read_mdlog_state") return null;
+      return undefined;
+    });
+    vi.mocked(open).mockResolvedValueOnce(loadedDoc.path);
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+    // 正文进 DOM 的判据：本组夹具每篇都至少有一个任务复选框
+    await waitFor(() => expect(taskBoxes().length).toBeGreaterThan(0));
+  }
+
+  it("点复选框：乐观翻转并原子写回源码（只改那一个字符）", async () => {
+    await loadTaskDoc();
+    expect(taskBoxes()).toHaveLength(2);
+
+    fireEvent.click(taskBoxes()[0]);
+
+    await waitFor(() =>
+      expect(backendInvoke).toHaveBeenCalledWith("save_document", {
+        path: loadedDoc.path,
+        content: "# 待办\n\n- [x] 甲\n- [x] 乙\n",
+      })
+    );
+    // 乐观更新：勾选态来自源码字符串，落盘前后都该是勾上的
+    expect(taskBoxes()[0].checked).toBe(true);
+    expect(saveDocumentCalls()).toHaveLength(1);
+    // 勾选不是编辑：不进入编辑视图、不弹任何提示
+    expect(document.querySelector(".markdown-body--editing")).toBeNull();
+    expect(document.querySelector(".editor-toast")).toBeNull();
+  });
+
+  it("写盘失败：回滚勾选并提示「写入失败」", async () => {
+    await loadTaskDoc("- [ ] 甲\n");
+    backendInvoke.mockImplementation(async (command: string) => {
+      if (command === "save_document") throw "磁盘只读";
+      if (command === "load_document") return { ...loadedDoc, markdown: "- [ ] 甲\n" };
+      return undefined;
+    });
+
+    fireEvent.click(taskBoxes()[0]);
+
+    expect(await screen.findByText(/写入失败/)).toBeInTheDocument();
+    // 内存与磁盘重新一致：复选框回到未勾选
+    expect(taskBoxes()[0].checked).toBe(false);
+  });
+
+  // 约束 14：记录中一切写盘入口都必须被拦（勾选也不例外）
+  it("mdlog 记录中：勾选被拦下，不落盘并提示", async () => {
+    backendInvoke.mockImplementation(async (command: string) => {
+      if (command === "load_document") return { ...loadedDoc, markdown: "- [ ] 甲\n" };
+      if (command === "read_mdlog_state") {
+        return { lastWriteAt: 1, heartbeatAt: Date.now(), expiresAt: Date.now() + 60_000 };
+      }
+      return undefined;
+    });
+    vi.mocked(open).mockResolvedValueOnce(loadedDoc.path);
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+    await waitFor(() => expect(screen.getByText("记录中 · PI")).toBeInTheDocument());
+
+    fireEvent.click(taskBoxes()[0]);
+
+    expect(await screen.findByText("记录中 · 勾选已禁用")).toBeInTheDocument();
+    expect(backendInvoke).not.toHaveBeenCalledWith("save_document", expect.anything());
+    expect(taskBoxes()[0].checked).toBe(false);
+  });
+
+  it("自身写入的 watcher 回声不算外部改动：不弹「墨迹未干」", async () => {
+    await loadTaskDoc("- [ ] 甲\n");
+    fireEvent.click(taskBoxes()[0]);
+    await waitFor(() => expect(saveDocumentCalls()).toHaveLength(1));
+
+    // 模拟我方写入引发的 watcher 回声：磁盘内容与刚落盘的内容一致
+    const written = saveDocumentCalls()[0].content;
+    backendInvoke.mockImplementation(async (command: string) =>
+      command === "load_document" ? { ...loadedDoc, markdown: written } : undefined
+    );
+    await act(async () => {
+      fileChangedHandler()(undefined);
+    });
+
+    expect(screen.queryByText("墨迹未干")).toBeNull();
+    expect(document.querySelector(".document-content")).not.toHaveClass("fresh-ink");
+  });
+
+  it("只读块（HTML 块里的任务列表）不可点：事件到了处理器也写不进去", async () => {
+    const markdown = [
+      "<div>",
+      '<ul><li class="task-list-item"><input type="checkbox" disabled> 原始</li></ul>',
+      "</div>",
+      "",
+      "- [ ] 真任务",
+      "",
+    ].join("\n");
+    await loadTaskDoc(markdown);
+
+    const boxes = taskBoxes();
+    expect(boxes).toHaveLength(2);
+    // 原始 HTML 的复选框保持作者写下的 disabled（真实浏览器里连点击都不会派发）
+    expect(boxes[0].disabled).toBe(true);
+
+    // jsdom 不拦 disabled 控件的点击，这里刻意让事件走到处理器：
+    // 归属的块单元是只读的 html 块 ⇒ 必须整体 no-op（门禁在 useDocumentEditor）
+    fireEvent.click(boxes[0]);
+    await act(async () => {});
+    expect(backendInvoke).not.toHaveBeenCalledWith("save_document", expect.anything());
+    expect(document.querySelector(".editor-toast")).toBeNull();
+  });
+});

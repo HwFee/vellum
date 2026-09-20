@@ -730,3 +730,57 @@ describe("kami.css reader-polish task-7 大纲深层级（2026-09-20）", () => 
     document.head.removeChild(styleEl);
   });
 });
+
+describe("kami.css reader-polish task-8 任务列表勾选（2026-09-20）", () => {
+  it("可点复选框：hover / 键盘聚焦给 1px 靛青描边，光标 pointer", () => {
+    const base = css.match(
+      /\.markdown-body \.task-list-item input\[type="checkbox"\]:not\(:disabled\)\s*\{[^}]*\}/s
+    )?.[0] ?? "";
+    expect(base).not.toBe("");
+    expect(base).toMatch(/cursor:\s*pointer/);
+
+    const hover = css.match(
+      /\.markdown-body \.task-list-item input\[type="checkbox"\]:not\(:disabled\):hover,\s*\.markdown-body \.task-list-item input\[type="checkbox"\]:not\(:disabled\):focus-visible\s*\{[^}]*\}/s
+    )?.[0] ?? "";
+    expect(hover).not.toBe("");
+    expect(hover).toMatch(/outline:\s*1px solid var\(--brand\)/);
+    expect(hover).toMatch(/outline-offset:\s*1px/);
+
+    // 新规则都在首个 .mdlog-widget 之前（不进 mdlog 区段的设计约束扫描）
+    expect(css.indexOf(".task-list-item input")).toBeLessThan(css.indexOf(".mdlog-widget"));
+  });
+
+  it("真选择器判定：只有 GFM 任务项里**可点**的复选框才拿到可点提示", () => {
+    const styleEl = document.createElement("style");
+    styleEl.textContent = css;
+    document.head.appendChild(styleEl);
+
+    const body = document.createElement("div");
+    body.className = "markdown-body";
+    document.body.appendChild(body);
+    const selector = '.markdown-body .task-list-item input[type="checkbox"]:not(:disabled)';
+
+    const make = (disabled: boolean, taskItem: boolean) => {
+      const wrapper = document.createElement(taskItem ? "li" : "div");
+      if (taskItem) wrapper.className = "task-list-item";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.disabled = disabled;
+      wrapper.appendChild(input);
+      body.appendChild(wrapper);
+      return input;
+    };
+
+    const clickable = make(false, true);   // GFM 任务项（阅读视图）
+    const editView = make(true, true);     // 编辑视图 / 原始 HTML 写死的 disabled
+    const rawHtml = make(false, false);    // 原始 HTML 里的复选框（不在任务项里）
+
+    expect(clickable.matches(selector)).toBe(true);
+    expect(editView.matches(selector)).toBe(false);
+    expect(rawHtml.matches(selector)).toBe(false);
+    expect(window.getComputedStyle(clickable).cursor).toBe("pointer");
+
+    document.body.removeChild(body);
+    document.head.removeChild(styleEl);
+  });
+});

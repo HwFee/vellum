@@ -11,7 +11,10 @@ import { parseFrontmatter } from "./frontmatter";
 /// 文首 frontmatter **不在这里加解析扩展**（不引 remark-frontmatter）：属性卡由
 /// 渲染侧的 rehypeObsidian 换树实现，两边都按 `parseFrontmatter` 的同一区间对齐，
 /// 这里只把区间合并成一块只读单元（见 buildEditUnits 尾部），解析行为保持不变。
-const PARSE_OPTIONS = {
+///
+/// 导出给 `taskList.ts` 共用（任务列表勾选按绝对偏移回写源码）：两处各写一份
+/// 解析选项，迟早会漂移成「标记偏移与块区间对不上」——那正是红线里最贵的一类错。
+export const PARSE_OPTIONS = {
   extensions: [gfm(), math()],
   mdastExtensions: [gfmFromMarkdown(), mathFromMarkdown()],
 };
