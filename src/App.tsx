@@ -21,8 +21,17 @@ import { extractOutline, matchHeadingByFragment } from "./lib/outline";
 import { fileNameToTitle, isMarkdownPath, isSamePath } from "./lib/path";
 import { extractWikilinkTargets } from "./lib/wikilink";
 import { addRecent, loadRecentFiles, removeRecent } from "./lib/recentFiles";
-import { loadScrollPosition, saveScrollPosition } from "./lib/scrollMemory";
+import { loadScrollPosition, saveScrollPosition, type ScrollPositionRecord } from "./lib/scrollMemory";
 import { captureScrollPosition, restoreScrollPosition } from "./lib/scrollRestore";
+import {
+  EMPTY_NAV_HISTORY,
+  pushNav,
+  resetForward,
+  stepBack,
+  stepForward,
+  type NavEntry,
+  type NavHistory,
+} from "./lib/navHistory";
 import { captureViewportAnchor, restoreViewportAnchor, type ViewportAnchor } from "./lib/viewportAnchor";
 import { startViewportPin, type ViewportPin } from "./lib/viewportPin";
 import { isScrollKey } from "./lib/scrollInput";
@@ -41,6 +50,22 @@ const EMPTY_WIKILINKS: ReadonlyMap<string, string | null> = new Map();
 
 /// 应用名：窗口标题的后半段（无文档时整条标题），与 `tauri.conf.json` 的窗口标题同值
 const APP_NAME = "素笺";
+
+/**
+ * 换文档的来源，决定本次导航如何作用于历史栈（详见 `lib/navHistory.ts`）：
+ * - `wikilink`：点库内链接换文档 ⇒ 当前文档 + 当前位置压入 back、清空 forward
+ * - `history`：后退/前进本身 ⇒ 两侧栈都不动（互换已由 step* 完成）
+ * - `direct`（默认）：对话框 / 拖放 / 最近列表 / 启动恢复 ⇒ 新导航，只作废 forward
+ */
+type LoadSource = "wikilink" | "history" | "direct";
+
+type LoadOptions = {
+  /** wikilink 的 `#片段`（人读标题原文）：目标文档进 DOM 后由 handleContentRendered 消费 */
+  fragment?: string;
+  source?: LoadSource;
+  /** 后退/前进条目自带的阅读位置记录：取代持久化存储里那一份（见 pendingRestoreRef） */
+  restore?: ScrollPositionRecord;
+};
 
 export default function App() {
   const [state, setState] = useState<DocumentState>({ status: "empty" });
@@ -76,7 +101,7 @@ export default function App() {
   const wikilinksRef = useRef<ReadonlyMap<string, string | null>>(EMPTY_WIKILINKS);
   // 打开文档函数的稳定引用：wikilink 点击回调要在**空依赖**下还能调到最新一份 loadPath
   // （它闭包了 state 与各个 ref，直接捕获会被 memo 化正文钉在首帧那一份上）
-  const loadPathRef = useRef<(path: string, fragment?: string) => void>(() => {});
+  const loadPathRef = useRef<(path: string, options?: LoadOptions) => void>(() => {});
   loadPathRef.current = loadPath;
   // 编辑会话（在 activeDocument 之后创建）：回调与 effect 经此读到最新一份，
   // 既避免闭包过期，也让传给 memo 化 MarkdownDocument 的回调保持引用稳定
@@ -91,6 +116,10 @@ export default function App() {
   // 进 DOM 之后才谈得上定位，故随加载记下、由 handleContentRendered 消费；
   // 消费即清空（命中与落空都清），加载失败也清——绝不留给下一次加载
   const pendingFragmentRef = useRef<{ path: string; fragment: string } | null>(null);
+  // 后退/前进条目自带的阅读位置记录（同 pendingFragmentRef 的时序：随本次加载记下、
+  // 由 handleContentRendered 消费，命中与落空都清，加载失败也清）。
+  // 栈条目记的就是离开该文档时的位置，与持久化存储里那份同源，但不依赖那次写入成功
+  const pendingRestoreRef = useRef<{ path: string; record: ScrollPositionRecord } | null>(null);
   const scrollSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRestoredPathRef = useRef<string | null>(null);
   // 恢复落位守护的取消函数（切换文档/重复恢复时终止上一段守护）
@@ -227,11 +256,66 @@ export default function App() {
     [beginWidthTransition, setReaderSettings]
   );
 
+  // ===== wikilink 前进/后退历史 =====
+  // 只有 wikilink 换文档入栈（判据与两栈方向见 lib/navHistory.ts 的模块注释）；
+  // 条目自带离开时的三级位置记录，落位复用 scrollRestore.ts 的既有管线。
+  const [navHistory, setNavHistory] = useState<NavHistory>(EMPTY_NAV_HISTORY);
+  // 后退/前进的回调必须**空依赖**（下面快捷键 effect 的依赖表要稳、顶栏按钮不该每次渲染换引用），
+  // 故栈与当前位置都经 ref 读最新一份——与 loadPathRef/editorRef 同一套路
+  const navHistoryRef = useRef(navHistory);
+  navHistoryRef.current = navHistory;
+
+  /// 后退/前进一步：当前文档 + 当前位置互换进另一侧栈，再经 loadPath 打开目标文档
+  const stepNav = useCallback((direction: "back" | "forward") => {
+    const path = currentPathRef.current;
+    const container = scrollRef.current;
+    if (!path || !container) return;
+    // 先看有没有路可走：无可走时不必测量当前位置（在空栈上按 Alt+← 是常态）
+    const history = navHistoryRef.current;
+    if (direction === "back" ? history.back.length === 0 : history.forward.length === 0) return;
+    const current: NavEntry = {
+      path,
+      record: captureScrollPosition(container, headingsRef.current, contentRef.current ?? undefined),
+    };
+    const step = direction === "back" ? stepBack(history, current) : stepForward(history, current);
+    if (!step) return;
+    // 同步写回 ref：连按两次时第二次按键必须看到刚走完的那一步
+    navHistoryRef.current = step.history;
+    setNavHistory(step.history);
+    // 目标即当前文档：只发生在「上一次换文档仍在途」的窗口里（currentPathRef 尚未更新）。
+    // 栈已经按这一步对齐，不必也不该再加载一次
+    if (isSamePath(step.target.path, path)) return;
+    void loadPathRef.current(step.target.path, {
+      source: "history",
+      restore: step.target.record,
+    });
+  }, []);
+
+  const handleNavBack = useCallback(() => stepNav("back"), [stepNav]);
+  const handleNavForward = useCallback(() => stepNav("forward"), [stepNav]);
+
   // 全局快捷键：⌘K / Ctrl+K 聚焦搜索框，Ctrl+B 切换侧栏开关（所有宽度下，含侧栏已开时
-  // 关闭——搜索框聚焦也不吞），Ctrl+E 切换编辑视图，Ctrl+S 提交当前块。
+  // 关闭——搜索框聚焦也不吞），Ctrl+E 切换编辑视图，Ctrl+S 提交当前块，
+  // Alt+← / Alt+→ 历史后退/前进。
   // 依赖里只有侧栏开关（其余经 editorRef/callback ref 读取），热重载与每次按键都不重新订阅。
   useEffect(() => {
     function handleGlobalShortcut(event: KeyboardEvent) {
+      // Alt+← / Alt+→ 必须在下面的 Ctrl/Cmd 早退之前处理（Alt 组合没有 ctrl/meta）。
+      // 不检查 event.defaultPrevented：这里就是它们的唯一消费者。
+      // preventDefault 是必须的：WebView2 把 Alt+←/→ 当自己的历史导航加速键，
+      // 不吞掉就会连整个页面一起导航走（与 Ctrl+S 吞「保存网页」同理）
+      if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          handleNavBack();
+          return;
+        }
+        if (event.key === "ArrowRight") {
+          event.preventDefault();
+          handleNavForward();
+          return;
+        }
+      }
       if (!(event.metaKey || event.ctrlKey)) return;
       // 已被消费的按键不再处理（终审 C2 / 裁定 F38-A）：编辑框的 onKeyDown 对
       // Ctrl+S 调过 preventDefault，事件继续冒泡到 window；这里无条件再调一次
@@ -271,7 +355,7 @@ export default function App() {
     }
     window.addEventListener("keydown", handleGlobalShortcut);
     return () => window.removeEventListener("keydown", handleGlobalShortcut);
-  }, [isOutlineOpen, setOutlineOpenPinned, toggleOutlinePinned]);
+  }, [isOutlineOpen, setOutlineOpenPinned, toggleOutlinePinned, handleNavBack, handleNavForward]);
 
   const scheduleRecheck = useCallback((liveState: MdlogState | null) => {
     if (recheckTimerRef.current !== null) {
@@ -303,15 +387,20 @@ export default function App() {
     }, delay);
   }, []);
 
+  /** 当前阅读位置的三级记录（无滚动容器时返回 null——此时没有位置可言） */
+  function currentScrollRecord(): ScrollPositionRecord | null {
+    const container = scrollRef.current;
+    if (!container) return null;
+    return captureScrollPosition(container, headingsRef.current, contentRef.current ?? undefined);
+  }
+
   /** 把当前滚动位置（锚点 + 偏移 + 比例兜底）写入持久化存储 */
   function persistCurrentScroll() {
     const path = currentPathRef.current;
-    const container = scrollRef.current;
-    if (!path || !container) return;
-    void saveScrollPosition(
-      path,
-      captureScrollPosition(container, headingsRef.current, contentRef.current ?? undefined)
-    );
+    if (!path) return;
+    const record = currentScrollRecord();
+    if (!record) return;
+    void saveScrollPosition(path, record);
   }
 
   /**
@@ -335,7 +424,8 @@ export default function App() {
     return new Map(Object.entries(resolved ?? {}));
   }
 
-  async function loadPath(path: string, fragment?: string) {
+  async function loadPath(path: string, options: LoadOptions = {}) {
+    const { fragment, source = "direct", restore } = options;
     // 切换文档前先提交活动块（规格 §6.3）：经 OS 关联/再次启动切文档时没有失焦事件，
     // 不先提交就会把上一篇的草稿按「同序号块」拼进新文档（写到错的文件里）。
     // 提交口失败时 hook 会保留草稿与活动块，此处只是尽力提交。
@@ -361,8 +451,13 @@ export default function App() {
     // 挂出旧草稿，任何后续提交触发都会把上一篇的文字写进新文件。
     // 同路径重开不走这里（上面的分支已返回）：热重载不得丢掉正在编辑的草稿。
     editorRef.current?.resetSession();
-    // 切换文档前先保存上一篇的阅读位置
-    persistCurrentScroll();
+    // 切换文档前先保存上一篇的阅读位置。同一份记录随即进历史栈（wikilink 换文档时）：
+    // 两次测量之间布局没有任何变化，故只测一次
+    const outgoingPath = currentPathRef.current;
+    const outgoingRecord = currentScrollRecord();
+    if (outgoingPath && outgoingRecord) {
+      void saveScrollPosition(outgoingPath, outgoingRecord);
+    }
     // 切换文档时重置 mdlog 活跃路径与前置标志，避免切换过渡时误触发断开补写
     prevIsMdlogActiveRef.current = false;
     activeMdlogPathRef.current = null;
@@ -386,6 +481,9 @@ export default function App() {
     const requestId = ++loadRequestRef.current;
     // 片段只属于**本次**加载：无片段时显式清空，落空的旧片段不许跑进下一次加载里
     pendingFragmentRef.current = fragment ? { path, fragment } : null;
+    // 后退/前进自带的阅读位置记录同属**本次**加载（无记录时显式清空，
+    // 由 handleContentRendered 消费：命中则取代持久化存储的读取）
+    pendingRestoreRef.current = restore ? { path, record: restore } : null;
     setShowReloadNote(false);
     // 首次加载（尚无文档展示）跳过中间「加载中...」帧，直接 empty → ready，
     // 少一次无意义渲染；切换文档时保留 loading 态作为反馈。
@@ -407,6 +505,24 @@ export default function App() {
       }
       if (loadRequestRef.current !== requestId) return;
       setState({ status: "ready", document, wikilinks });
+      // 历史栈只在**加载成功**后动（失败时 currentPathRef 仍指向上一篇，入栈会造出
+      // 「退回到其实还在显示的文档」的条目）：wikilink 换文档压入 back 并清空 forward；
+      // 其余来源是「新导航」，只作废 forward，back 留给用户退回来处。
+      // 后退/前进自身（history）两侧都不动——互换已由 stepNav 完成
+      if (source === "wikilink") {
+        if (outgoingPath && outgoingRecord) {
+          const entry: NavEntry = { path: outgoingPath, record: outgoingRecord };
+          const next = pushNav(navHistoryRef.current, entry);
+          navHistoryRef.current = next;
+          setNavHistory(next);
+        }
+      } else if (source === "direct") {
+        const next = resetForward(navHistoryRef.current);
+        if (next !== navHistoryRef.current) {
+          navHistoryRef.current = next;
+          setNavHistory(next);
+        }
+      }
       // 「成功打开」的单一收口：最近打开列表在此置顶（列表状态与持久化同步更新）
       void addRecent(document.path).then(setRecentFiles);
 
@@ -426,8 +542,9 @@ export default function App() {
       }
     } catch (error) {
       if (loadRequestRef.current !== requestId) return;
-      // 加载失败：本次片段随之作废（绝不让它落到下一次加载上）
+      // 加载失败：本次片段与后退/前进的位置记录随之作废（绝不让它们落到下一次加载上）
       pendingFragmentRef.current = null;
+      pendingRestoreRef.current = null;
       setState({ status: "error", message: String(error), path });
       // 打不开的条目留在「最近打开」里没有意义（列表点击命中已删除的文件是常态，
       // 启动恢复命中已删除的文件同理）：摘掉它，列表不残留死条目。
@@ -767,9 +884,11 @@ export default function App() {
   // 点名库内链接：走与「打开文件」完全相同的加载路径（提交活动块、保存上一篇阅读位置、
   // 重置编辑会话、恢复位置）。片段（`#标题`）随路径一起交给 loadPath：目标文档进 DOM 后
   // 由 handleContentRendered 按同一套缓动路径跳转。同款空依赖 + ref 读最新函数，
-  // 保住 memo 化正文的引用稳定
+  // 保住 memo 化正文的引用稳定。
+  // 来源标成 wikilink：这是**唯一**会进历史栈的导航（同文档自引用由 loadPath 的同路径
+  // 分支拦下，不换文档也就不入栈）
   const handleOpenWikilink = useCallback((path: string, _target: string, fragment?: string) => {
-    void loadPathRef.current(path, fragment);
+    void loadPathRef.current(path, { fragment, source: "wikilink" });
   }, []);
 
   const handleToggleEdit = useCallback(() => {
@@ -848,7 +967,17 @@ export default function App() {
 
     // 先归零，避免沿用上一篇文档的滚动位置
     container.scrollTop = 0;
-    void loadScrollPosition(path).then((record) => {
+    // 位置记录来源：后退/前进条目自带的那份优先（消费即清空），否则读持久化存储。
+    // 两者同源（离开该文档时同时写进栈与存储），但条目不受一次失败的写入影响
+    const carried = pendingRestoreRef.current;
+    let recordPromise: Promise<ScrollPositionRecord | null>;
+    if (carried && isSamePath(carried.path, path)) {
+      pendingRestoreRef.current = null;
+      recordPromise = Promise.resolve(carried.record);
+    } else {
+      recordPromise = loadScrollPosition(path);
+    }
+    void recordPromise.then((record) => {
       if (record === null) return;
       // 异步期间可能已切换到别的文档，作废本次恢复
       if (currentPathRef.current !== path) return;
@@ -879,9 +1008,11 @@ export default function App() {
     // 按键只在**会滚动的键**上记为「滚动输入」（清单见 lib/scrollInput.ts，带单元测试）：
     // 任何按键都记会把 Ctrl+K / Ctrl+E / Ctrl+S / Escape 这类快捷键误判成用户接管——
     // Ctrl+K 开侧栏时钉住会被当场取消，宽度回流又没人补偿（快捷键路径重新出现跳动）。
+    // Alt+←/→ 是历史导航（另一条快捷键），同理不算滚动输入：箭头键本身在清单里，
+    // 靠修饰键排除。
     // 取消动画仍然对所有按键生效（任何按键都说明用户接管了滚动意图），只是不污染时间戳。
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isScrollKey(event.key)) {
+      if (isScrollKey(event.key) && !event.altKey) {
         lastUserScrollAtRef.current = performance.now();
       }
       cancelScrollAnimation(container);
@@ -1207,6 +1338,10 @@ export default function App() {
         onOpen={handleOpen}
         isOutlineOpen={isOutlineOpen}
         onToggleOutline={toggleOutlinePinned}
+        canGoBack={navHistory.back.length > 0}
+        canGoForward={navHistory.forward.length > 0}
+        onGoBack={handleNavBack}
+        onGoForward={handleNavForward}
         isRecording={isMdlogActive}
         isEditing={editor.viewMode === "editing"}
         canEdit={!isMdlogActive}

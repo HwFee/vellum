@@ -61,6 +61,23 @@ function BookIcon() {
   );
 }
 
+/// 后退 / 前进：尖括号（‹ ›）—— 历史导航的通用符号，线性风格与其它顶栏图标一致
+function ChevronLeftIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M15 5l-7 7 7 7" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 5l7 7-7 7" />
+    </svg>
+  );
+}
+
 /// 阅读设置：齿轮 —— 线性风格与其它顶栏图标一致
 function GearIcon() {
   return (
@@ -76,6 +93,11 @@ type TopBarProps = {
   onOpen: () => void;
   isOutlineOpen?: boolean;
   onToggleOutline?: () => void;
+  /// 历史栈里还有可退/可进的条目：为假时按钮禁用（透明度表达，不可点）
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+  onGoBack?: () => void;
+  onGoForward?: () => void;
   /// mdlog 记录中：路径右侧显示「记录中」小章（记录状态不只出现在文档尾部）
   isRecording?: boolean;
   /// 是否处于编辑视图（按钮呈按下态）
@@ -93,6 +115,10 @@ export function TopBar({
   onOpen,
   isOutlineOpen = false,
   onToggleOutline,
+  canGoBack = false,
+  canGoForward = false,
+  onGoBack,
+  onGoForward,
   isRecording = false,
   isEditing = false,
   canEdit = true,
@@ -107,6 +133,28 @@ export function TopBar({
   return (
     <header className="top-bar" data-tauri-drag-region>
       <div className="top-bar__actions top-bar__actions--left" data-tauri-drag-region="false">
+        {/* 历史导航：按钮簇最前（阅读轨迹的方向感先于其它动作）。
+            title 带快捷键提示，与「切换大纲（Ctrl+B）」同款；禁用态只降透明度 */}
+        <button
+          className="open-button nav-button"
+          type="button"
+          aria-label="后退"
+          title="后退（Alt+←）"
+          disabled={!canGoBack}
+          onClick={onGoBack}
+        >
+          <ChevronLeftIcon />
+        </button>
+        <button
+          className="open-button nav-button"
+          type="button"
+          aria-label="前进"
+          title="前进（Alt+→）"
+          disabled={!canGoForward}
+          onClick={onGoForward}
+        >
+          <ChevronRightIcon />
+        </button>
         <OutlineToggle isOpen={isOutlineOpen} onToggle={onToggleOutline ?? (() => {})} />
         <button
           // 复用左区图标按钮样式（与相邻的「打开文件」同款）；edit-toggle 作语义钩子

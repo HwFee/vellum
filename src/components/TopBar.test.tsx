@@ -78,4 +78,50 @@ describe("TopBar", () => {
     expect(editing).toHaveAttribute("data-icon", "book");
     expect(editing).toHaveAttribute("title", "返回阅读视图（Ctrl+E）");
   });
+
+  it("后退/前进按钮排在按钮簇最前，无历史时禁用并带快捷键提示", () => {
+    render(<TopBar onOpen={vi.fn()} />);
+
+    const back = screen.getByRole("button", { name: "后退" });
+    const forward = screen.getByRole("button", { name: "前进" });
+    expect(back).toHaveAttribute("title", "后退（Alt+←）");
+    expect(forward).toHaveAttribute("title", "前进（Alt+→）");
+    // 禁用由 disabled 属性表达（视觉上是透明度，见 kami.css 的 .nav-button:disabled）
+    expect(back).toBeDisabled();
+    expect(forward).toBeDisabled();
+
+    // 最前：两个历史按钮排在「切换大纲」之前
+    const cluster = back.closest(".top-bar__actions--left")!;
+    const order = Array.from(cluster.querySelectorAll("button")).map((button) =>
+      button.getAttribute("aria-label")
+    );
+    expect(order.slice(0, 2)).toEqual(["后退", "前进"]);
+  });
+
+  it("有历史时可点并触发回调，禁用的一侧不触发", () => {
+    const handleBack = vi.fn();
+    const handleForward = vi.fn();
+    const { rerender } = render(
+      <TopBar onOpen={vi.fn()} canGoBack onGoBack={handleBack} onGoForward={handleForward} />
+    );
+
+    expect(screen.getByRole("button", { name: "后退" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "前进" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "后退" }));
+    expect(handleBack).toHaveBeenCalledTimes(1);
+    expect(handleForward).not.toHaveBeenCalled();
+
+    rerender(
+      <TopBar
+        onOpen={vi.fn()}
+        canGoBack
+        canGoForward
+        onGoBack={handleBack}
+        onGoForward={handleForward}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "前进" }));
+    expect(handleForward).toHaveBeenCalledTimes(1);
+  });
 });

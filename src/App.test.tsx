@@ -434,6 +434,106 @@ test("wikilink：点击库内链接用解析出的路径加载目标笔记", asy
   ]);
 });
 
+test("wikilink 换文档后可后退（Alt+←）：栈条目自带的位置记录把容器送回离开处", async () => {
+  // jsdom 的 rAF 时序不足以等缓动跑完（要看真实时钟），接管帧循环：传入远超动画时长的
+  // 帧时间戳，一帧即落到目标值（与片段跳转用例同款）
+  const frames: FrameRequestCallback[] = [];
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+    frames.push(cb);
+    return frames.length;
+  });
+  const flushFrames = () => {
+    while (frames.length > 0) {
+      frames.shift()!(performance.now() + 5000);
+    }
+  };
+
+  // 三篇互链的笔记：note → x → y，另有一篇 other 只从对话框打开。
+  // 三篇链是必要的——「back 非空」与「forward 非空」同时成立才能验证新导航只清 forward
+  const docs: Record<string, { fileName: string; parentPath: string; markdown: string }> = {
+    "C:/vault/note.md": { fileName: "note.md", parentPath: "C:/vault", markdown: "见 [[wiki/x]]。" },
+    "C:/vault/wiki/x.md": {
+      fileName: "x.md",
+      parentPath: "C:/vault/wiki",
+      markdown: "目标笔记正文。见 [[wiki/y]]。",
+    },
+    "C:/vault/wiki/y.md": {
+      fileName: "y.md",
+      parentPath: "C:/vault/wiki",
+      markdown: "第三篇。",
+    },
+    "C:/vault/other.md": { fileName: "other.md", parentPath: "C:/vault", markdown: "另开一篇。" },
+  };
+  backendInvoke.mockImplementation(async (command: string, args?: unknown) => {
+    if (command === "load_document") {
+      const { path } = args as { path: string };
+      return { path, ...docs[path] };
+    }
+    if (command === "resolve_wikilinks") {
+      const { fromPath } = args as { fromPath: string };
+      return fromPath === "C:/vault/note.md"
+        ? { "wiki/x": "C:/vault/wiki/x.md" }
+        : { "wiki/y": "C:/vault/wiki/y.md" };
+    }
+    return null;
+  });
+  vi.mocked(open).mockResolvedValueOnce("C:/vault/note.md");
+
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+  await waitFor(() => expect(document.querySelector("a.wikilink")).toBeInTheDocument());
+
+  // 对话框打开不入栈：两枚历史按钮都还禁用
+  expect(screen.getByRole("button", { name: "后退" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "前进" })).toBeDisabled();
+
+  // 源笔记没有标题（记录里只有比例兜底），容器做成 20000/800 并停在正中（ratio 0.5）
+  const container = document.querySelector(".document-scroll") as HTMLElement;
+  mockScrollable(container, 9600);
+
+  fireEvent.click(document.querySelector("a.wikilink") as HTMLElement);
+  await waitFor(() => expect(screen.getByRole("heading", { name: "x" })).toBeInTheDocument());
+
+  // wikilink 换文档入栈：可后退、不可前进；离开上一篇时位置同时进了存储与栈条目
+  expect(screen.getByRole("button", { name: "后退" })).not.toBeDisabled();
+  expect(screen.getByRole("button", { name: "前进" })).toBeDisabled();
+  expect(storeSet).toHaveBeenCalledWith("C:/vault/note.md", { ratio: 0.5 });
+
+  // Alt+← 后退。返回值 false 即 preventDefault 生效：WebView2 把 Alt+← 当自己的
+  // 历史导航加速键，不吞掉会连页面一起导航走
+  expect(fireEvent.keyDown(window, { key: "ArrowLeft", altKey: true })).toBe(false);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "note" })).toBeInTheDocument());
+  expect(screen.getByRole("button", { name: "后退" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "前进" })).not.toBeDisabled();
+
+  // 落位：存储里没有源笔记的记录（storeGet 只认 lastOpenedPath），位置只能来自栈条目
+  await waitFor(() => expect(frames.length).toBeGreaterThan(0));
+  act(flushFrames);
+  expect(container.scrollTop).toBe(9600);
+
+  // 再点一次 wikilink 换文档：forward（刚才退回来的 x）被新导航作废
+  fireEvent.click(document.querySelector("a.wikilink") as HTMLElement);
+  await waitFor(() => expect(screen.getByRole("heading", { name: "x" })).toBeInTheDocument());
+  expect(screen.getByRole("button", { name: "前进" })).toBeDisabled();
+
+  // 继续走到第三篇，再退一步：此刻 back 与 forward 同时非空
+  fireEvent.click(document.querySelector("a.wikilink") as HTMLElement);
+  await waitFor(() => expect(screen.getByRole("heading", { name: "y" })).toBeInTheDocument());
+  expect(fireEvent.keyDown(window, { key: "ArrowLeft", altKey: true })).toBe(false);
+  await waitFor(() => expect(screen.getByRole("heading", { name: "x" })).toBeInTheDocument());
+  expect(screen.getByRole("button", { name: "后退" })).not.toBeDisabled();
+  expect(screen.getByRole("button", { name: "前进" })).not.toBeDisabled();
+
+  // 新导航（对话框打开）只作废 forward，back 保留：还能退回刚读的那篇
+  vi.mocked(open).mockResolvedValueOnce("C:/vault/other.md");
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "other" })).toBeInTheDocument());
+
+  expect(screen.getByRole("button", { name: "前进" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "后退" })).not.toBeDisabled();
+});
+
 test("wikilink：热重载沿用原有解析表，新出现的目标异步补齐", async () => {
   vi.mocked(listen).mockClear();
 

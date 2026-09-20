@@ -163,6 +163,16 @@ describe("kami.css top bar", () => {
     expect(rule).toMatch(/height:\s*28px/);
     expect(rule).toMatch(/box-shadow:\s*inset 0 0 0 1px var\(--hairline\)/);
   });
+
+  it("历史导航按钮的禁用态只用透明度表达，且压得住幽灵按钮的悬停配色", () => {
+    const rule = css.match(/\.nav-button:disabled\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(rule).toMatch(/opacity:\s*0\.35/);
+    expect(rule).toMatch(/pointer-events:\s*none/);
+    expect(rule).not.toMatch(/color:/);
+
+    // 同特异度下靠顺序取胜：禁用规则必须在 .open-button:hover 之后
+    expect(css.indexOf(".nav-button:disabled")).toBeGreaterThan(css.indexOf(".open-button:hover"));
+  });
 });
 
 describe("kami.css mdlog widget and live indicator tokens", () => {

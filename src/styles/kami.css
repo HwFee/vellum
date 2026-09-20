@@ -239,6 +239,25 @@ textarea {
   outline-offset: -2px;
 }
 
+/* ===== 前进/后退（wikilink 历史导航） ===== */
+/* 与相邻幽灵按钮同规格（复用 .open-button），只多一条禁用态：历史栈为空时降透明度
+   并关掉指针——禁用由透明度表达，不引入新颜色 */
+.nav-button {
+  transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease, opacity 0.18s ease;
+}
+
+.nav-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-button {
+    transition: none;
+  }
+}
+
 /* ===== 阅读设置弹层（顶栏齿轮） ===== */
 /* 左侧按钮簇末尾的 1px 分隔竖线 */
 .top-bar__divider {
