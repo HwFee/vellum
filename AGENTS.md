@@ -19,7 +19,7 @@ Tauri 2 + React 19 桌面 Markdown 阅读器，Windows 10/11 x64。
 ```bash
 npm run dev          # Vite 开发服务器（端口 1420）
 npm run build        # tsc + vite build
-npm test             # vitest run（45 测试文件，894 用例）
+npm test             # vitest run（45 测试文件，903 用例）
 npm run tauri        # Tauri CLI
 node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wisdom 真实笔记库；库不存在则整体跳过）
 ```
@@ -58,6 +58,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 15. 顶栏不显示文件名（`.top-bar__title` 已移除），换文档的判据一律看 `h1.document-title`。 → `docs/agents/obsidian.md`
 16. `read_mdlog_state` 的返回值必须 `?? null` 归一后再入 state，否则 `undefined` 会被误判为记录中。 → `docs/agents/widgets.md`
 17. 任务列表勾选只能走 `useDocumentEditor.toggleTask`（`<li>` 源码起点 → 块单元内按序号翻转标记）：mdlog 门禁 / 只读块忽略 / 编辑视图不接管 / 在途串行 / **回滚只在「同一文档代际（App 每次装入内容递增 `documentGeneration`）且内存仍是我写的那份」时生效**，一处都不能少。 → `docs/agents/rendering.md`
+18. 打印只允许新增 `@media print` 段（屏幕态规则一律不动）：主段（隐藏界面件 / 放开版心 / 分页保护）排在首个 `.mdlog-widget` 之前且注释里也不得出现该字样，含该字样的交互块打印规则排在它之后。 → `docs/agents/rendering.md`
 
 ## 关键路径
 
@@ -71,7 +72,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 
 | 文档 | 管什么 | 什么时候读 |
 |------|--------|-----------|
-| `docs/agents/rendering.md` | 渲染结构、搜索跳转、大纲跟随、侧栏布局与宽度、阅读位置记忆、热重载恢复、布局过渡窗、`viewportPin`、数学公式、块级就地编辑不变量、文件索引 | 改渲染管线 / 滚动 / 编辑器 / 大纲时 |
+| `docs/agents/rendering.md` | 渲染结构、搜索跳转、大纲跟随、侧栏布局与宽度、阅读位置记忆、热重载恢复、布局过渡窗、`viewportPin`、数学公式、块级就地编辑不变量、打印样式、文件索引 | 改渲染管线 / 滚动 / 编辑器 / 大纲 / 打印时 |
 | `docs/agents/obsidian.md` | frontmatter 属性卡、callout、wikilink 端到端与片段跳转、文档标题与属性卡/提示块定稿形态、CJK 强调兜底、全库语料检查与真机验收 | 碰三族语法或 `rehypeObsidian` 时 |
 | `docs/agents/widgets.md` | `WidgetSandbox` 存活上限与懒挂载、沙箱根溢出保护、交互块授权台账、停帧降载与静态图指针防线、预载视距与高度夹取、mdlog 状态与吸底、sidecar 清理 | 改 mdlog 或 widget 沙箱时 |
 | `docs/agents/tooling.md` | shell 入口细节、技能安装与 pi 扩展、宣传品（`video/` + `promo/`）、性能技能表与入口 chunk 尺寸、打包与生产构建坑、真机探针、`custom-protocol` | 配环境、打包发布、改宣传品时 |

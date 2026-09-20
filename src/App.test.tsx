@@ -2676,6 +2676,26 @@ test("Ctrl+B 切换侧栏开关，焦点在搜索框上时也能关闭", () => {
   expect(document.querySelector(".outline-sidebar--open")).toBeNull();
 });
 
+test("Ctrl+P 调 window.print 并吞掉默认行为（打印样式见 kami.css 的两段 @media print）", () => {
+  const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
+  render(<App />);
+
+  expect(fireEvent.keyDown(window, { key: "p", ctrlKey: true })).toBe(false);
+  expect(printSpy).toHaveBeenCalledTimes(1);
+});
+
+test("环境没有 window.print 时 Ctrl+P 静默：不抛错、不动作、也不吞按键", () => {
+  // 目标环境是 WebView2（有 print）；这条守的是「拿不到实现」的兜底分支
+  vi.stubGlobal("print", undefined);
+  expect(typeof window.print).toBe("undefined");
+  render(<App />);
+
+  expect(() => fireEvent.keyDown(window, { key: "p", ctrlKey: true })).not.toThrow();
+  // 不能打印就不该吞键：preventDefault 只在我们真的走 print 时调
+  expect(fireEvent.keyDown(window, { key: "p", ctrlKey: true })).toBe(true);
+  vi.unstubAllGlobals();
+});
+
 test("全局 Ctrl+S 拦截 WebView 默认保存并在有活动块时提交", async () => {
   await loadDocument();
 

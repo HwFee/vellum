@@ -309,7 +309,7 @@ export default function App() {
   const handleNavForward = useCallback(() => stepNav("forward"), [stepNav]);
 
   // 全局快捷键：⌘K / Ctrl+K 聚焦搜索框，Ctrl+B 切换侧栏开关（所有宽度下，含侧栏已开时
-  // 关闭——搜索框聚焦也不吞），Ctrl+E 切换编辑视图，Ctrl+S 提交当前块，
+  // 关闭——搜索框聚焦也不吞），Ctrl+E 切换编辑视图，Ctrl+S 提交当前块，Ctrl+P 打印，
   // Alt+← / Alt+→ 历史后退/前进。
   // 依赖只有侧栏开关与两个历史回调（它们都是空依赖 useCallback，引用恒定；其余经
   // editorRef/callback ref 读取），热重载与每次按键都不重新订阅。
@@ -366,6 +366,17 @@ export default function App() {
         }
         // 等侧栏展开后再聚焦
         setTimeout(() => searchInputRef.current?.focus(), 60);
+        return;
+      }
+
+      // Ctrl+P（2026-09-20）：打印。WebView2 的 window.print() 走 Chromium 打印管线
+      // （微软 WebView2 打印文档的 ShowPrintUI / 反馈 #42 都确认这条路径），打印样式见
+      // kami.css 的两段 @media print。守卫只为「环境没有 print」时留一条安静的路：
+      // 拿不到实现就什么都不做（也不吞按键），而不是抛错。
+      if (key === "p") {
+        if (typeof window.print !== "function") return;
+        event.preventDefault();
+        window.print();
       }
     }
     window.addEventListener("keydown", handleGlobalShortcut);

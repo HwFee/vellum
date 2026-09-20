@@ -125,6 +125,16 @@
 - 勾选态由源码字符串单向驱动（`checked` 受控 + `readOnly` + `flushSync(onMarkdownChange)`）：**不得**改成 `defaultChecked`——那样落盘失败回滚后复选框不会回到源码状态。
 - 勾选**不**递增 `reloadTick`、不播印章、不做滚动补偿（同块编辑提交）；watcher 回声照旧由「磁盘 vs 内存比对」抑制。
 
+## 打印样式（2026-09-20 新增）
+
+- 两段 `@media print` 都在 `kami.css`，都**不动屏幕态规则**：**主段**（隐藏界面件 / 放开版心 / 分页保护）排在首个 mdlog widget 选择器**之前**，**末段**（隐 chrome 题头栏、恢复停帧 iframe）含该字样、排在其**之后**。主段的注释里也**不得**出现该字样——`kami.css.test.ts` 用 `indexOf` 找扫描起点，注释同样会把它提前（本轮就是这么踩到的）。
+- 隐藏清单：`.top-bar` / `.outline-sidebar` / `.outline-resize-handle` / `.outline-scrim` / `.custom-scrollbar` / `.jump-bottom` / `.reload-note` / `.editor-toast` / `.editor-hint` / `.settings-popover`。
+- 版心必须放开：屏幕态把正文关在「`100vh` + `overflow:hidden`/`scroll`」的壳里（窗口内滚动），不改成 `height:auto` + `overflow:visible` 就只印得出第一屏。侧栏开启时的 `--outline-shift` 位移与 `.document-scroll__content:has(.document-title)` 的 42px 顶距都是 0,2,0，打印段必须用同特异度显式归零——同特异度靠顺序取胜，所以打印段整体必须排在屏幕态规则之后（测试锁死）。
+- 列宽：`.markdown-body` 与 `.document-title` 的 `max-width` 打印下放开到 100%（左右 32px 内边距保留，标题与正文左缘的对齐关系不变）。**正文字号不另设**：沿用 `--reader-font-size`，用户的阅读设置就是他的选择。
+- 分页：`.code-block` / `.markdown-body pre` / `table` / `blockquote` / `img` 加 `break-inside: avoid`；`.document-title` 与 h1–h6 加 `break-after: avoid`；**不设 `@page`**，页边距交给浏览器默认。
+- 交互块：`--parked` 停帧（`visibility:hidden`）按**屏幕视口**判定，打印时落在后几页的 widget 会整块空白，故打印段里恢复 `visibility:visible`——这不是「停帧禁止用 `display:none`」那条红线的例外，只是打印媒体下的另一份取值。
+- `Ctrl+P` 走 `window.print()`（`App.tsx` 全局快捷键，`typeof window.print === "function"` 守卫；拿不到实现时既不动作也不 `preventDefault`，不无谓吞键）。WebView2 具备这条路径（Chromium 打印管线），但**真机未验证**。
+
 ## 文件索引
 
 | 文件 | 职责 |

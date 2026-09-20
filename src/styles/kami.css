@@ -1922,6 +1922,87 @@ mark.search-match--current {
   letter-spacing: 0.08em;
 }
 
+/* ===== 打印（@media print） ===== */
+/* 打印只做三件事：隐藏界面件、放开版心、保护分页；屏幕态规则一律不动（本段只在打印
+   媒体下生效）。位置约束：本段不含 mdlog widget 选择器字样，排在首个该选择器出现处
+   **之前**；交互块那半段打印规则含该字样，在文件末尾（约束 8 / kami.css.test.ts 有
+   区间扫描——注释里出现该字样同样会把扫描起点提前，所以这里只写中文描述）。
+   正文字号不另设：`.markdown-body` 消费 --reader-font-size，打印沿用用户的阅读设置。 */
+@media print {
+  /* 界面件：顶栏 / 侧栏 / 拖宽手柄 / 纱罩 / 自定义滚动条 / 跳底按钮 / 印章 /
+     编辑提示条 / 设置弹层——打印件里全是噪点 */
+  .top-bar,
+  .outline-sidebar,
+  .outline-resize-handle,
+  .outline-scrim,
+  .custom-scrollbar,
+  .jump-bottom,
+  .reload-note,
+  .editor-toast,
+  .editor-hint,
+  .settings-popover {
+    display: none;
+  }
+
+  /* 版心（一）：屏幕态把正文关在「100vh + overflow:hidden/scroll」的壳里（为的是窗口内
+     滚动），打印必须让它按内容高度自由流到多页，否则只印得出第一屏 */
+  .app-shell,
+  .app-shell__body,
+  .document-scroll,
+  .document-scroll__content {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .app-shell__body {
+    display: block;
+    padding-top: 0;
+  }
+
+  .document-scroll {
+    margin-left: 0;
+  }
+
+  /* 侧栏开着时正文右移一条 --outline-shift（0,2,0）：侧栏已隐藏，位移必须显式归零 */
+  .app-shell__body--outline-open .document-scroll {
+    margin-left: 0;
+  }
+
+  /* 正文区上下留白归零（:has(.document-title) 的 42px 覆写同为 0,2,0，靠顺序压过） */
+  .document-scroll__content,
+  .document-scroll__content:has(.document-title) {
+    padding: 0;
+  }
+
+  /* 版心（二）：列宽放开到 100%——纸张宽度就是版心（左右 32px 内边距保留，
+     标题与正文左缘的对齐关系不变） */
+  .markdown-body,
+  .document-title {
+    max-width: 100%;
+  }
+
+  /* 分页保护：整块不跨页 */
+  .code-block,
+  .markdown-body pre,
+  .markdown-body table,
+  .markdown-body blockquote,
+  .markdown-body img {
+    break-inside: avoid;
+  }
+
+  /* 分页保护：标题不留在页脚（标题后紧跟的块被推到下一页） */
+  .document-title,
+  .markdown-body h1,
+  .markdown-body h2,
+  .markdown-body h3,
+  .markdown-body h4,
+  .markdown-body h5,
+  .markdown-body h6 {
+    break-after: avoid;
+  }
+}
+
 /* ===== Pi 对话记录与沙箱交互块 ===== */
 
 /* --- mdlog 对话回合版式（D · 书札卷轴）：仅受信 mdlog 文档（mdlog:v1 指纹）挂载 --- */
@@ -2153,3 +2234,16 @@ mark.search-match--current {
   transition: none;
 }
 
+/* 打印（二）：交互块——静态内容保留，只隐去 chrome 题头栏；离屏停帧（--parked）的
+   iframe 在打印时必须恢复可见：停帧是按**屏幕视口**判定的，落在后几页的 widget
+   打印时会整块空白。本段含 `.mdlog-widget` 字样，必须排在首个该选择器出现处之后
+   （约束 8）——这也是它不跟主体打印段放一起的原因。 */
+@media print {
+  .mdlog-widget__bar {
+    display: none;
+  }
+
+  .mdlog-widget__frame--parked {
+    visibility: visible;
+  }
+}

@@ -784,3 +784,125 @@ describe("kami.css reader-polish task-8 任务列表勾选（2026-09-20）", () 
     document.head.removeChild(styleEl);
   });
 });
+
+/// reader-polish task-9（2026-09-20）：打印只做「隐藏界面件 / 放开版心 / 保护分页」。
+/// 本区段是打印段的**位置与内容**契约：主段不含 `.mdlog-widget` 字样且排在首个该选择器
+/// 之前，含该字样的交互块打印规则在文件末尾（约束 8，mdlog 设计约束扫描从首个出现处起算）。
+describe("kami.css reader-polish task-9 打印样式（2026-09-20）", () => {
+  const printStart = css.indexOf("/* ===== 打印");
+  const mdlogIndex = css.indexOf(".mdlog-widget");
+  const printBlock = css.slice(printStart, mdlogIndex);
+  const trailingBlock = css.slice(css.lastIndexOf("@media print"));
+
+  it("主打印段排在首个 .mdlog-widget 之前，且自身不含该字样（否则会把扫描起点提前）", () => {
+    expect(printStart).toBeGreaterThan(-1);
+    expect(printStart).toBeLessThan(mdlogIndex);
+    expect(printBlock).not.toContain(".mdlog-widget");
+    expect(printBlock).toMatch(/@media\s*print\s*\{/);
+  });
+
+  it("打印隐藏清单：顶栏 / 侧栏 / 拖宽手柄 / 纱罩 / 滚动条 / 跳底 / 印章 / 提示条 / 设置弹层", () => {
+    const hiddenRule = printBlock.match(/\.top-bar,\s*[\s\S]*?display:\s*none;/)?.[0] ?? "";
+    expect(hiddenRule).not.toBe("");
+    for (const selector of [
+      ".top-bar",
+      ".outline-sidebar",
+      ".outline-resize-handle",
+      ".outline-scrim",
+      ".custom-scrollbar",
+      ".jump-bottom",
+      ".reload-note",
+      ".editor-toast",
+      ".editor-hint",
+      ".settings-popover",
+    ]) {
+      expect(hiddenRule, `打印隐藏清单缺 ${selector}`).toContain(selector);
+    }
+  });
+
+  it("版心放开：外壳改内容高度、溢出可见，列宽放开到 100%，侧栏位移归零", () => {
+    const shellRule = printBlock.match(/\.app-shell,\s*[\s\S]*?\{[^}]*\}/s)?.[0] ?? "";
+    expect(shellRule).not.toBe("");
+    // 屏幕态的 100vh + overflow:hidden/scroll 不放开就只印得出第一屏
+    expect(shellRule).toContain(".app-shell__body");
+    expect(shellRule).toContain(".document-scroll");
+    expect(shellRule).toContain(".document-scroll__content");
+    expect(shellRule).toMatch(/height:\s*auto/);
+    expect(shellRule).toMatch(/min-height:\s*0/);
+    expect(shellRule).toMatch(/overflow:\s*visible/);
+
+    const widthRule = printBlock.match(/\.markdown-body,\s*\.document-title\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(widthRule).not.toBe("");
+    expect(widthRule).toMatch(/max-width:\s*100%/);
+
+    // 侧栏已隐藏：--outline-shift 的正文位移（0,2,0）必须显式压掉
+    expect(printBlock).toMatch(
+      /\.app-shell__body--outline-open\s+\.document-scroll\s*\{[^}]*margin-left:\s*0/
+    );
+
+    // 正文区上下留白归零，且 :has(.document-title) 的 42px 覆写（同为 0,2,0）一起压住
+    const contentRule =
+      printBlock.match(/\.document-scroll__content,\s*\.document-scroll__content:has\(\.document-title\)\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(contentRule).not.toBe("");
+    expect(contentRule).toMatch(/padding:\s*0/);
+  });
+
+  it("打印覆写一律排在屏幕态规则之后（同特异度靠顺序取胜）", () => {
+    expect(printStart).toBeGreaterThan(css.search(/^\.top-bar\s*\{/m));
+    expect(printStart).toBeGreaterThan(css.search(/^\.document-title\s*\{/m));
+    expect(printStart).toBeGreaterThan(css.search(/\.app-shell__body--outline-open\s+\.document-scroll/));
+    expect(printStart).toBeGreaterThan(css.search(/^\.document-scroll__content:has\(\.document-title\)\s*\{/m));
+    expect(printStart).toBeGreaterThan(css.search(/^\.markdown-body,\s*$/m));
+  });
+
+  it("屏幕态未被打印段染指：顶栏与文档标题的基础规则里没有 display:none", () => {
+    const topBar = css.match(/^\.top-bar\s*\{[^}]*\}/m)?.[0] ?? "";
+    expect(topBar).not.toMatch(/display:\s*none/);
+    const title = css.match(/^\.document-title\s*\{[^}]*\}/m)?.[0] ?? "";
+    expect(title).not.toMatch(/display:\s*none/);
+    expect(title).toMatch(/max-width:\s*min\(var\(--reader-column-width,\s*800px\),\s*100%\)/);
+    // 打印段只出现在这两处（主段 + 末尾交互块段），没有第三段散落
+    expect(Array.from(css.matchAll(/@media\s*print\s*\{/g)).length).toBe(2);
+  });
+
+  it("分页保护：代码块 / 表格 / 引用 / 图片不跨页，标题不在页脚断行", () => {
+    const breakRule = printBlock.match(/\.code-block,\s*[\s\S]*?break-inside:\s*avoid;/)?.[0] ?? "";
+    expect(breakRule).not.toBe("");
+    for (const selector of [
+      ".code-block",
+      ".markdown-body pre",
+      ".markdown-body table",
+      ".markdown-body blockquote",
+      ".markdown-body img",
+    ]) {
+      expect(breakRule, `分页保护缺 ${selector}`).toContain(selector);
+    }
+
+    const headingRule = printBlock.match(/\.document-title,\s*\.markdown-body h1,[\s\S]*?break-after:\s*avoid;/)?.[0] ?? "";
+    expect(headingRule).not.toBe("");
+    for (const level of ["h1", "h2", "h3", "h4", "h5", "h6"]) {
+      expect(headingRule, `标题分页保护缺 ${level}`).toContain(`.markdown-body ${level}`);
+    }
+    expect(headingRule).toContain(".document-title");
+  });
+
+  it("交互块打印规则（含 .mdlog-widget 字样）排在首个该选择器之后：隐 chrome 题头栏、恢复停帧 iframe", () => {
+    expect(css.lastIndexOf("@media print")).toBeGreaterThan(mdlogIndex);
+    expect(trailingBlock).toContain(".mdlog-widget__bar");
+    expect(trailingBlock).toMatch(/@media\s*print\s*\{/);
+
+    const barRule = trailingBlock.match(/\.mdlog-widget__bar\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(barRule).toMatch(/display:\s*none/);
+
+    // 停帧是按屏幕视口判定的：打印时落在后几页的 widget 必须恢复可见，否则整块空白
+    const parkedRule = trailingBlock.match(/\.mdlog-widget__frame--parked\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(parkedRule).toMatch(/visibility:\s*visible/);
+    expect(parkedRule).not.toMatch(/display:\s*none/);
+
+    // 末尾段只加显示属性，不得夹带配色/字重（它会落进 mdlog 区段的设计约束扫描）
+    expect(trailingBlock).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+    expect(trailingBlock).not.toMatch(/rgba?\(/);
+    expect(trailingBlock).not.toMatch(/border-radius/);
+    expect(trailingBlock).not.toMatch(/font-weight/);
+  });
+});
