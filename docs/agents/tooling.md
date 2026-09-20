@@ -174,8 +174,23 @@ node promo/build-assets.mjs
 - capabilities 必须有 `core:window:allow-destroy`：`onCloseRequested` 的 JS 包装层在处理器**不拦截**时会调 `destroy()`，只声明 `allow-close` 是不够的。
   - 缺权限则**窗口永远关不掉**（真机 Console：`Command plugin:window|destroy not allowed by ACL`）。
   - 同理关闭处理器必须有异常兜底（任何意外都放行关闭，否则一次抛错就把窗口永久留住）。
+- capabilities 必须有 `core:window:allow-set-title`：窗口标题随文档（T5）走 OS 级 `getCurrentWindow().setTitle()`。
+  - 缺权限则标题写不进去，且**只在真机 Console 报 ACL 拒绝**（`Command plugin:window|set_title not allowed by ACL`），jsdom 里 mock 掉 window API 的用例照样全绿。
+  - 同理 `updater:default`（自动更新）——四个命令 `check` / `download` / `install` / `download-and-install` 都在这一套里；漏掉则启动检查静默失败（错误被 `src/main.tsx` 吞掉，只会落 console）。
 - CSP 必须含 `connect-src ipc: http://ipc.localhost`：缺它会回落到 `default-src 'self'` 把 IPC 拦掉。
   - 后果：`plugin:store`（阅读位置 / 侧栏状态 / 上次打开）与 `plugin:event`（`file-changed` / `mdlog-state-changed`）在整个生产构建里**全程走 postMessage 降级通道并持续报错**（`main.rs` 有断言 CSP 字符串全等的测试，改 CSP 必须同步改它）。
+
+### 发布与自动更新（签名密钥 / `latest.json`）
+
+- 自动更新走 `tauri-plugin-updater`：Rust 侧在 `src-tauri/src/main.rs` 注册（`tauri_plugin_updater::Builder::new().build()`），npm 侧 `@tauri-apps/plugin-updater`；检查挂在 `src/main.tsx` 的启动路径上。
+  - **只在生产构建里跑**（`import.meta.env.PROD` 守卫）：dev 实例不该被 release 包自动替换。检查失败 / 无更新 / 下载失败一律静默，只在「签名校验通过的包已下载」之后才出 `.editor-toast` 提示。
+- **发布前必须先有签名密钥对**：`npm run tauri signer generate -- -w ~/.tauri/vellum.key`（等价于 `tauri signer generate`，会一并打印公钥），把**公钥**填进 `tauri.conf.json` 的 `plugins.updater.pubkey`。
+  - 当前 `pubkey` 是占位串 `PLACEHOLDER_REPLACE_WITH_TAURI_SIGNER_GENERATE_PUBKEY`：占位状态下 `download()` 的签名校验必然失败 ⇒ 更新链路整体 inert，不会误装任何包。这也是「自动更新不会在开发机上乱动」的第二层保险。
+  - 私钥与其密码只进 CI secret（`TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`），**不入库**。
+- `bundle.createUpdaterArtifacts: true` 已开：打包额外产出安装包的 `.sig` 签名文件（NSIS 下是 `*-setup.exe` 与 `*-setup.nsis.zip` 各一份 `.sig`）。
+- **`latest.json` 不由本地打包产出**：按 Tauri 的格式（`version` / `pub_date` / `platforms."windows-x86_64".{url,signature}`）由 CI / 发布流程生成，作为 release 资产上传；endpoint 固定指向 `https://github.com/HwFee/vellum/releases/latest/download/latest.json`。
+- CSP 的 `connect-src` 额外放了 endpoint 域名 `https://github.com`。实际的 HTTP 请求在 Rust 侧（reqwest）发出，CSP 管不到它——这一条是防御性声明，别据此推断「更新走 webview fetch」。
+- 真机更新链路（拉起 NSIS 安装器 → 进程退出 → 重启到新版本）**需要真公钥 + 真实 release 才能验证**，未纳入本轮验收；Windows 上 `install()` 会先 `ShellExecuteW` 安装器再 `std::process::exit(0)`，因此「重启后生效」那条提示在 Windows 上基本看不到（下载阶段那条能看到）。
 
 ### 真机探针脚本
 
