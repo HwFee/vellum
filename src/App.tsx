@@ -1393,7 +1393,6 @@ export default function App() {
       }
     >
       <TopBar
-        parentPath={activeDocument?.parentPath}
         onOpen={handleOpen}
         isOutlineOpen={isOutlineOpen}
         onToggleOutline={toggleOutlinePinned}
@@ -1496,8 +1495,12 @@ export default function App() {
                 <>
                   {/* 文档标题（Obsidian 的 inline title）：取自文件名，落在正文首行。
                       刻意放在 .markdown-body 之外——它不属于文档内容，也就不进 markdown
-                      解析、搜索高亮、块单元与大纲 */}
-                  <h1 className="document-title">{fileNameToTitle(state.document.fileName)}</h1>
+                      解析、搜索高亮、块单元与大纲。
+                      title 是完整绝对路径：2026-09-20 顶栏纯工具栏化后，路径的归宿只有
+                      这里（hover）与设置页「当前文档」 */}
+                  <h1 className="document-title" title={state.document.path}>
+                    {fileNameToTitle(state.document.fileName)}
+                  </h1>
                   <Suspense fallback={null}>
                     <MarkdownDocument
                       markdown={state.document.markdown}

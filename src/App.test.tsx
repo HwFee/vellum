@@ -234,10 +234,22 @@ test("renders the empty viewer state", () => {
   expect(screen.getByText("打开 Markdown 文件开始查看。")).toBeInTheDocument();
 });
 
-test("renders the top bar", () => {
+test("renders the top bar as a pure toolbar (no path, no file name)", () => {
   render(<App />);
-  expect(screen.getByText("未打开文件")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "切换大纲" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "打开文件" })).toBeInTheDocument();
+  // 路径退出顶栏（2026-09-20）：无文档时不再有「未打开文件」占位
+  expect(screen.queryByText("未打开文件")).toBeNull();
+  expect(document.querySelector(".top-bar__path")).toBeNull();
+});
+
+test("正文标题补完整路径 tooltip（路径退出顶栏后的归宿）", async () => {
+  await loadDocument();
+
+  const title = screen.getByRole("heading", { name: "readme" });
+  expect(title).toHaveAttribute("title", "C:/notes/readme.md");
+  // 顶栏同时不再出现该目录（tooltip 是路径的唯一去处，另一个在设置页）
+  expect(screen.queryByText("C:/notes")).toBeNull();
 });
 
 test("drains pending open paths once at startup (multi-instance: no runtime forwarding event)", async () => {

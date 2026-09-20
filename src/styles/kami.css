@@ -101,41 +101,17 @@ textarea {
   app-region: drag;
 }
 
-.top-bar__meta {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-  padding: 6px 0;
+/* 中列留白（2026-09-20 顶栏纯工具栏化）：路径退出顶栏（归宿是正文标题 tooltip 与
+   设置页「当前文档」）后，中列只剩拖动热区——撑满行高，让中段的拖窗手势仍落在
+   drag region 上 */
+.top-bar__spacer {
+  align-self: stretch;
   -webkit-app-region: drag;
   app-region: drag;
 }
 
 .top-bar__eyebrow {
   display: none;
-}
-
-/* .top-bar__title 已废（2026-09-18）：文件名移入正文首行（.document-title），
-   顶栏不再重复显示——这里只留所在目录 */
-.top-bar__path {
-  overflow: hidden;
-  color: var(--stone);
-  font-size: 11px;
-  line-height: 1.3;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* mdlog 记录中小章：与 .editor-toast 同族（tag-bg 实色底 + mono 10px），字色用靛青 */
-.top-bar__recording {
-  flex-shrink: 0;
-  align-self: center;
-  padding: 2px 6px;
-  border-radius: 3px;
-  background: var(--tag-bg);
-  color: var(--brand);
-  font: 500 10px/1.5 var(--mono);
-  letter-spacing: 0.04em;
 }
 
 .top-bar__actions {
@@ -259,15 +235,29 @@ textarea {
 }
 
 /* ===== 阅读设置弹层（顶栏齿轮） ===== */
-/* 左侧按钮簇末尾的 1px 分隔竖线 */
+/* 左侧按钮簇里、设置齿轮之前的 1px 分隔竖线 */
 .top-bar__divider {
   width: 1px;
   height: 16px;
   background: var(--hairline);
 }
 
+/* mdlog 记录中小章：与 .editor-toast 同族（tag-bg 实色底 + mono 10px），字色用靛青。
+   挂在齿轮右侧（2026-09-20 前挂在路径右侧；记录状态不只出现在文档尾部） */
+.top-bar__recording {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--tag-bg);
+  color: var(--brand);
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 0.04em;
+}
+
 /* 齿轮与弹层的定位上下文：弹层绝对定位于齿轮下方，**左缘**与齿轮对齐。
-   齿轮在顶栏左侧按钮簇末尾（实测 x≈193），弹层宽 236px——右对齐（`right: 0`）会把弹层
+   齿轮在顶栏左侧按钮簇内（分隔线之后，实测 x≈193；2026-09-20 顶栏重排后齿轮之前的
+   按钮数量与宽度未变，故 x 不变），弹层宽 236px——右对齐（`right: 0`）会把弹层
    左缘推到窗口外（实测 left = −15px：14px 内边距整个被切掉，行标签与「恢复默认」贴死在
    窗口左缘），故只能左对齐、让弹层向右伸进窗口内部。
    右缘保护刻意不加：窗口最小宽 520px（`tauri.conf.json` 的 minWidth），左对齐后弹层右缘

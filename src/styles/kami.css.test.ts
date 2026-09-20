@@ -145,16 +145,14 @@ describe("kami.css outline reduced motion", () => {
 });
 
 describe("kami.css top bar", () => {
-  it("shows the file path inline instead of hiding it", () => {
-    const rule = css.match(/\.top-bar__path\s*\{[^}]*\}/s)?.[0] ?? "";
-    expect(rule).not.toMatch(/display:\s*none/);
-    expect(rule).toMatch(/font-size:\s*11px/);
-  });
+  it("路径退出顶栏：.top-bar__path / .top-bar__meta 规则已删，中列只留拖动热区", () => {
+    expect(css).not.toMatch(/\.top-bar__path\s*\{/);
+    expect(css).not.toMatch(/\.top-bar__meta\s*\{/);
 
-  it("lays out the meta line as a single baseline-aligned row", () => {
-    const rule = css.match(/\.top-bar__meta\s*\{[^}]*\}/s)?.[0] ?? "";
-    expect(rule).toMatch(/display:\s*flex/);
-    expect(rule).toMatch(/align-items:\s*baseline/);
+    const spacer = css.match(/\.top-bar__spacer\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(spacer).not.toBe("");
+    expect(spacer).toMatch(/align-self:\s*stretch/);
+    expect(spacer).toMatch(/app-region:\s*drag/);
   });
 
   it("shares one ghost style between outline toggle and open button", () => {

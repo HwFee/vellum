@@ -1,6 +1,5 @@
 import { useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { compactPath } from "../lib/path";
 import type { ReaderSettings } from "../hooks/useReaderSettings";
 import { OutlineToggle } from "./OutlineToggle";
 import { SettingsPopover } from "./SettingsPopover";
@@ -89,7 +88,6 @@ function GearIcon() {
 }
 
 type TopBarProps = {
-  parentPath?: string;
   onOpen: () => void;
   isOutlineOpen?: boolean;
   onToggleOutline?: () => void;
@@ -98,7 +96,7 @@ type TopBarProps = {
   canGoForward?: boolean;
   onGoBack?: () => void;
   onGoForward?: () => void;
-  /// mdlog 记录中：路径右侧显示「记录中」小章（记录状态不只出现在文档尾部）
+  /// mdlog 记录中：齿轮右侧显示「记录中」小章（记录状态不只出现在文档尾部）
   isRecording?: boolean;
   /// 是否处于编辑视图（按钮呈按下态）
   isEditing?: boolean;
@@ -111,7 +109,6 @@ type TopBarProps = {
 };
 
 export function TopBar({
-  parentPath,
   onOpen,
   isOutlineOpen = false,
   onToggleOutline,
@@ -133,8 +130,11 @@ export function TopBar({
   return (
     <header className="top-bar" data-tauri-drag-region>
       <div className="top-bar__actions top-bar__actions--left" data-tauri-drag-region="false">
-        {/* 历史导航：按钮簇最前（阅读轨迹的方向感先于其它动作）。
-            title 带快捷键提示，与「切换大纲（Ctrl+B）」同款；禁用态只降透明度 */}
+        {/* 纯工具栏（2026-09-20）：开关居首，历史导航紧随成对，编辑与打开其后；
+            分隔线后是设置齿轮与「记录中」小章。路径已退出顶栏（归宿是正文标题
+            tooltip 与设置页「当前文档」） */}
+        <OutlineToggle isOpen={isOutlineOpen} onToggle={onToggleOutline ?? (() => {})} />
+        {/* title 带快捷键提示，与「切换大纲（Ctrl+B）」同款；禁用态只降透明度 */}
         <button
           className="open-button nav-button"
           type="button"
@@ -155,7 +155,6 @@ export function TopBar({
         >
           <ChevronRightIcon />
         </button>
-        <OutlineToggle isOpen={isOutlineOpen} onToggle={onToggleOutline ?? (() => {})} />
         <button
           // 复用左区图标按钮样式（与相邻的「打开文件」同款）；edit-toggle 作语义钩子
           className="open-button edit-toggle"
@@ -181,7 +180,7 @@ export function TopBar({
         {readerSettings && onReaderSettingsChange && (
           <>
             <span className="top-bar__divider" aria-hidden="true" />
-            {/* 弹层的定位上下文：absolute 于齿轮下方、左缘对齐（齿轮在左簇末尾，右对齐会
+            {/* 弹层的定位上下文：absolute 于齿轮下方、左缘对齐（齿轮在窗口左侧，右对齐会
                 把弹层左缘推出窗口），点外部 / Escape 由 SettingsPopover 自理 */}
             <div className="settings-anchor">
               <button
@@ -206,14 +205,10 @@ export function TopBar({
             </div>
           </>
         )}
-      </div>
-      {/* 文件名不在这里显示（它在正文首行，见 .document-title）；顶栏只报所在目录 */}
-      <div className="top-bar__meta" data-tauri-drag-region>
-        <div className="top-bar__path">
-          {parentPath ? compactPath(parentPath) : "未打开文件"}
-        </div>
         {isRecording && <span className="top-bar__recording">记录中</span>}
       </div>
+      {/* 中列留白：纯工具栏后这里只剩拖动热区（见 kami.css 的 .top-bar__spacer） */}
+      <div className="top-bar__spacer" data-tauri-drag-region aria-hidden="true" />
       <div className="window-controls" data-tauri-drag-region="false">
         <button
           className="window-control"
