@@ -1,6 +1,6 @@
 # 工程环境、技能、宣传品与发布
 
-`AGENTS.md` 的详情分册。收录三个执行入口的真实 shell、技能安装流程与 pi 扩展、宣传品（`video/` + `promo/`）、性能优化技能表与死规则、入口 chunk 尺寸历史，以及打包与生产构建的注意事项、真机探针、`tauri/custom-protocol` feature。
+`AGENTS.md` 的详情分册。收录三个执行入口的真实 shell、技能安装流程与 pi 扩展、宣传品（`promo/`）、性能优化技能表与死规则、入口 chunk 尺寸历史，以及打包与生产构建的注意事项、真机探针、`tauri/custom-protocol` feature。
 
 ## 跑命令用哪个 shell（三个入口不是一个 shell）
 
@@ -95,39 +95,18 @@ node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/ex
 - **它的 TS 不属于前端构建面**：app 的 `tsconfig.json` 只 `include: ["src"]`，`vite.config.ts` 的 `test.exclude` 已排除 `extensions/**`（那边的测试跑 `node:test`，被 vitest 拾取会必挂）。
 - 常用命令（在 `extensions/mdlog/` 里）：`npm test`、`npm run typecheck`。
 
-## 宣传品（`video/` 宣传片工程 + `promo/` 对外材料）
+## 宣传品（`promo/`）
 
-产品宣传片与落地页。**两边的颜色、字体、文案都取自同一处事实来源**——`video/src/theme.ts`（视频侧）与仓库根 `DESIGN.md`（落地页侧），与应用同源；片子里的界面是真实运行的窗口，不是重画的示意图。
+对外材料集中在 `promo/`：单文件落地页 `promo/index.html` + 一组**静态**素材 `promo/assets/`（真实窗口截图 4+4、海报帧 4+4、社交分享卡 2；中英同名只差 `-zh` 后缀）。清单、用途与部署注意以 `promo/README.md` 为准（那一份是详版，本节的约束与它同源）。
 
-**中英两版共用一条时间线**（`VellumPromo` / `VellumPromoZh`），语言由 `src/locale.tsx` 的 context 下发：场景用 `useCopy()` 取文案、`useShot()` 取素材（中文版是 `capture/zh-*.png`）、`useMetaFont()` 取元信息字族。三条容易踩的线：
-
-- **`useShot()` 返回相对路径，不是 `staticFile()` 结果**：WindowShot / PlateScroll 内部自己会调 staticFile，重复调用会抛「The value "/public/…" is already …」（这个坑真被渲染到第 108 帧才发现）。需要完整 URL 的地方（如 `<Img>`）自己再包一层。
-- **等宽字体没有汉字**：中文文案落在 JetBrains Mono 上会掉进系统 CJK 字体、行高与字重都对不上。片子里一律走 `useMetaFont()`，落地页里中文小字一律用衬线。
-- **中文版不是同一支片配字幕**：中文演示文档是另一份（`video/assets/demo.zh.md`），素材用 `npm run capture:zh` 抓（产物 `zh-` 前缀，与英文那套共存）；会话 B 的日志文档本来就是中文，两版共用。
-
-```bash
-# 素材 + 渲染（video/ 里；需要先有一份 release 版 exe）
-npm run assets          # 同步字体 → 合成配乐 → CDP 抓真实界面（英文）
-npm run capture:zh      # 中文演示文档那一套（zh- 前缀）
-npm run render          # out/vellum-promo.mp4（含配乐）
-npm run render:silent   # out/vellum-promo-silent.mp4（无需配乐的嵌入用）
-npx remotion render VellumPromoZh out/vellum-promo-zh.mp4
-
-# 导出入库的那一套（仓库根）
-node promo/build-assets.mjs
-```
-
-不可回退的几条：
-
-- **`video/` 里入库的只有源码**：成片（`out/`）、抓取素材（`public/capture/`，含 `zh-*`）、字体（`public/fonts/`）、配乐（`public/music.wav`）全部是生成物，已由 `video/.gitignore` 排除。
-  - `promo/assets/` 是**唯一入库的分发副本**，只由 `promo/build-assets.mjs` 生成（中英两套，同名只差 `-zh` 后缀），不要手改。
-- **抓取脚本会 `taskkill /IM vellum.exe /F`**（并存实例会互相抢占远程调试端口），跑 `npm run capture` 前先确认没有需要保留的实例。
-  - 素材文档暂存到 `~/Documents/Notes`——顶栏会原样显示绝对路径，所以不能直接用仓库路径抓图。
-- **字体闸门（`video/src/fonts.ts` 的 `useBrandFontsGate`）必须挂在真正画画面的组件里**（现落在 `PaperBackground` 上，它是每场的底）。
-  - 仓耳今楷 8.4 MB×2，任何一帧抢在 `document.fonts.load` 之前都会被画成回退字体（中文是今楷、英文变几何无衬线）；只挂在 `Root.tsx` 上不够。
-- **分镜里不许用 CSS 动画**：Remotion 逐帧截图，transition/keyframes 根本不会被采样，所有运动必须由 `useCurrentFrame()` 驱动。
-- **长图素材用「撑高视口」抓，不用 `captureBeyondViewport`**：`.document-scroll` 是滚动盒，盒外截不到正文；滚动则由 Remotion 按帧推进（录屏的帧间隔会抖）。两个理由都写在 `video/capture/capture.mjs` 头部。
-- **落地页不引入第二个强调色、不加大圆角与厚度投影**（照 `DESIGN.md` 的 Do's/Don'ts），动效只有进场淡入一种且尊重 `prefers-reduced-motion`；字体与截图走相对路径，单独部署时必须把 `public/fonts/` 一并搬走。
+- **素材是静态成品**：仓库里**没有导出脚本**——改一张图就是改一张图（旧的 `promo/build-assets.mjs` 随宣传片工程一并删除，见下）。
+- **落地页**：单文件、内联 CSS、零依赖，双击即开；字体与截图走相对路径（`../public/fonts/`、`promo/assets/`、`../assets/images/logo.svg`）。
+  - **单独部署必须把 `public/fonts/` 与 `promo/assets/` 一并搬走**：字体是仓耳今楷 8.4MB×2，缺了会回退到系统宋体。
+  - **不引第二个强调色、不加大圆角与厚度投影**（照 `DESIGN.md` 的 Do's/Don'ts）；动效只有「进场淡入」一种（260ms）且尊重 `prefers-reduced-motion`；页面顶部那条 2px 靛青进度条与应用大纲的激活指示条同一语汇。
+  - **等宽字体没有汉字**：中文小字一律用衬线，落到 JetBrains Mono 上会掉进系统 CJK 字体、行高与字重都对不上。
+  - 窗口截图抓的是 `~/Documents/Notes` 下那份演示文档的**暂存副本**——顶栏会原样显示绝对路径，所以素材里的路径不是仓库路径。
+- **界面像素必须来自真实运行的 Vellum**（CDP 抓取），不是重画的示意图。`scripts/cdp-*.mjs` 是**验收探针**、不做截图；要重抓素材得自备抓图脚本（原抓图脚本在已删除的 `video/capture/capture.mjs` 里，可从 git 历史取回）。
+- **宣传片工程已于 1.9.0 整体删除**（用户明确不再维护）：`video/`（Remotion 分镜 / CDP 抓取脚本 / 配乐合成器 / 中英两套素材与文档）、`promo/build-assets.mjs`、`promo/assets/vellum-promo*`（中英正片与 GIF）、`promo/announcement.md`（1.7.0 旧稿）。落地页与窗口截图保留。原文与历史说明可查 git（`e305a23` 及之前；1.8.0 条目里那段宣传片叙述属历史记录，不要照它去跑命令）。
 
 ## 性能优化
 
@@ -161,7 +140,7 @@ node promo/build-assets.mjs
   - **顶栏去标题 + 标题贴顶后为 165.59KB**（`index-BrRc41wR.js`，−0.09KB：`.top-bar__title` 连同它的 DOM 一并移除，抵消了 `:has()` 两条上移规则）。
 - 阅读器完善计划（2026-09-20，task 2–12）：
   - **计划各任务落地后为 184.19KB**（controller 记录，未逐任务留档）：设置面板 / 最近打开 / 导航历史 / h1–h6 大纲 / 任务勾选 / 打印样式 / 自动更新 / UI 修复批量一批增量累计 +18.6KB（设置变量消费、`recentFiles.ts`、`navHistory.ts`、`taskList.ts`、`scrollRestore` 复用、updater 启动检查、几处渲染与快捷键接线）。
-  - **终验 fix wave 后为 184.43KB**（`index-icw-KE6P.js`，gzip 52.53KB，再 +0.24KB：代际 getter 接线、搜索 pending 抑帧、`Ctrl+P` 守卫、提示条 key 前缀、`isScrollInputKey`、阅读设置落盘改 effect）——**2026-09-20 终验实测**（`npm test` 45 文件 / 913 用例全绿、`npm run build` 通过）。同一轮复审的打印级联修复只改了 CSS 注释与断言：JS 尺寸不变（184.43KB / gzip 52.53KB），只换了内容哈希（`index-BJne7Dx_.js` → `index-icw-KE6P.js`）；入口 CSS 从 33.41KB / gzip 6.82KB 涨到 **33.43KB / gzip 6.83KB**（`index-j3mC1w28.css`，注释 +0.02KB）。
+  - **终验 fix wave 后为 184.43KB**（`index-icw-KE6P.js`，gzip 52.53KB，再 +0.24KB：代际 getter 接线、搜索 pending 抑帧、`Ctrl+P` 守卫、提示条 key 前缀、`isScrollInputKey`、阅读设置落盘改 effect）——**2026-09-20 终验实测**（`npm test` 45 文件 / 913 用例全绿、`npm run build` 通过）。同一轮复审的打印级联修复只改了 CSS 与断言：JS 尺寸不变（184.43KB / gzip 52.53KB），只换了内容哈希（`index-BJne7Dx_.js` → `index-icw-KE6P.js`）；入口 CSS 从 33.41KB / gzip 6.82KB 涨到 **33.43KB / gzip 6.83KB**（`index-j3mC1w28.css`，**+13 字节 = 末尾段新增 `.mdlog-live{display:none}`（25 字节）− 主段清单去掉 `,.mdlog-live`（12 字节）**，即规则挪位本身；与注释无关——生产 CSS 经压缩、注释已被剥离，`grep -c` 在产物里找不到注释文字）。
 - 若后续继续增长，按裁定 F11 的退路把单元计算移回 lazy 侧。
 
 ## 注意事项
@@ -229,11 +208,9 @@ node promo/build-assets.mjs
 
 | 文件 | 职责 |
 |------|------|
-| `promo/index.html` | 宣传落地页（单文件、内联 CSS、零依赖，片可切中/英） |
-| `promo/build-assets.mjs` | 从成片导出对外分发的整套宣传材料（中英两套） |
-| `video/src/theme.ts` | 宣传片的品牌 token 与中英两套文案（视频侧单一事实来源） |
-| `video/src/locale.tsx` | 语言闸门（useCopy / useShot / useMetaFont） |
-| `video/capture/capture.mjs` | CDP 抓真实窗口素材（窗口图 + 全高长图） |
+| `promo/index.html` | 宣传落地页（单文件、内联 CSS、零依赖，双击即开） |
+| `promo/assets/` | 对外素材（真实窗口截图 / 海报帧 / 社交分享卡，中英各一套） |
+| `promo/README.md` | 宣传品清单与部署注意（本节约束的详版） |
 | `scripts/check-obsidian-corpus.test.tsx` | Obsidian 全库语料检查（真实渲染管线跑 wisdom 每一篇 `.md`，三族语法各计识别数 + 未处理构造必须为 0） |
 | `scripts/check-obsidian-corpus.mjs` | 语料检查入口（拉起 vitest 并透传退出码；检查本体在 .test.tsx 里，见文件头注释） |
 | `scripts/cdp-obsidian-verify.mjs` | 真机验收 CDP 探针（完整说明见 `docs/agents/obsidian.md`） |

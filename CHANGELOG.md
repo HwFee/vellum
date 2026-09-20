@@ -21,6 +21,12 @@
 
 - **UI 修复批量（2026-09-20）**：`Ctrl+B` 在**所有宽度**下切换侧栏开关（侧栏已开且搜索框聚焦时也能关，`Ctrl+K` 只保焦不动作），开关照旧先走 `beginWidthTransition()`；顶栏大纲与打开文件按钮补 `title`（「切换大纲（Ctrl+B）」/「打开文件」）；`ErrorState` 加「重新打开」实色按钮（触发打开文件对话框），空态与错误页共用 `.button.button-primary`（warm-sand 底 + 发丝内描边 + 6px 圆角，高度写死 32px 让两个页面逐像素同高）与 `.empty-eyebrow`；搜索框有查询时右侧出清除 × 按钮（点击清空并保焦），查询非空且 0 匹配时计数位显示「无匹配」、计数容器带 `aria-live="polite"`；窄屏不渲染拖宽手柄（正文不位移，拖了无意义）；`.outline-scrim` 的 z-index 抬到 950（高于自定义滚动条与印章，浮层时侧栏外不可交互）；`.document-scroll` 补克制的 `:focus-visible` 内描边；mdlog 记录中时顶栏路径右侧加一枚「记录中」小章（mono 10px、brand 字色），让记录状态不只出现在文档尾部。
 
+### 移除
+
+- **宣传片工程与全部视频产物**（用户明确不再维护，T11）：整个 `video/` Remotion 工程（七场分镜、中英两版时间线、`capture/` 的 CDP 抓图脚本、零依赖配乐合成器、演示文档与字体闸门）、`promo/build-assets.mjs`（从成片导出分发材料的脚本）、`promo/assets/vellum-promo*`（中英正片与 README 用的 9 秒 GIF）、`promo/announcement.md`（1.7.0 旧公告稿）。**保留**：落地页 `promo/index.html`（本就无视频引用，只剩截图与分享卡）、`promo/assets/` 里的真实窗口截图 / 海报帧 / 社交分享卡、`promo/README.md`。素材自此是**静态成品**——仓库里没有导出脚本，改一张图就是改一张图。原文与 1.8.0 条目里那段宣传片叙述属历史记录，别再照它跑命令（`docs/agents/tooling.md` 的「宣传品」一节已按现存内容重写）。
+- **`OPTIMIZATION_HANDOFF.md`**（T1）：优化记录（含「评估后放弃的方向」表）——内容已沉淀进 `docs/agents/` 各分册与 `AGENTS.md` 的红线，原文可查 git 历史。
+- **`src/lib/lastOpened.ts`**（T4）：由 `src/lib/recentFiles.ts` 取代（Store key 从 `lastOpenedPath` 换成 `recentFiles`，保留旧 key 迁移；启动恢复改读列表首条）。
+
 ### 修复
 
 - **勾选回滚的代际判据改为同步读**（`getDocumentGeneration` getter）：装入路径（`loadPath` / `reloadCurrent`）递增的是 App 的 ref，此刻**渲染尚未提交**，按 prop 快照镜像代际会漏掉「ref 递增 → 渲染提交」这段调度窗——窗内落盘失败的勾选会以为还是同一篇文档，把上一篇的 markdown 写进新文档的内存。新增一条不做 rerender、只改 getter 背后值的用例把窗口钉住。
