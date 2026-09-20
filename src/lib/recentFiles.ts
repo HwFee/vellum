@@ -39,16 +39,29 @@ async function persist(paths: string[]): Promise<void> {
 /**
  * 读取最近打开列表（新打开的在前）。
  *
- * 旧 key 迁移：recentFiles 尚不存在而 lastOpenedPath 有值时，以那一条为种子。
- * 升级到本版后的首次启动因此仍能恢复上次文档、空态也仍有列表可点；
- * 种子只在内存里，下一次成功打开（addRecent）就会把它落成新格式。
+ * 旧 key 迁移：`recentFiles` **键不存在**而 `lastOpenedPath` 有值时，以那一条为种子
+ * （升级到本版后的首次启动因此仍能恢复上次文档），随后把旧 key 删掉——迁移只做一次。
+ *
+ * 「键不存在」与「键存在但是空数组」必须分开看：`removeRecent` 把最后一条摘掉时会显式落盘
+ * `[]`，若把空数组也当作「没有记录」而再去读旧 key，那条刚被摘掉的死路径就会原地复活
+ * （启动恢复也会永远重试它），用户再也回不到空态。
  */
 export async function loadRecentFiles(): Promise<string[]> {
   try {
     const store = await getSettingsStore();
-    const stored = normalize(await store.get<unknown>(STORE_KEY));
-    if (stored.length > 0) return stored;
-    return normalize([await store.get<unknown>(LEGACY_KEY)]);
+    const raw = await store.get<unknown>(STORE_KEY);
+    if (raw !== undefined && raw !== null) return normalize(raw);
+
+    const seeded = normalize([await store.get<unknown>(LEGACY_KEY)]);
+    if (seeded.length === 0) return [];
+    try {
+      await store.delete(LEGACY_KEY);
+      await store.save();
+    } catch {
+      // 删不掉不影响本次读取：种子已经算好，且 recentFiles 一旦落盘（哪怕落的是 []）
+      // 迁移分支就不会再进——上面的 absent/empty 之分已经堵住了复活
+    }
+    return seeded;
   } catch {
     return [];
   }

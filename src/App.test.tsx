@@ -124,6 +124,7 @@ const storeGet = vi.fn((key: string): Promise<unknown> =>
   key === "lastOpenedPath" ? lastOpenedGet() : Promise.resolve(undefined)
 );
 const storeSet = vi.fn((_key: string, _value: unknown) => Promise.resolve());
+const storeDelete = vi.fn((_key: string) => Promise.resolve(true));
 
 vi.mock("@tauri-apps/plugin-store", () => ({
   Store: {
@@ -132,6 +133,7 @@ vi.mock("@tauri-apps/plugin-store", () => ({
         get: storeGet,
         set: storeSet,
         save: vi.fn(() => Promise.resolve()),
+        delete: storeDelete,
       })
     ),
   },
@@ -200,6 +202,11 @@ beforeEach(() => {
   );
   storeSet.mockClear();
   storeSet.mockImplementation(() => Promise.resolve());
+  storeDelete.mockClear();
+  storeDelete.mockImplementation(() => Promise.resolve(true));
+  // open 的 once 队列跨用例残留：afterEach 的 restoreAllMocks 不会清掉它，
+  // 上一个用例里没用掉的排队值会喂给下一个用例（表现为「点重新打开却加载了别的路径」）。
+  vi.mocked(open).mockReset();
   lastOpenedGet.mockReset();
   lastOpenedGet.mockResolvedValue(undefined);
   dragDrop.handlers.length = 0;
@@ -2910,7 +2917,6 @@ test("打开失败：走既有错误管线（ErrorState），并把该条从 rec
     Promise.resolve(key === "recentFiles" ? ["C:/notes/gone.md", "C:/notes/kept.md"] : undefined)
   );
   backendInvoke.mockRejectedValueOnce("Cannot open file");
-  vi.mocked(open).mockResolvedValueOnce("C:/notes/gone.md");
 
   render(<App />);
   // 启动恢复先尝试 recentFiles[0]（同一份失败响应），直接进入错误态
@@ -3020,4 +3026,48 @@ test("错误态里点最近列表的失效条目：停留在 ErrorState（不递
   await waitFor(() => expect(stored).toEqual([]));
   expect(screen.queryByText("最近打开")).toBeNull();
   expect(screen.getByRole("button", { name: "重新打开" })).toBeInTheDocument();
+});
+
+test("升级用户：旧 key 的失效条目被摘掉后不再复活（错误页不再冒出死条目）", async () => {
+  // 旧版用户的 Store：只有 lastOpenedPath，且指向一个已被删除的文件
+  let recents: unknown;
+  let legacy: unknown = "C:/notes/gone.md";
+  storeGet.mockImplementation((key: string) => {
+    if (key === "recentFiles") return Promise.resolve(recents);
+    if (key === "lastOpenedPath") return Promise.resolve(legacy);
+    return Promise.resolve(undefined);
+  });
+  storeSet.mockImplementation((key: string, value: unknown) => {
+    if (key === "recentFiles") recents = value;
+    return Promise.resolve();
+  });
+  storeDelete.mockImplementation((key: string) => {
+    if (key === "lastOpenedPath") legacy = undefined;
+    return Promise.resolve(true);
+  });
+  backendInvoke.mockImplementation(async (command: string) => {
+    if (command === "load_document") throw "Cannot open file";
+    return undefined;
+  });
+
+  render(<App />);
+
+  // 启动：迁移种子 gone.md 打不开 ⇒ 错误页；旧 key 就地删除（迁移只做一次）
+  expect(await screen.findByRole("alert")).toHaveTextContent("Cannot open file");
+  await waitFor(() => expect(storeDelete).toHaveBeenCalledWith("lastOpenedPath"));
+  expect(legacy).toBeUndefined();
+  expect(screen.queryByText("最近打开")).toBeNull();
+
+  // 再走一次打开失败（对话框选到另一个同样不存在的文件）
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/never.md");
+  fireEvent.click(screen.getByRole("button", { name: "重新打开" }));
+  await waitFor(() =>
+    expect(backendInvoke).toHaveBeenCalledWith("load_document", { path: "C:/notes/never.md" })
+  );
+  await act(async () => {});
+
+  // 关键判据：死条目没有复活。修复前这一步会把 gone.md 从旧 key 重新播种，
+  // 错误页里重新冒出一行「最近打开」（以及一行点不开的 gone）
+  expect(screen.queryByText("最近打开")).toBeNull();
+  expect(screen.queryByText("gone")).toBeNull();
 });

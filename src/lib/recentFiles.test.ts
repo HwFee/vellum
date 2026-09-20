@@ -7,6 +7,10 @@ const setMock = vi.fn((key: string, value: unknown) => {
   return Promise.resolve();
 });
 const saveMock = vi.fn(() => Promise.resolve());
+const deleteMock = vi.fn((key: string) => {
+  data.delete(key);
+  return Promise.resolve(true);
+});
 
 // 工厂在 import 期执行，故用 vi.hoisted 提前建桶（否则读到的常量还在 TDZ）
 const flags = vi.hoisted(() => ({ failLoad: false }));
@@ -20,6 +24,7 @@ vi.mock("@tauri-apps/plugin-store", () => ({
             get: (key: string) => Promise.resolve(data.get(key) ?? null),
             set: setMock,
             save: saveMock,
+            delete: deleteMock,
           })
     ),
   },
@@ -33,6 +38,7 @@ describe("recentFiles", () => {
     data.clear();
     setMock.mockClear();
     saveMock.mockClear();
+    deleteMock.mockClear();
     flags.failLoad = false;
     __resetSettingsStoreForTest();
   });
@@ -66,17 +72,55 @@ describe("recentFiles", () => {
     expect(list[RECENT_FILES_LIMIT - 1]).toBe("C:/vault/1.md");
   });
 
-  it("迁移旧 key：recentFiles 为空而 lastOpenedPath 有值时以其为种子", async () => {
+  it("迁移旧 key：recentFiles 不存在而 lastOpenedPath 有值时以其为种子，并删掉旧 key（迁移只做一次）", async () => {
     data.set("lastOpenedPath", "C:/notes/legacy.md");
 
     await expect(loadRecentFiles()).resolves.toEqual(["C:/notes/legacy.md"]);
+    expect(deleteMock).toHaveBeenCalledWith("lastOpenedPath");
+    expect(saveMock).toHaveBeenCalled();
+    expect(data.has("lastOpenedPath")).toBe(false);
   });
 
-  it("迁移不覆盖已有列表：recentFiles 非空时忽略旧 key", async () => {
+  it("已显式清空（键存在但为 []）不再用旧 key 播种——失效条目不会复活", async () => {
+    // 审阅 Important #1 的确定性链路：升级用户 → 种子 X → 打不开 → 摘掉并落盘 []
+    data.set("recentFiles", []);
+    data.set("lastOpenedPath", "C:/notes/gone.md");
+
+    await expect(loadRecentFiles()).resolves.toEqual([]);
+    // 摘掉一条不在列表里的路径时不得把旧种子算回来（修复前这里会返回 ["C:/notes/gone.md"]）
+    await expect(removeRecent("C:/notes/never.md")).resolves.toEqual([]);
+    expect(setMock).not.toHaveBeenCalled();
+  });
+
+  it("迁移种子打不开被摘掉后也不复活：旧 key 已删除，列表不会再被播种", async () => {
+    data.set("lastOpenedPath", "C:/notes/gone.md");
+
+    // 启动：迁移读出种子，并就地删掉旧 key（种子只在内存里，Store 里本就没有 recentFiles 键）
+    await expect(loadRecentFiles()).resolves.toEqual(["C:/notes/gone.md"]);
+    expect(data.has("lastOpenedPath")).toBe(false);
+
+    // 加载失败 ⇒ 摘掉该条
+    await expect(removeRecent("C:/notes/gone.md")).resolves.toEqual([]);
+
+    // 此后任何一次读取都不会把死路径算回来（修复前每次都会返回 ["C:/notes/gone.md"]）
+    await expect(loadRecentFiles()).resolves.toEqual([]);
+    await expect(removeRecent("C:/notes/never.md")).resolves.toEqual([]);
+    expect(setMock).not.toHaveBeenCalled();
+  });
+
+  it("迁移不覆盖已有列表：recentFiles 非空时忽略旧 key，也不删它", async () => {
     data.set("recentFiles", ["C:/notes/new.md"]);
     data.set("lastOpenedPath", "C:/notes/legacy.md");
 
     await expect(loadRecentFiles()).resolves.toEqual(["C:/notes/new.md"]);
+    expect(deleteMock).not.toHaveBeenCalled();
+  });
+
+  it("recentFiles 内容损坏（非数组）时按空列表处理，不从旧 key 补种", async () => {
+    data.set("recentFiles", "corrupted");
+    data.set("lastOpenedPath", "C:/notes/legacy.md");
+
+    await expect(loadRecentFiles()).resolves.toEqual([]);
   });
 
   it("读取时剔除非法条目并去重（Store 内容可能被手改或来自旧版本）", async () => {
