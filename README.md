@@ -13,26 +13,11 @@ _A warm, parchment-toned Markdown viewer for Windows._
 </p>
 
 [下载](https://github.com/HwFee/vellum/releases) ·
-[宣传片](#宣传片) ·
 [落地页](./promo/index.html) ·
 [设计语言](./DESIGN.md) ·
 [更新日志](./CHANGELOG.md)
 
 </div>
-
-## 宣传片
-
-<p align="center">
-  <a href="./promo/assets/vellum-promo.mp4">
-    <img src="./promo/assets/vellum-promo.gif" width="92%" alt="宣传片片段：长图推进 → 大纲搜索 → 就地编辑" />
-  </a>
-</p>
-
-30 秒正片 · 1920×1080 · 30 fps —— [`promo/assets/vellum-promo.mp4`](./promo/assets/vellum-promo.mp4)。
-Chinese cut: [`promo/assets/vellum-promo-zh.mp4`](./promo/assets/vellum-promo-zh.mp4)
-(same timeline, Chinese captions **and** a Chinese demo document).
-片子里的每一帧界面都是真实运行的窗口（CDP 抓取），颜色与字体取自 [`DESIGN.md`](./DESIGN.md)，
-源工程在 [`video/`](./video/README.md)，整套对外材料在 [`promo/`](./promo/README.md)。
 
 ## Download
 

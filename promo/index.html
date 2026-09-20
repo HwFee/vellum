@@ -15,7 +15,7 @@
    Vellum 宣传页 · 单文件落地页
    设计语言逐条对齐仓库根 DESIGN.md（kami v1.15）：暖纸三层底、发丝线分层、
    单一靛青强调（页面占比 ≤5%）、圆角 2–6px、几乎无投影。
-   字体引用 ../public/fonts（与应用、与宣传片同一份文件），双击本文件即可打开。
+   字体引用 ../public/fonts（与应用同一份文件），双击本文件即可打开。
    ========================================================================== */
 
 @font-face {
@@ -98,8 +98,7 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .wrap { width: 100%; max-width: var(--col); margin: 0 auto; padding: 0 var(--gutter); }
 
 /* 阅读进度：与应用大纲激活条同一条 2px 靛青（全页唯一的常驻彩色元素） */
-/* 顶栏是 sticky 的：锚点跳转必须留出 46px 的高度，否则目标区块的头部（例如影片工具条）
-   会被顶栏盖住——点“看 30 秒宣传片”过去正好把播放/语言按钮压在栏下。 */
+/* 顶栏是 sticky 的：锚点跳转必须留出 58px 的高度，否则目标区块的头部会被顶栏盖住。 */
 section[id] { scroll-margin-top: 58px; }
 
 .progress {
@@ -175,47 +174,6 @@ section[id] { scroll-margin-top: 58px; }
 .hero__meta span { white-space: nowrap; }
 .hero__meta i { font-style: normal; color: var(--hairline); padding: 0 10px; }
 
-/* ------------------------------------------------------------------ 影片 */
-.film { padding: 12px 0 96px; }
-.frame {
-  position: relative;
-  border-radius: 10px; border: 1px solid var(--hairline);
-  background: var(--parchment);
-  box-shadow: 0 18px 48px rgba(61,61,58,0.10), 0 2px 6px rgba(61,61,58,0.05);
-  overflow: hidden;
-}
-.frame video { display: block; width: 100%; height: auto; background: var(--parchment); }
-.film__bar {
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 11px 14px; border-bottom: 1px solid var(--border); background: var(--ivory);
-}
-.film__label {
-  font-family: var(--mono); font-size: 10px; letter-spacing: 1.8px; text-transform: uppercase;
-  color: var(--stone);
-}
-.film__ctrl { display: flex; gap: 6px; }
-
-/* 影片语言：中英两版同一条时间线（文案与窗口素材不同），这里只换 source */
-.film__lang { display: flex; gap: 0; margin-left: auto; margin-right: 14px; }
-.lang-btn {
-  font-family: var(--mono); font-size: 10.5px; letter-spacing: 1.4px;
-  padding: 5px 11px; cursor: pointer; color: var(--stone);
-  background: transparent; border: 1px solid var(--border);
-  transition: background 150ms ease, color 150ms ease;
-}
-.lang-btn:first-child { border-radius: 4px 0 0 4px; }
-.lang-btn:last-child { border-radius: 0 4px 4px 0; border-left: 0; }
-.lang-btn:hover { background: var(--warm-sand); color: var(--primary); }
-.lang-btn[aria-pressed="true"] { background: var(--tag-bg); color: var(--primary); border-color: var(--tag-bg); }
-.icon-btn {
-  width: 28px; height: 28px; border-radius: 6px; cursor: pointer;
-  display: grid; place-items: center;
-  background: transparent; color: var(--stone); border: 0;
-  box-shadow: inset 0 0 0 1px var(--border);
-  transition: background 150ms ease, color 150ms ease;
-}
-.icon-btn:hover { background: var(--warm-sand); color: var(--primary); }
-.icon-btn svg { width: 13px; height: 13px; fill: currentColor; }
 .film__note {
   margin: 14px 2px 0; font-family: var(--serif); font-size: 13.5px; line-height: 1.7;
   letter-spacing: 0.6px; color: var(--stone);
@@ -393,7 +351,6 @@ footer .zh {
 
       <div class="hero__cta">
         <a class="btn" href="https://github.com/HwFee/vellum/releases">下载 Windows 版</a>
-        <a class="btn btn--ghost" href="#film">看 30 秒宣传片</a>
       </div>
 
       <p class="hero__meta">
@@ -401,35 +358,6 @@ footer .zh {
         <span>约 21 MB 安装包</span><i>·</i>
         <span>离线可用</span><i>·</i>
         <span>MIT 开源</span>
-      </p>
-    </div>
-  </section>
-
-  <!-- ============================================================ 宣传片 -->
-  <section class="film" id="film">
-    <div class="wrap">
-      <div class="frame reveal">
-        <div class="film__bar">
-          <span class="film__label">Promo film · 1920 × 1080 · 30 fps · 30 s</span>
-          <span class="film__lang">
-            <button class="lang-btn" id="lang-zh" aria-pressed="true">中文</button>
-            <button class="lang-btn" id="lang-en" aria-pressed="false">EN</button>
-          </span>
-          <span class="film__ctrl">
-            <button class="icon-btn" id="btn-play" aria-label="播放 / 暂停" title="播放 / 暂停">
-              <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="4.2" height="12" rx="1"/><rect x="9.8" y="2" width="4.2" height="12" rx="1"/></svg>
-            </button>
-            <button class="icon-btn" id="btn-sound" aria-label="开启 / 关闭配乐" title="开启 / 关闭配乐">
-              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h2.6L8 3v10L4.6 10H2z"/><path d="M10.4 5.2a4 4 0 0 1 0 5.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-            </button>
-          </span>
-        </div>
-        <video id="promo" src="assets/vellum-promo-zh.mp4" poster="assets/poster-title-zh.jpg"
-               autoplay muted loop playsinline preload="metadata"></video>
-      </div>
-      <p class="film__note">
-        中文 / 英文两版同一条时间线：中文字幕配中文文档界面，英文版配英文文档界面。
-        默认静音自动循环（浏览器自动播放的要求），点右上角开声音；滚出视野自动暂停。
       </p>
     </div>
   </section>
@@ -696,41 +624,7 @@ footer .zh {
   /* --- 章节进场：只淡入、不位移，尊重 prefers-reduced-motion --- */
   var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  /* --- 宣传片：滚出视野就暂停，省电；声音默认关闭（自动播放要求） --- */
-  var video = document.getElementById("promo");
-  var playBtn = document.getElementById("btn-play");
-  var soundBtn = document.getElementById("btn-sound");
-  var ICON_PLAY = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.4 13.2 8 4 13.6z"/></svg>';
-  var ICON_PAUSE = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="4.2" height="12" rx="1"/><rect x="9.8" y="2" width="4.2" height="12" rx="1"/></svg>';
-
-  function syncPlay() { playBtn.innerHTML = video.paused ? ICON_PLAY : ICON_PAUSE; }
-  playBtn.addEventListener("click", function () {
-    if (video.paused) { video.play(); } else { video.pause(); }
-    syncPlay();
-  });
-  video.addEventListener("play", syncPlay);
-  video.addEventListener("pause", syncPlay);
-  soundBtn.addEventListener("click", function () {
-    video.muted = !video.muted;
-    video.volume = 0.55;
-    soundBtn.style.color = video.muted ? "" : "#1B365D";
-    soundBtn.setAttribute("aria-pressed", String(!video.muted));
-    if (!video.muted && video.paused) { video.play(); }
-  });
-
   if ("IntersectionObserver" in window) {
-    var vis = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) {
-        if (reduce) return;
-        if (e.isIntersecting) {
-          if (video.dataset.userPaused !== "1") { video.play().catch(function () {}); }
-        } else {
-          video.pause();
-        }
-      });
-    }, { threshold: 0.25 });
-    vis.observe(video);
-
     var reveals = document.querySelectorAll(".reveal");
     var io = new IntersectionObserver(function (entries) {
       entries.forEach(function (e) {
@@ -745,32 +639,6 @@ footer .zh {
       el.classList.add("is-in");
     });
   }
-
-  if (!reduce) { video.play().catch(function () {}); }
-  syncPlay();
-
-  /* --- 影片中/英切换：同一条时间线，只换 source 与 poster，保持播放状态 --- */
-  var FILMS = {
-    zh: { src: "assets/vellum-promo-zh.mp4", poster: "assets/poster-title-zh.jpg" },
-    en: { src: "assets/vellum-promo.mp4", poster: "assets/poster-title.jpg" }
-  };
-  var langBtns = { zh: document.getElementById("lang-zh"), en: document.getElementById("lang-en") };
-  var currentFilm = "zh";
-
-  function setFilm(lang) {
-    if (lang === currentFilm || !FILMS[lang]) return;
-    var wasPlaying = !video.paused;
-    currentFilm = lang;
-    video.src = FILMS[lang].src;
-    video.poster = FILMS[lang].poster;
-    video.load();
-    if (wasPlaying) { video.play().catch(function () {}); }
-    Object.keys(langBtns).forEach(function (k) {
-      langBtns[k].setAttribute("aria-pressed", String(k === lang));
-    });
-  }
-  langBtns.zh.addEventListener("click", function () { setFilm("zh"); });
-  langBtns.en.addEventListener("click", function () { setFilm("en"); });
 })();
 </script>
 </body>

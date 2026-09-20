@@ -64,7 +64,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 
 - 应用字体资源：`public/fonts/`（~17MB）。
 - pi 扩展实体：`extensions/mdlog/`（pi 的加载位 `~/.pi/agent/extensions/mdlog` 是指向它的目录联接）；技能联接：`.pi/skills/<skill-name>` → 全局库 `C:/Users/17445/Desktop/HwFee-skills/skills/`。
-- 宣传品：视频工程 `video/`（唯一入库的分发副本是 `promo/assets/`，由 `promo/build-assets.mjs` 生成）、落地页 `promo/index.html`。
+- 宣传品：落地页 `promo/index.html`；对外素材 `promo/assets/`（真实窗口截图 / 海报帧 / 社交分享卡）。
 - 真机探针：`scripts/cdp-*.mjs`（`cdp-verify` / `cdp-perf-scroll` / `cdp-sidebar-jump` / `cdp-anchor-synthetic` / `cdp-obsidian-verify`）。
 - 设计语言：`DESIGN.md`；变更记录：`CHANGELOG.md`。
 
@@ -75,4 +75,4 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 | `docs/agents/rendering.md` | 渲染结构、搜索跳转、大纲跟随、侧栏布局与宽度、阅读位置记忆、热重载恢复、布局过渡窗、`viewportPin`、数学公式、块级就地编辑不变量、打印样式、文件索引 | 改渲染管线 / 滚动 / 编辑器 / 大纲 / 打印时 |
 | `docs/agents/obsidian.md` | frontmatter 属性卡、callout、wikilink 端到端与片段跳转、文档标题与属性卡/提示块定稿形态、CJK 强调兜底、全库语料检查与真机验收 | 碰三族语法或 `rehypeObsidian` 时 |
 | `docs/agents/widgets.md` | `WidgetSandbox` 存活上限与懒挂载、沙箱根溢出保护、交互块授权台账、停帧降载与静态图指针防线、预载视距与高度夹取、mdlog 状态与吸底、sidecar 清理 | 改 mdlog 或 widget 沙箱时 |
-| `docs/agents/tooling.md` | shell 入口细节、技能安装与 pi 扩展、宣传品（`video/` + `promo/`）、性能技能表与入口 chunk 尺寸、打包与生产构建坑、真机探针、`custom-protocol` | 配环境、打包发布、改宣传品时 |
+| `docs/agents/tooling.md` | shell 入口细节、技能安装与 pi 扩展、宣传品（`promo/`）、性能技能表与入口 chunk 尺寸、打包与生产构建坑、真机探针、`custom-protocol` | 配环境、打包发布、改宣传品时 |
