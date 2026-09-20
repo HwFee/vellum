@@ -3505,4 +3505,59 @@ describe("任务列表勾选写回", () => {
     expect(backendInvoke).not.toHaveBeenCalledWith("save_document", expect.anything());
     expect(document.querySelector(".editor-toast")).toBeNull();
   });
+
+  // 审查 Important #1 的端到端复现：点复选框 → 落盘在途 → 换文档 → 该次落盘失败。
+  // 若回滚不看文档代际，旧文档的 markdown 会被写进新文档的内存（正文整篇被换掉）。
+  it("换文档后在途落盘失败：不回滚，新文档的正文原样保留", async () => {
+    const docA = {
+      path: "C:/notes/a.md",
+      fileName: "a.md",
+      parentPath: "C:/notes",
+      markdown: "- [ ] 甲\n",
+    };
+    const docB = {
+      path: "C:/notes/b.md",
+      fileName: "b.md",
+      parentPath: "C:/notes",
+      markdown: "# 乙文档\n\n乙的正文。\n",
+    };
+    let rejectSave!: (reason: unknown) => void;
+    let saveCalls = 0;
+    backendInvoke.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === "load_document") {
+        return (args as { path: string }).path === docA.path ? docA : docB;
+      }
+      if (command === "read_mdlog_state") return null;
+      if (command === "save_document") {
+        saveCalls += 1;
+        // 挂起：让「换文档」发生在落盘在途期间（这正是复现的前提）
+        return new Promise<void>((_resolve, reject) => {
+          rejectSave = reject;
+        });
+      }
+      return undefined;
+    });
+
+    render(<App />);
+    vi.mocked(open).mockResolvedValueOnce(docA.path);
+    fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+    await waitFor(() => expect(taskBoxes().length).toBe(1));
+
+    fireEvent.click(taskBoxes()[0]);
+    await waitFor(() => expect(saveCalls).toBe(1));
+
+    // 在途期间换文档（loadPath 只等 commitActive，不等在途勾选）
+    vi.mocked(open).mockResolvedValueOnce(docB.path);
+    fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+    await waitFor(() => expect(screen.getByText("乙的正文。")).toBeInTheDocument());
+
+    // 现在让那次落盘失败：旧回滚若生效，B 的内存会被换成 A 的正文
+    await act(async () => {
+      rejectSave(new Error("磁盘只读"));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("乙的正文。")).toBeInTheDocument();
+    expect(screen.queryByText("甲")).toBeNull();
+  });
 });

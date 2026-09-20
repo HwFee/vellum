@@ -12,7 +12,8 @@ const markdown = "# 标题\n\n第一段。\n\n第二段。\n";
 function useControlledEditor(
   initialMarkdown: string,
   save: (next: string) => Promise<void>,
-  onChange?: (next: string) => void
+  onChange?: (next: string) => void,
+  documentGeneration = 0
 ) {
   const [markdownText, setMarkdownText] = useState(initialMarkdown);
   const [mdlogActive, setMdlogActive] = useState(false);
@@ -28,6 +29,7 @@ function useControlledEditor(
     mdlogActive,
     onMarkdownChange: handleMarkdownChange,
     save,
+    documentGeneration,
   });
   return { editor, markdown: markdownText, setMdlogActive };
 }
@@ -527,6 +529,126 @@ describe("useDocumentEditor · 任务列表勾选", () => {
     });
     await act(async () => {
       await result.current.toggleTask(9999);
+    });
+
+    expect(save).not.toHaveBeenCalled();
+    expect(onMarkdownChange).not.toHaveBeenCalled();
+    expect(result.current.toast).toBeNull();
+  });
+
+  // 审查 Important #1：回滚必须按「文档代际」守卫——换文档 / 热重载后磁盘上已是另一份
+  // 内容，把点击时的旧 markdown 写回内存会把新文档的正文整篇换掉
+  it("代际变化（换文档 / 热重载）后的落盘失败不回滚，只报失败", async () => {
+    const markdown = "- [ ] a\n";
+    let rejectSave!: (reason: unknown) => void;
+    const save = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSave = reject;
+        })
+    );
+    const onChange = vi.fn();
+
+    // 受控父级：乐观写入真的推进 markdown。必须这样，否则「内存仍是我写的那份」这条
+    // 次生守卫会先兜住，代际守卫的语义就测不出来了（两条守卫都要各自被钉住）
+    const { result, rerender } = renderHook(
+      ({ generation }: { generation: number }) =>
+        useControlledEditor(markdown, save, onChange, generation),
+      { initialProps: { generation: 1 } }
+    );
+
+    let pending!: Promise<void>;
+    await act(async () => {
+      pending = result.current.editor.toggleTask(0);
+      // 在途链：本次勾选排在微任务上，让出一拍它才真正开跑（乐观写入 + 落盘）
+      await Promise.resolve();
+    });
+    expect(result.current.markdown).toBe("- [x] a\n");
+
+    // 落盘在途期间换代（换文档 / 热重载）：此刻内存仍是本次乐观写入的那份内容
+    rerender({ generation: 2 });
+
+    await act(async () => {
+      rejectSave(new Error("磁盘只读"));
+      await pending;
+    });
+
+    // 只有乐观那一次写入；回滚被代际守卫拦下（内存里是另一篇文档，不该被旧内容覆盖）
+    expect(onChange.mock.calls.map((call) => call[0])).toEqual(["- [x] a\n"]);
+    expect(result.current.markdown).toBe("- [x] a\n");
+    expect(result.current.editor.toast?.message).toContain("写入失败");
+  });
+
+  // 同款守卫的第二条：内存已被别的写路径顶掉（块提交 / 外部重载）时，那份更新的状态
+  // 才是磁盘的未来，回滚只会让它倒退
+  it("内存已被别的写路径顶掉（不再是我写的那份）时，落盘失败不回滚", async () => {
+    const markdown = "- [ ] a\n";
+    let rejectSave!: (reason: unknown) => void;
+    const save = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSave = reject;
+        })
+    );
+    const onMarkdownChange = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ text }: { text: string }) =>
+        useDocumentEditor({ markdown: text, mdlogActive: false, onMarkdownChange, save }),
+      { initialProps: { text: markdown } }
+    );
+
+    let pending!: Promise<void>;
+    await act(async () => {
+      pending = result.current.toggleTask(0);
+      await Promise.resolve();
+    });
+
+    // 另一条写路径在这期间改写了内存（内容不再是本次乐观写入的那份）
+    rerender({ text: "# 别的写入\n" });
+
+    await act(async () => {
+      rejectSave(new Error("磁盘只读"));
+      await pending;
+    });
+
+    expect(onMarkdownChange).toHaveBeenCalledTimes(1);
+    expect(onMarkdownChange).toHaveBeenCalledWith("- [x] a\n");
+  });
+
+  // 审查 Important #2：两次并发勾选会让后一次以「前一次的乐观结果」为基准，
+  // 前一次失败回滚就把后一次一起抹掉 → 内存与磁盘不一致 → 回声被判成外部变更
+  it("双击 + 首次落盘失败：后一次基于回滚后的真实源码，最终内存与磁盘一致", async () => {
+    const markdown = "- [ ] a\n";
+    const save = vi.fn(async (_next: string) => {
+      throw new Error("磁盘只读");
+    });
+    const { result } = renderHook(() => useControlledEditor(markdown, save));
+
+    await act(async () => {
+      // 同一次同步派发里连点两次（第二次发生在第一次落盘在途时）
+      const first = result.current.editor.toggleTask(0);
+      const second = result.current.editor.toggleTask(0);
+      await Promise.all([first, second]);
+    });
+
+    // 两次都以「未勾选」为基准（第一次回滚后的真实源码）⇒ 两次写同一份内容，
+    // 而不是「翻过去又翻回来」（后者会让第二次的基准变成已被回滚掉的乐观结果）
+    expect(save.mock.calls.map((call) => call[0])).toEqual(["- [x] a\n", "- [x] a\n"]);
+    // 落盘全败 ⇒ 内存 = 磁盘 = 原文（不长期领先磁盘，watcher 回声不会被判成外部变更）
+    expect(result.current.markdown).toBe(markdown);
+  });
+
+  it("编辑视图里勾选被纵深防御拦下（组件侧本就不挂覆盖渲染）", async () => {
+    const markdown = "- [ ] a\n";
+    const { result, save, onMarkdownChange } = setup({ markdown });
+
+    act(() => {
+      void result.current.toggleView();
+    });
+    expect(result.current.viewMode).toBe("editing");
+
+    await act(async () => {
+      await result.current.toggleTask(0);
     });
 
     expect(save).not.toHaveBeenCalled();

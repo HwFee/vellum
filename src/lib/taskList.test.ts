@@ -146,6 +146,16 @@ describe("toggleTaskMarkerInUnit", () => {
     expect(back).toBe(markdown);
   });
 
+  // 已知非往返（裁定：大小写风格按**文档级**推断，不记住单项的原字符）：
+  // 单例 `- [X]` 取消后再勾上得到 `- [x]`——原文那个 `X` 在取消那一刻已无从推断，
+  // 除非为每一项引入跨点击记忆。钉住它，免得日后被当成 bug「修」掉或悄悄改变。
+  it("单例 `[X]` 文档取消再勾上变成 `[x]`（已知非往返）", () => {
+    const markdown = "- [X] a\n";
+    const unchecked = toggle(markdown, 0)!;
+    expect(unchecked).toBe("- [ ] a\n");
+    expect(toggle(unchecked, 0)).toBe("- [x] a\n");
+  });
+
   it("定位不到就返回 null：非任务项、区间外、区间与 DOM 位置对不上", () => {
     const markdown = "- [ ] a\n- b\n";
     // 普通列表项（无复选框）

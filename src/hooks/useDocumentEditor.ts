@@ -13,6 +13,11 @@ export type UseDocumentEditorOptions = {
   save: (next: string) => Promise<void>;
   /// 提交耗时的「重文档」阈值。默认 800ms，测试与真机校准可注入。
   heavyCommitMs?: number;
+  /// 文档代际：每次「由外部装入内容」（换文档 / 热重载）递增一次。
+  /// 勾选在途落盘失败后据此判断「这次写入针对的还是不是同一篇文档」——跨代际的回滚
+  /// 会把上一篇的 markdown 写进新文档的内存（正文整篇被换掉），必须跳过。
+  /// 缺省 0：单篇会话里代际恒定，回滚始终有效。
+  documentGeneration?: number;
 };
 
 const DEFAULT_HEAVY_COMMIT_MS = 800;
@@ -37,6 +42,7 @@ export function useDocumentEditor({
   onMarkdownChange,
   save,
   heavyCommitMs = DEFAULT_HEAVY_COMMIT_MS,
+  documentGeneration = 0,
 }: UseDocumentEditorOptions) {
   const [viewMode, setViewMode] = useState<EditorViewMode>("reading");
   const [activeUnitIndex, setActiveUnitIndex] = useState<number | null>(null);
@@ -59,6 +65,22 @@ export function useDocumentEditor({
     activeUnitIndex === null
       ? null
       : (units.find((unit) => unit.index === activeUnitIndex) ?? null);
+
+  /// 勾选写回的三面镜子（都只在事件处理器里读，不参与渲染）：在途链上的后续调用与
+  /// 失败回滚的判据必须看**此刻**的值，而不是各自那次点击的闭包快照 —— 前一次回滚
+  /// 之后源码会退回原文，拿快照当基准就会「以被回滚掉的乐观结果为基准」再翻一次。
+  const markdownRef = useRef(markdown);
+  markdownRef.current = markdown;
+  const unitsRef = useRef(units);
+  unitsRef.current = units;
+  const generationRef = useRef(documentGeneration);
+  generationRef.current = documentGeneration;
+
+  /// 勾选的在途链：勾选是「读当前源码 → 翻转 → 落盘 → 失败回滚」的复合动作，
+  /// 两次并发会让后一次以「前一次的乐观结果」为基准，前一次失败回滚就把后一次一起
+  /// 抹掉（内存与磁盘从此不一致，我方写入的 watcher 回声会被判成外部变更）。
+  /// 串行化而非丢弃：用户双击的意图就是翻两次。
+  const taskChainRef = useRef<Promise<void>>(Promise.resolve());
 
   const clearToastTimer = useCallback(() => {
     if (toastTimerRef.current !== null) {
@@ -204,22 +226,31 @@ export function useDocumentEditor({
   /// 失败回滚与 commitActive 同款：mdlog 记录中只读、只读块不可点、落盘失败即回滚。
   ///
   /// itemStart 是列表项的源码起点（由 MarkdownDocument 从 <li> 的源码位置给出）。
-  const toggleTask = useCallback(
+  const runToggleTask = useCallback(
     async (itemStart: number): Promise<void> => {
+      // 纵深防御（编辑视图不接管勾选）：组件侧已靠 taskToggleEnabled 根本不挂覆盖渲染，
+      // 这里再拦一道，防止将来有人把 onToggleTask 接到编辑视图上——那时点击既会进块编辑、
+      // 又会写盘，两条路打架。
+      if (viewMode !== "reading") return;
       // 写盘口门禁（裁定 F25 同款）：记录中一切写盘入口都必须拦在这里。
       // mdlogActive 本身来自 read_mdlog_state 的 `?? null` 归一（App 侧），不得另设判据。
       if (mdlogActive) {
         showToast("记录中 · 勾选已禁用");
         return;
       }
+
+      // 基准取**此刻**的源码 / 单元 / 代际（不是这次点击时的闭包快照）：在途链上的
+      // 后续调用必须看到前一次 settle 之后的真实状态
+      const source = markdownRef.current;
+      const generation = generationRef.current;
       // 半开区间包含判定：end 取 itemStart + 1，避免命中「恰好结束在 itemStart」的前一块
-      const unit = findUnitForRange(units, itemStart, itemStart + 1);
+      const unit = findUnitForRange(unitsRef.current, itemStart, itemStart + 1);
       // 只读块（HTML / widget / frontmatter）里的任务列表不可点：静默忽略，
       // 与只读块在编辑视图里的「零文字浮层」定稿一致
       if (!unit?.editable) return;
 
-      const next = toggleTaskMarkerInUnit(markdown, unit.start, unit.end, itemStart);
-      if (next === null || next === markdown) return;
+      const next = toggleTaskMarkerInUnit(source, unit.start, unit.end, itemStart);
+      if (next === null || next === source) return;
 
       // 乐观更新：先把新源码推给父级（复选框当场翻转），再落盘。
       // flushSync 让这一步在本次点击内同步完成——异步推进会让「翻了一半」的
@@ -228,12 +259,30 @@ export function useDocumentEditor({
       try {
         await save(next);
       } catch (error) {
-        // 与 commitActive 同一口径：内存必须与磁盘重新一致（提交即落盘、落盘失败即回退）
-        flushSync(() => onMarkdownChange(markdown));
+        // 回滚的两个前提（与 commitActive 的「内存与磁盘重新一致」同一口径）：
+        // ① 还是同一篇文档（代际未变）——换文档 / 热重载后磁盘是另一份内容，
+        //    把旧 markdown 写进内存会把新文档的正文整篇换掉；
+        // ② 内存里仍是我写的那份——被别的写路径（块提交 / 外部重载）顶掉时，
+        //    那份更新的内存状态才是磁盘的未来，回滚只会让它倒退。
+        // 任一条不成立就只报失败、不动内存（写盘失败必须让用户知道）。
+        if (generationRef.current === generation && markdownRef.current === next) {
+          flushSync(() => onMarkdownChange(source));
+        }
         showToast(`写入失败：${String(error)}`);
       }
     },
-    [markdown, mdlogActive, onMarkdownChange, save, showToast, units]
+    [mdlogActive, onMarkdownChange, save, showToast, viewMode]
+  );
+
+  /// 勾选入口：进在途链（串行化），返回值仍是本次勾选的完成信号
+  const toggleTask = useCallback(
+    (itemStart: number): Promise<void> => {
+      const chained = taskChainRef.current.then(() => runToggleTask(itemStart));
+      // 链上不传播失败：一次落盘异常不该让后续点击永远排在一条已 reject 的链后面
+      taskChainRef.current = chained.catch(() => {});
+      return chained;
+    },
+    [runToggleTask]
   );
 
   const toggleView = useCallback(async () => {

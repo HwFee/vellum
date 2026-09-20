@@ -119,7 +119,9 @@
 - 阅读视图里点 GFM 任务复选框 = 直接改源码：`<li>` 的源码起点 → `useDocumentEditor.toggleTask` → `taskList.ts` 在**所属块单元区间内**按序号翻转标记（`*` / `+` / 有序列表、多空格 / Tab 分隔、`[X]` 都认；勾选字符沿用文档里已有的大小写风格）。
 - 定位信息只能来自 `<li>`：GFM 复选框由 `mdast-util-to-hast` 生成，**不带源码位置**（`<input>` 恒 disabled）；原始 HTML 里的 `<input>` 带位置。`MarkdownDocument` 的 `li` / `input` 两条覆盖渲染据此分工——只摘 GFM 复选框的 disabled，原始 HTML 的 disabled 一律留着。
 - 覆盖渲染只在**阅读视图 + 有 `onToggleTask`** 时挂上：编辑视图与未接线调用方的 `components` 与从前逐字相同（复选框保持 disabled，块激活那条路不受影响）。
-- 门禁与回滚与块编辑同款：mdlog 记录中拦在写盘口（`mdlogActive` 来自 `read_mdlog_state` 的 `?? null` 归一）、只读块（HTML / widget / frontmatter 及其容器）静默忽略、落盘失败回滚乐观更新并弹 `写入失败`。
+- 门禁与回滚与块编辑同款：mdlog 记录中拦在写盘口（`mdlogActive` 来自 `read_mdlog_state` 的 `?? null` 归一）、只读块（HTML / widget / frontmatter 及其容器）静默忽略、编辑视图整体不接管（组件侧不挂覆盖渲染 + hook 里 `viewMode !== "reading"` 兜底）、落盘失败回滚乐观更新并弹 `写入失败`。
+- **回滚必须过两道守卫**（缺一个就会写坏内存）：① 文档代际未变（App 每次「由外部装入内容」——换文档 / 热重载——递增 `documentGeneration`，只由装入路径递增，编辑自己的写入不算），跨代际回滚会把上一篇的 markdown 写进新文档；② 内存里仍是我写的那份（`markdownRef.current === next`），被别的写路径顶掉时那份更新的状态才是磁盘的未来。任一条不成立就只报失败、不动内存。
+- 勾选**在途串行**（`taskChainRef`）：两次并发会让后一次以「前一次的乐观结果」为基准，前一次失败回滚就把后一次一起抹掉。链上的后续调用读 `markdownRef` / `unitsRef` / `generationRef` 的**此刻值**，不得用自己那次点击的闭包快照。
 - 勾选态由源码字符串单向驱动（`checked` 受控 + `readOnly` + `flushSync(onMarkdownChange)`）：**不得**改成 `defaultChecked`——那样落盘失败回滚后复选框不会回到源码状态。
 - 勾选**不**递增 `reloadTick`、不播印章、不做滚动补偿（同块编辑提交）；watcher 回声照旧由「磁盘 vs 内存比对」抑制。
 
@@ -127,7 +129,7 @@
 
 | 文件 | 职责 |
 |------|------|
-| `src/App.tsx` | 主入口、文档加载、窗口显示、编辑视图接线（提交落盘 / 回声抑制 / 外部变更分流） |
+| `src/App.tsx` | 主入口、文档加载、窗口显示、编辑视图接线（提交落盘 / 回声抑制 / 外部变更分流 / 文档代际） |
 | `src/components/MarkdownDocument.tsx` | Markdown 渲染（`React.lazy` 懒加载） |
 | `src/components/BlockEditor.tsx` | 就地编辑面（隐藏原块锁高、自增高推流、Esc/失焦提交） |
 | `src/hooks/useDocumentEditor.ts` | 编辑会话状态机（视图门禁、草稿、提交即落盘、提示条） |

@@ -92,6 +92,10 @@ export default function App() {
   const contentRef = useRef<HTMLDivElement>(null);
   const documentContentRef = useRef<HTMLDivElement>(null);
   const currentPathRef = useRef<string | null>(null);
+  // 文档代际：每次「由外部装入内容」（换文档 / 热重载）递增一次，只由装入路径递增
+  // （编辑 / 勾选自己的写入不算换代）。勾选的在途落盘失败后据此判断「这次写入针对的
+  // 还是不是同一篇文档」——跨代际回滚会把上一篇的 markdown 写进新文档的内存。
+  const documentGenerationRef = useRef(0);
   // 当前内存里的 markdown（file-changed 回声判据的对照物，裁定 F30）。
   // 分流函数在挂载时注册一次，直接读 state 会拿到过期闭包值，故经 ref 读取最新内容；
   // 判据不依赖任何赋值时机，也没有需要失效的快照。
@@ -508,6 +512,8 @@ export default function App() {
       const document = await invoke<LoadedDocument>("load_document", { path });
       if (loadRequestRef.current !== requestId) return;
       currentPathRef.current = document.path;
+      // 换代：本篇的内容即将被装入，之前针对旧文档的在途勾选回滚就此作废
+      documentGenerationRef.current += 1;
       // wikilink 解析必须在 setState 之前完成：ready 态一次就带上表，
       // 否则首帧全部是「未找到」纯文本、第二帧才变链接（闪烁 + 整篇重解析）。
       // 解析失败只退化成空表——绝不让它冒泡到外层 catch 把文档变成错误页
@@ -604,6 +610,9 @@ export default function App() {
           ? captureViewportAnchor(container, contentRef.current)
           : null;
       currentPathRef.current = document.path;
+      // 换代：热重载换掉的是本篇的内容（外部改写 / mdlog 追加），针对旧内容的在途
+      // 勾选回滚同样作废——把旧 markdown 写回去等于把外部变更整篇抹掉
+      documentGenerationRef.current += 1;
       // 热重载（含 mdlog 每次追加）对延迟敏感：先沿用上一份表提交，绝不在此 await IPC。
       // 表里缺目标时（追加内容引入新链接）异步补齐，补齐前那些链接按未解析渲染成
       // 纯文本 + 提示；目标集合无变化时（绝大多数追加）一次多余调用都不发。
@@ -897,6 +906,7 @@ export default function App() {
     mdlogActive: isMdlogActive,
     onMarkdownChange: applyMarkdown,
     save: saveMarkdown,
+    documentGeneration: documentGenerationRef.current,
   });
   editorRef.current = editor;
 
