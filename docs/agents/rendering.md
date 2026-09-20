@@ -58,7 +58,7 @@
 - 且程序化像素覆盖会顶掉 Chromium 原生滚动锚定对异步 iframe 高度上报的补偿。
 - 热重载滚动恢复在用户滚动输入（滚轮/触摸/按键/滚动条拖拽）后 300ms 内跳过（`lastUserScrollAtRef`）：否则提交瞬间会把用户刚滚出去的距离当「漂移」拽回。
 - 键盘只在**会滚动的键**上记时间戳：判据是 `lib/scrollInput.ts` 的 `isScrollInputKey(event)`（清单与修饰键例外都归该模块，带单元测试）——**Alt 例外不写在调用方**。
-- `Alt+←` / `Alt+→` 是历史导航（另一条快捷键），箭头键本身在清单里，靠 `!altKey` 排除；判据散在 `App.tsx` 里各写一份，漏一处就等于「按后退键被当成用户接管」、宽度过渡期的钉住当场取消。
+- `Alt+←` / `Alt+→` 是历史导航（另一条快捷键），箭头键本身在清单里，靠 `!altKey` 排除；该例外**不得散在调用方**（各写一份就会漏，漏一处即「按后退键被当成用户接管」、宽度过渡期的钉住当场取消）。
 - 任何按键都记会把 `Ctrl+K` 等快捷键误判成用户接管，而 `Ctrl+K` 开侧栏时视口钉住会被当场取消、宽度回流没人补偿（快捷键路径重新跳动）。
 - 文档内锚点链接（`[文字](#id)`）由 App 接管点击（`scrollToContentFragment` + `.document-scroll` 上的事件委托）：目标在正文里走缓动滚动（与大纲点击同一路径），`#`/`#top`/`#main` 视为回到顶部。
 - **编辑视图下不接管**（那里点击是「进入块编辑」）。
@@ -130,8 +130,8 @@
 
 ## 打印样式（2026-09-20 新增）
 
-- 两段 `@media print` 都在 `kami.css`，都**不动屏幕态规则**：**主段**（隐藏界面件 / 放开版心 / 分页保护）排在首个 mdlog widget 选择器**之前**，**末段**（隐 chrome 题头栏、恢复停帧 iframe）含该字样、排在其**之后**。主段的注释里也**不得**出现该字样——`kami.css.test.ts` 用 `indexOf` 找扫描起点，注释同样会把它提前（本轮就是这么踩到的）。
-- 隐藏清单：`.top-bar` / `.outline-sidebar` / `.outline-resize-handle` / `.outline-scrim` / `.custom-scrollbar` / `.jump-bottom` / `.reload-note` / `.editor-toast` / `.editor-hint` / `.settings-popover` / `.mdlog-live`（记录中的呼吸小章是状态指示器，不是文档内容；该选择器不含 `.mdlog-widget` 字样，故留在主段）。
+- 两段 `@media print` 都在 `kami.css`，都**不动屏幕态规则**：**主段**（隐藏界面件 / 放开版心 / 分页保护）排在首个 mdlog widget 选择器**之前**，**末段**（隐 chrome 题头栏、恢复停帧 iframe、隐记录小章）含该字样、排在其**之后**。主段的注释里也**不得**出现该字样——`kami.css.test.ts` 用 `indexOf` 找扫描起点，注释同样会把它提前（本轮就是这么踩到的）。
+- **覆写放哪一段由「屏幕态规则的位置」决定，不是由选择器长什么样决定**：媒体查询**不参与特异度与来源序**，同特异度（0,1,0）时后出现的屏幕态规则在打印下照样胜出。所以主段的隐藏清单只收**屏幕态规则排在主段之前**的选择器（顶栏 / 侧栏 / 拖宽手柄 / 纱罩 / 自定义滚动条 / 跳底 / 印章 / 编辑提示条 / 重文档提示 / 设置弹层）；mdlog 区段里的 `.mdlog-live`（屏幕态 `display: flex` 在文件后段）必须放**末段**，否则那条 `display:none` 是死的（2026-09-20 复审抓到的正是这一处，headless Chrome 打印媒体实测：修前 `print` 下仍是 `flex`，修后 `none`）。`kami.css.test.ts` 同时钉了「主段清单不含 `.mdlog-live`」与「末段覆写排在屏幕态规则之后」。
 - 版心必须放开：屏幕态把正文关在「`100vh` + `overflow:hidden`/`scroll`」的壳里（窗口内滚动），不改成 `height:auto` + `overflow:visible` 就只印得出第一屏。侧栏开启时的 `--outline-shift` 位移与 `.document-scroll__content:has(.document-title)` 的 42px 顶距都是 0,2,0，打印段必须用同特异度显式归零——同特异度靠顺序取胜，所以打印段整体必须排在屏幕态规则之后（测试锁死）。
 - 列宽：`.markdown-body` 与 `.document-title` 的 `max-width` 打印下放开到 100%（左右 32px 内边距保留，标题与正文左缘的对齐关系不变）。**正文字号不另设**：沿用 `--reader-font-size`，用户的阅读设置就是他的选择。
 - 分页：`.code-block` / `.markdown-body pre` / `table` / `blockquote` / `img` 加 `break-inside: avoid`；`.document-title` 与 h1–h6 加 `break-after: avoid`；**不设 `@page`**，页边距交给浏览器默认。

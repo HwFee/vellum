@@ -1950,7 +1950,10 @@ mark.search-match--current {
    正文字号不另设：`.markdown-body` 消费 --reader-font-size，打印沿用用户的阅读设置。 */
 @media print {
   /* 界面件：顶栏 / 侧栏 / 拖宽手柄 / 纱罩 / 自定义滚动条 / 跳底按钮 / 印章 /
-     编辑提示条 / 设置弹层 / 记录中的呼吸小章——打印件里全是噪点 */
+     编辑提示条 / 设置弹层——打印件里全是噪点。
+     本清单的前提是这些选择器的**屏幕态规则都排在主打印段之前**（同特异度靠顺序取胜）。
+     屏幕态规则落在主段之后的（mdlog 区段里的记录小章就是），覆写必须放文件末尾那段——
+     放这里等于没写：媒体查询不参与特异度与来源序，靠后的屏幕态规则照样胜出。 */
   .top-bar,
   .outline-sidebar,
   .outline-resize-handle,
@@ -1960,8 +1963,7 @@ mark.search-match--current {
   .reload-note,
   .editor-toast,
   .editor-hint,
-  .settings-popover,
-  .mdlog-live {
+  .settings-popover {
     display: none;
   }
 
@@ -2255,10 +2257,13 @@ mark.search-match--current {
   transition: none;
 }
 
-/* 打印（二）：交互块——静态内容保留，只隐去 chrome 题头栏；离屏停帧（--parked）的
-   iframe 在打印时必须恢复可见：停帧是按**屏幕视口**判定的，落在后几页的 widget
-   打印时会整块空白。本段含 `.mdlog-widget` 字样，必须排在首个该选择器出现处之后
-   （约束 8）——这也是它不跟主体打印段放一起的原因。 */
+/* 打印（二）：文件末尾这一段收纳两类「屏幕态规则排在主打印段之后」的选择器——
+   ① 交互块：静态内容保留，只隐去 chrome 题头栏；离屏停帧（--parked）的 iframe 在打印时
+      必须恢复可见（停帧按**屏幕视口**判定，落在后几页的 widget 会整块空白）；
+   ② mdlog 区段里的记录小章 `.mdlog-live`：它的屏幕态规则（display: flex）在 mdlog 区段里，
+      也就是在主打印段**之后**——同特异度靠来源序取胜，媒体查询不参与特异度，故放主段等于没写。
+   本段含 `.mdlog-widget` 字样，必须排在首个该选择器出现处之后（约束 8）——这也是它不跟
+   主体打印段放一起的原因。 */
 @media print {
   .mdlog-widget__bar {
     display: none;
@@ -2266,5 +2271,10 @@ mark.search-match--current {
 
   .mdlog-widget__frame--parked {
     visibility: visible;
+  }
+
+  /* 记录中的呼吸小章是状态指示器，不是文档内容 */
+  .mdlog-live {
+    display: none;
   }
 }

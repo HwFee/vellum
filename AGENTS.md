@@ -19,7 +19,7 @@ Tauri 2 + React 19 桌面 Markdown 阅读器，Windows 10/11 x64。
 ```bash
 npm run dev          # Vite 开发服务器（端口 1420）
 npm run build        # tsc + vite build
-npm test             # vitest run（45 测试文件，912 用例）
+npm test             # vitest run（45 测试文件，913 用例）
 npm run tauri        # Tauri CLI
 node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wisdom 真实笔记库；库不存在则整体跳过）
 ```
@@ -57,8 +57,8 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 14. katex 版本必须与 rehype-katex 嵌套依赖的 katex 严格同版（当前均 0.16.47）。 → `docs/agents/rendering.md`
 15. 顶栏不显示文件名（`.top-bar__title` 已移除），换文档的判据一律看 `h1.document-title`。 → `docs/agents/obsidian.md`
 16. `read_mdlog_state` 的返回值必须 `?? null` 归一后再入 state，否则 `undefined` 会被误判为记录中。 → `docs/agents/widgets.md`
-17. 任务列表勾选只能走 `useDocumentEditor.toggleTask`（`<li>` 源码起点 → 块单元内按序号翻转标记）：mdlog 门禁 / 只读块忽略 / 编辑视图不接管 / 在途串行 / **回滚只在「同一文档代际（App 每次装入内容递增 `documentGeneration`）且内存仍是我写的那份」时生效**，一处都不能少。 → `docs/agents/rendering.md`
-18. 打印只允许新增 `@media print` 段（屏幕态规则一律不动）：主段（隐藏界面件 / 放开版心 / 分页保护）排在首个 `.mdlog-widget` 之前且注释里也不得出现该字样，含该字样的交互块打印规则排在它之后。 → `docs/agents/rendering.md`
+17. 任务列表勾选只能走 `useDocumentEditor.toggleTask`（`<li>` 源码起点 → 块单元内按序号翻转标记）：mdlog 门禁 / 只读块忽略 / 编辑视图不接管 / 在途串行 / **回滚只在「同一文档代际（代际经 `getDocumentGeneration` getter 同步读 App 的 `documentGenerationRef`，不是 prop 快照——递增发生在渲染提交之前）且内存仍是我写的那份」时生效**，一处都不能少。 → `docs/agents/rendering.md`
+18. 打印只允许新增 `@media print` 段（屏幕态规则一律不动）：主段（隐藏界面件 / 放开版心 / 分页保护）排在首个 `.mdlog-widget` 之前且注释里也不得出现该字样，含该字样的交互块打印规则排在它之后；**屏幕态规则落在主段之后的（mdlog 区段内的）选择器，其打印覆写必须放文件末尾那段**——同特异度靠来源序取胜、媒体查询不参与特异度，放主段等于没写（`.mdlog-live` 踩过）。 → `docs/agents/rendering.md`
 
 ## 关键路径
 

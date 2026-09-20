@@ -284,10 +284,8 @@ describe("kami.css mdlog widget and live indicator tokens", () => {
   });
 
   it("declares live indicator rules with 5x5px square dot and breathing animation", () => {
-    // 打印段也有一条 .mdlog-live（display:none，排在前面）：这里要的是**屏幕态**那条，
-    // 按「首个 mdlog widget 选择器之后」的区段取，避免命中打印段
-    const liveRule =
-      css.slice(css.indexOf(".mdlog-widget")).match(/\.mdlog-live\s*\{[^}]*\}/s)?.[0] ?? "";
+    // 首个 .mdlog-live 规则就是屏幕态那条（打印覆写在文件末尾的打印段里）
+    const liveRule = css.match(/\.mdlog-live\s*\{[^}]*\}/s)?.[0] ?? "";
     expect(liveRule).toMatch(/margin:\s*30px 0 0/);
     expect(liveRule).toMatch(/color:\s*var\(--stone\)/);
     expect(liveRule).toMatch(/font:\s*10px\/1 var\(--mono\)/);
@@ -833,7 +831,7 @@ describe("kami.css reader-polish task-9 打印样式（2026-09-20）", () => {
     expect(printBlock).toMatch(/@media\s*print\s*\{/);
   });
 
-  it("打印隐藏清单：顶栏 / 侧栏 / 拖宽手柄 / 纱罩 / 滚动条 / 跳底 / 印章 / 提示条 / 设置弹层 / 记录中章", () => {
+  it("打印隐藏清单：顶栏 / 侧栏 / 拖宽手柄 / 纱罩 / 滚动条 / 跳底 / 印章 / 提示条 / 设置弹层", () => {
     const hiddenRule = printBlock.match(/\.top-bar,\s*[\s\S]*?display:\s*none;/)?.[0] ?? "";
     expect(hiddenRule).not.toBe("");
     for (const selector of [
@@ -847,10 +845,13 @@ describe("kami.css reader-polish task-9 打印样式（2026-09-20）", () => {
       ".editor-toast",
       ".editor-hint",
       ".settings-popover",
-      ".mdlog-live",
     ]) {
       expect(hiddenRule, `打印隐藏清单缺 ${selector}`).toContain(selector);
     }
+    // 清单的前提是这些选择器的屏幕态规则都排在本段之前（同特异度靠顺序取胜）。
+    // `.mdlog-live` 的屏幕态规则在 mdlog 区段里、排在本段之后 ⇒ 放这里等于没写，
+    // 它的覆写在文件末尾那段（见下一条用例）。
+    expect(hiddenRule).not.toContain(".mdlog-live");
   });
 
   it("版心放开：外壳改内容高度、溢出可见，列宽放开到 100%，侧栏位移归零", () => {
@@ -937,5 +938,17 @@ describe("kami.css reader-polish task-9 打印样式（2026-09-20）", () => {
     expect(trailingBlock).not.toMatch(/rgba?\(/);
     expect(trailingBlock).not.toMatch(/border-radius/);
     expect(trailingBlock).not.toMatch(/font-weight/);
+  });
+
+  it("记录中小章的打印覆写在末尾段，且排在它的屏幕态规则之后（放主段会被顺序反杀）", () => {
+    // 屏幕态 `.mdlog-live { display: flex }` 在 mdlog 区段里（主打印段之后）：
+    // 同特异度（0,1,0）靠来源序取胜，媒体查询不参与特异度与来源序
+    const screenLive = css.search(/^\.mdlog-live\s*\{/m);
+    const printLive = trailingBlock.match(/\.mdlog-live\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(screenLive).toBeGreaterThan(-1);
+    expect(printLive).toMatch(/display:\s*none/);
+    // 位置断言（jsdom 不套用 print 媒体，只能按顺序钉）：打印覆写在屏幕态规则之后
+    expect(css.lastIndexOf(".mdlog-live {")).toBeGreaterThan(screenLive);
+    expect(css.lastIndexOf(".mdlog-live {")).toBeGreaterThan(mdlogIndex);
   });
 });
