@@ -234,6 +234,19 @@ mod tests {
             parsed["bundle"]["createUpdaterArtifacts"],
             serde_json::json!(true)
         );
+
+        // 插件在 setup 阶段就会把这段 JSON 反序列化成自己的 Config（`api.config()` 是有类型的），
+        // 失败会让 `Builder::run` 直接 Err ⇒ `main()` 的 expect 崩在启动那一行。这里用同一个类型
+        // 走一遍，等于把「配置对插件仍然合法」钉成编译期的契约：日后插件新增必填字段 / 改名，
+        // 这条会在 `cargo test` 当场红，而不是等到启动崩。
+        let updater_config: tauri_plugin_updater::Config =
+            serde_json::from_value(parsed["plugins"]["updater"].clone())
+                .expect("plugins.updater must deserialize into tauri_plugin_updater::Config");
+        assert_eq!(updater_config.endpoints.len(), 1);
+        assert_eq!(
+            updater_config.endpoints[0].as_str(),
+            "https://github.com/HwFee/vellum/releases/latest/download/latest.json"
+        );
     }
 
     #[test]
