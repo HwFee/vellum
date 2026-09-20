@@ -121,6 +121,23 @@ describe("OutlinePanel", () => {
     expect(count).toHaveAttribute("aria-live", "polite");
   });
 
+  it("deferred 搜索词未跟进（pending）时不显示「无匹配」：此刻的计数还是上一轮查询的", () => {
+    // 输入已变、deferred 值未跟进的 urgent 帧：matchCount 仍是旧词的结果，
+    // 凭它下结论会闪一帧假「无匹配」（大文档上这一帧能停留可见的时长）
+    render(
+      <OutlinePanel
+        headings={sampleHeadings}
+        {...searchDefaults}
+        searchQuery="zzz"
+        matchCount={0}
+        searchQueryPending
+      />
+    );
+
+    expect(screen.queryByText("无匹配")).toBeNull();
+    expect(screen.getByText("…")).toBeInTheDocument();
+  });
+
   it("有查询时显示清除按钮，点击清空并保焦", () => {
     const handleSearchChange = vi.fn();
     const inputRef = createRef<HTMLInputElement>();

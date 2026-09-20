@@ -66,6 +66,9 @@ export function SettingsPopover({ settings, onChange, onClose, anchorRef }: Sett
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        // 栈式语义：本层收下这次 Escape，不再冒到 window——窄屏下 Escape 同时是
+        // 「关侧栏」的入口，不拦就会一次按键关两层（弹层与侧栏一起消失）
+        event.stopPropagation();
         onClose();
       }
     };

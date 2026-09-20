@@ -16,8 +16,13 @@ export type UseDocumentEditorOptions = {
   /// 文档代际：每次「由外部装入内容」（换文档 / 热重载）递增一次。
   /// 勾选在途落盘失败后据此判断「这次写入针对的还是不是同一篇文档」——跨代际的回滚
   /// 会把上一篇的 markdown 写进新文档的内存（正文整篇被换掉），必须跳过。
-  /// 缺省 0：单篇会话里代际恒定，回滚始终有效。
-  documentGeneration?: number;
+  ///
+  /// **必须是 getter、且在被读的那一刻求值**（App 传 `() => documentGenerationRef.current`）：
+  /// 装入路径（loadPath / reloadCurrent）递增的是 App 的 ref，此刻**渲染尚未提交**，
+  /// hook 拿不到新的 prop 快照；按 prop 镜像代际会漏掉「ref 递增 → 渲染提交」这段调度窗——
+  /// 窗内失败的勾选会以为还是同一篇文档，把旧内容写回新文档。
+  /// 缺省（不传）时按 0 处理：单篇会话里代际恒定，回滚始终有效。
+  getDocumentGeneration?: () => number;
 };
 
 const DEFAULT_HEAVY_COMMIT_MS = 800;
@@ -42,7 +47,7 @@ export function useDocumentEditor({
   onMarkdownChange,
   save,
   heavyCommitMs = DEFAULT_HEAVY_COMMIT_MS,
-  documentGeneration = 0,
+  getDocumentGeneration,
 }: UseDocumentEditorOptions) {
   const [viewMode, setViewMode] = useState<EditorViewMode>("reading");
   const [activeUnitIndex, setActiveUnitIndex] = useState<number | null>(null);
@@ -73,8 +78,10 @@ export function useDocumentEditor({
   markdownRef.current = markdown;
   const unitsRef = useRef(units);
   unitsRef.current = units;
-  const generationRef = useRef(documentGeneration);
-  generationRef.current = documentGeneration;
+  /// 代际 getter 经 ref 存最新一份：调用时刻求值（getter 闭包的是 App 的 ref，
+  /// 即便是上一轮渲染的实例也读得到此刻的代际），故不进 useCallback 依赖，勾选回调引用保持稳定
+  const getGenerationRef = useRef(getDocumentGeneration);
+  getGenerationRef.current = getDocumentGeneration;
 
   /// 勾选的在途链：勾选是「读当前源码 → 翻转 → 落盘 → 失败回滚」的复合动作，
   /// 两次并发会让后一次以「前一次的乐观结果」为基准，前一次失败回滚就把后一次一起
@@ -240,9 +247,10 @@ export function useDocumentEditor({
       }
 
       // 基准取**此刻**的源码 / 单元 / 代际（不是这次点击时的闭包快照）：在途链上的
-      // 后续调用必须看到前一次 settle 之后的真实状态
+      // 后续调用必须看到前一次 settle 之后的真实状态；代际尤其必须**当场问 getter**——
+      // 装入路径递增代际与渲染提交之间有调度窗，镜像的 prop 快照在窗内还是旧值
       const source = markdownRef.current;
-      const generation = generationRef.current;
+      const generation = getGenerationRef.current?.() ?? 0;
       // 半开区间包含判定：end 取 itemStart + 1，避免命中「恰好结束在 itemStart」的前一块
       const unit = findUnitForRange(unitsRef.current, itemStart, itemStart + 1);
       // 只读块（HTML / widget / frontmatter）里的任务列表不可点：静默忽略，
@@ -265,7 +273,7 @@ export function useDocumentEditor({
         // ② 内存里仍是我写的那份——被别的写路径（块提交 / 外部重载）顶掉时，
         //    那份更新的内存状态才是磁盘的未来，回滚只会让它倒退。
         // 任一条不成立就只报失败、不动内存（写盘失败必须让用户知道）。
-        if (generationRef.current === generation && markdownRef.current === next) {
+        if ((getGenerationRef.current?.() ?? 0) === generation && markdownRef.current === next) {
           flushSync(() => onMarkdownChange(source));
         }
         showToast(`写入失败：${String(error)}`);

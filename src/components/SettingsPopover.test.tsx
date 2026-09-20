@@ -69,4 +69,17 @@ describe("SettingsPopover", () => {
     fireEvent.mouseDown(screen.getByRole("dialog", { name: "阅读设置" }));
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it("Escape 只关弹层：事件不再冒到 window（栈式语义，窄屏下不连带关侧栏）", () => {
+    const { onClose } = setup();
+    // window 上的「关侧栏」监听就是窄屏 Escape 的入口：弹层不 stopPropagation 就会一次按键关两层
+    const windowSpy = vi.fn();
+    window.addEventListener("keydown", windowSpy);
+
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "阅读设置" }), { key: "Escape" });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(windowSpy).not.toHaveBeenCalled();
+    window.removeEventListener("keydown", windowSpy);
+  });
 });

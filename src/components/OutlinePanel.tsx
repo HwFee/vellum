@@ -11,6 +11,9 @@ type OutlinePanelProps = {
   onSearchChange: (query: string) => void;
   matchCount: number;
   activeMatchIndex: number;
+  /// deferred 搜索词尚未跟进（urgent 渲染）时为 true：此刻的 matchCount 还是**上一轮**
+  /// 查询的结果，凭它下「无匹配」的结论会闪一帧假话（大文档上这一帧能停留可见的时长）
+  searchQueryPending?: boolean;
   onNextMatch: () => void;
   onPrevMatch: () => void;
   searchInputRef: React.RefObject<HTMLInputElement | null>;
@@ -112,6 +115,7 @@ export function OutlinePanel({
   onSearchChange,
   matchCount,
   activeMatchIndex,
+  searchQueryPending = false,
   onNextMatch,
   onPrevMatch,
   searchInputRef,
@@ -182,7 +186,11 @@ export function OutlinePanel({
         {isSearching ? (
           <span className="outline-search__results">
             <span className="outline-search__count" aria-live="polite">
-              {matchCount > 0 ? `${activeMatchIndex + 1}/${matchCount}` : "无匹配"}
+              {matchCount > 0
+                ? `${activeMatchIndex + 1}/${matchCount}`
+                : searchQueryPending
+                  ? "…"
+                  : "无匹配"}
             </span>
             <button type="button" className="outline-search__nav" onClick={onPrevMatch} aria-label="上一个匹配" title="上一个 (Shift+Enter)">
               <ChevronUpIcon />

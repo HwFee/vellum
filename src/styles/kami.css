@@ -663,6 +663,17 @@ textarea {
   color: var(--brand);
 }
 
+/* 清除搜索：比上/下导航更收敛的一枚（16×16 命中区、12px 图标），
+   默认 stone、悬停转 brand（与 .outline-search__nav 同一套幽灵按钮语汇） */
+.outline-search__clear {
+  width: 16px;
+  height: 16px;
+}
+
+.outline-search__clear:active {
+  background: var(--parchment);
+}
+
 /* ===== 搜索高亮（原文） ===== */
 mark.search-match {
   background: color-mix(in srgb, var(--brand) 18%, transparent);
@@ -983,8 +994,11 @@ mark.search-match--current {
   text-transform: uppercase;
 }
 
-/* 实色按钮（button-contained）：warm-sand 底 + 发丝内描边，悬停仅加深底色并浮一丝投影 */
+/* 实色按钮（button-contained）：warm-sand 底 + 发丝内描边，悬停仅加深底色并浮一丝投影。
+   高度写死 32px：与幽灵按钮（28×28）同处一条顶栏/空态基线，也让「重新打开」与「打开文件…」
+   在两个页面里逐像素同高（内边距单独撑高会随字体度量漂） */
 .button.button-primary {
+  height: 32px;
   padding: 7px 16px;
   border: 0;
   border-radius: 6px;
@@ -1000,6 +1014,12 @@ mark.search-match--current {
 .button.button-primary:hover {
   background: color-mix(in srgb, var(--warm-sand) 80%, var(--border));
   box-shadow: inset 0 0 0 1px var(--hairline), 0 1px 2px rgba(20, 20, 19, 0.04);
+}
+
+/* 按下：只压深底色，不位移（正文里的 button:active 有 1px 下沉，那是正文控件的语汇） */
+.button.button-primary:active {
+  background: color-mix(in srgb, var(--warm-sand) 68%, var(--border));
+  box-shadow: inset 0 0 0 1px var(--hairline);
 }
 
 .button.button-primary:focus-visible {
@@ -1930,7 +1950,7 @@ mark.search-match--current {
    正文字号不另设：`.markdown-body` 消费 --reader-font-size，打印沿用用户的阅读设置。 */
 @media print {
   /* 界面件：顶栏 / 侧栏 / 拖宽手柄 / 纱罩 / 自定义滚动条 / 跳底按钮 / 印章 /
-     编辑提示条 / 设置弹层——打印件里全是噪点 */
+     编辑提示条 / 设置弹层 / 记录中的呼吸小章——打印件里全是噪点 */
   .top-bar,
   .outline-sidebar,
   .outline-resize-handle,
@@ -1940,7 +1960,8 @@ mark.search-match--current {
   .reload-note,
   .editor-toast,
   .editor-hint,
-  .settings-popover {
+  .settings-popover,
+  .mdlog-live {
     display: none;
   }
 

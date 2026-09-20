@@ -120,6 +120,32 @@ describe("useReaderSettings", () => {
     warnSpy.mockRestore();
   });
 
+  it("启动恢复只读不写：读盘得到的设置不触发回写，只有用户改动才落盘", async () => {
+    mockGet.mockResolvedValue({ fontSize: 16, columnWidth: 960, lineHeight: 1.7 });
+    const { result } = renderHook(() => useReaderSettings());
+    await waitFor(() => expect(result.current[0].fontSize).toBe(16));
+    // 落盘挂在 settings 的 effect 上，若不加「用户改过」这道闸，启动那次 setState 会
+    // 立刻把刚读到的值原样写回（StrictMode 下还会写两遍）
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(mockSet).not.toHaveBeenCalled();
+    expect(mockSave).not.toHaveBeenCalled();
+
+    // 用户改一次 ⇒ 落盘的是**已提交的状态**（读到的 16/960/1.7 与这次改动合并后的那份）
+    await act(async () => {
+      result.current[1]({ fontSize: 18 });
+    });
+    await waitFor(() =>
+      expect(mockSet).toHaveBeenCalledWith("readerSettings", {
+        fontSize: 18,
+        columnWidth: 960,
+        lineHeight: 1.7,
+      })
+    );
+    expect(mockSet).toHaveBeenCalledTimes(1);
+  });
+
   it("卸载时移除 CSS 变量覆写", () => {
     const { result, unmount } = renderHook(() => useReaderSettings());
     act(() => {

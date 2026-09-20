@@ -10,6 +10,10 @@
  * 之所以单列成模块并用集合判定（而不是 `event.key.startsWith("Arrow")` 之类）：
  * 这份清单是行为契约——列表里漏一个键，对应按键的滚动就被静默忽略；
  * 多一个键，对应快捷键就静默失效。
+ *
+ * **修饰键例外也归这里**（`isScrollInputKey`）：`Alt+←` / `Alt+→` 是历史导航
+ * （另一条快捷键），箭头键本身却在清单里——判据散在调用方就会各写一份，漏一处
+ * 就等于「按后退键被当成用户接管」，宽度过渡期的钉住当场取消。
  */
 const SCROLL_KEYS = new Set([
   "ArrowUp",
@@ -27,4 +31,10 @@ const SCROLL_KEYS = new Set([
 
 export function isScrollKey(key: string): boolean {
   return SCROLL_KEYS.has(key);
+}
+
+/// 一次 keydown 是否算「用户滚动输入」：滚动键、且不带 Alt。
+/// 调用方（`App.tsx` 的全局按键监听）只需问这一个函数，别再自己拼 `!event.altKey`。
+export function isScrollInputKey(event: Pick<KeyboardEvent, "key" | "altKey">): boolean {
+  return isScrollKey(event.key) && !event.altKey;
 }

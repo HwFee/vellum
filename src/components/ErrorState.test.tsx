@@ -57,4 +57,29 @@ describe("ErrorState", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("dialog exploded");
     expect(screen.getByRole("button", { name: /日更/ })).toBeInTheDocument();
   });
+
+  it("「重新打开」接线：每次点击都触发 onRetry（有最近列表时不被列表抢走），无回调则不渲染按钮", () => {
+    const onRetry = vi.fn();
+    const { unmount } = render(
+      <ErrorState
+        message="Cannot open file"
+        path="C:/notes/missing.md"
+        onRetry={onRetry}
+        recentFiles={["C:/vault/笔记/日更.md"]}
+        onOpenRecent={() => {}}
+      />
+    );
+
+    const retry = screen.getByRole("button", { name: "重新打开" });
+    expect(retry).toHaveAttribute("type", "button");
+    fireEvent.click(retry);
+    fireEvent.click(retry);
+    // 打不开文件时列表是替代入口、按钮是重试入口：两条路都必须在，且各自只触发自己的回调
+    expect(onRetry).toHaveBeenCalledTimes(2);
+    unmount();
+
+    // 未接线（无 onRetry）时按钮整体不渲染——不给一个点了没反应的实色按钮
+    render(<ErrorState message="dialog exploded" recentFiles={[]} onOpenRecent={() => {}} />);
+    expect(screen.queryByRole("button", { name: "重新打开" })).toBeNull();
+  });
 });

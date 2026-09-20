@@ -13,7 +13,7 @@ function useControlledEditor(
   initialMarkdown: string,
   save: (next: string) => Promise<void>,
   onChange?: (next: string) => void,
-  documentGeneration = 0
+  getDocumentGeneration?: () => number
 ) {
   const [markdownText, setMarkdownText] = useState(initialMarkdown);
   const [mdlogActive, setMdlogActive] = useState(false);
@@ -29,7 +29,7 @@ function useControlledEditor(
     mdlogActive,
     onMarkdownChange: handleMarkdownChange,
     save,
-    documentGeneration,
+    getDocumentGeneration,
   });
   return { editor, markdown: markdownText, setMdlogActive };
 }
@@ -553,7 +553,7 @@ describe("useDocumentEditor · 任务列表勾选", () => {
     // 次生守卫会先兜住，代际守卫的语义就测不出来了（两条守卫都要各自被钉住）
     const { result, rerender } = renderHook(
       ({ generation }: { generation: number }) =>
-        useControlledEditor(markdown, save, onChange, generation),
+        useControlledEditor(markdown, save, onChange, () => generation),
       { initialProps: { generation: 1 } }
     );
 
@@ -574,6 +574,43 @@ describe("useDocumentEditor · 任务列表勾选", () => {
     });
 
     // 只有乐观那一次写入；回滚被代际守卫拦下（内存里是另一篇文档，不该被旧内容覆盖）
+    expect(onChange.mock.calls.map((call) => call[0])).toEqual(["- [x] a\n"]);
+    expect(result.current.markdown).toBe("- [x] a\n");
+    expect(result.current.editor.toast?.message).toContain("写入失败");
+  });
+
+  // 同款守卫的**调度窗**版本（终验硬化）：装入路径递增的是 App 的 ref，此刻渲染尚未提交。
+  // 按 prop 快照镜像代际时，窗内失败的勾选会以为还是同一篇文档 —— 这条用例不做 rerender，
+  // 只把 getter 背后的值改掉，正是「ref 已递增、渲染未跟上」的真实时序。
+  it("换代发生在渲染提交之前（代际同步读）：落盘失败同样不回滚", async () => {
+    const markdown = "- [ ] a\n";
+    let rejectSave!: (reason: unknown) => void;
+    const save = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSave = reject;
+        })
+    );
+    const onChange = vi.fn();
+    let generation = 1;
+
+    const { result } = renderHook(() => useControlledEditor(markdown, save, onChange, () => generation));
+
+    let pending!: Promise<void>;
+    await act(async () => {
+      pending = result.current.editor.toggleTask(0);
+      await Promise.resolve();
+    });
+    expect(result.current.markdown).toBe("- [x] a\n");
+
+    // 落盘在途期间换文档 / 热重载：代际当场递增，**没有任何 rerender**
+    generation = 2;
+
+    await act(async () => {
+      rejectSave(new Error("磁盘只读"));
+      await pending;
+    });
+
     expect(onChange.mock.calls.map((call) => call[0])).toEqual(["- [x] a\n"]);
     expect(result.current.markdown).toBe("- [x] a\n");
     expect(result.current.editor.toast?.message).toContain("写入失败");

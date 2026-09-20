@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getSettingsStore } from "../lib/settings";
 
 const STORE_KEY = "readerSettings";
@@ -54,6 +54,8 @@ function sanitize(saved: unknown): ReaderSettings {
  */
 export function useReaderSettings(): [ReaderSettings, (patch: Partial<ReaderSettings>) => void] {
   const [settings, setSettingsState] = useState<ReaderSettings>(READER_SETTINGS_DEFAULT);
+  /// 本次改动是否来自用户（启动时那次异步读盘不是改动，不该回写）
+  const dirtyRef = useRef(false);
 
   // 启动尽早恢复持久化设置；无记录或读取失败时保持默认值（与 CSS 回退一致，不闪烁）
   useEffect(() => {
@@ -92,21 +94,27 @@ export function useReaderSettings(): [ReaderSettings, (patch: Partial<ReaderSett
     []
   );
 
+  // 落盘挂在 effect 上而不是 setState updater 里：updater 在 StrictMode 下会被调用两次
+  // （副作用幂等只是运气好），且它可能早于本次状态真正提交就发起 IPC —— 落盘的内容与
+  // 已提交的状态不再是同一份。effect 只在**提交之后**跑，落盘值就是屏幕上的值
+  useEffect(() => {
+    if (!dirtyRef.current) return;
+    dirtyRef.current = false;
+    // 分段选择器是离散操作，无需防抖：直接落盘
+    void (async () => {
+      try {
+        const store = await getSettingsStore();
+        await store.set(STORE_KEY, settings);
+        await store.save();
+      } catch (error) {
+        console.warn("readerSettings Store save failed:", error);
+      }
+    })();
+  }, [settings]);
+
   const setSettings = useCallback((patch: Partial<ReaderSettings>) => {
-    setSettingsState((prev) => {
-      const next = sanitize({ ...prev, ...patch });
-      // 分段选择器是离散操作，无需防抖：直接落盘
-      void (async () => {
-        try {
-          const store = await getSettingsStore();
-          await store.set(STORE_KEY, next);
-          await store.save();
-        } catch (error) {
-          console.warn("readerSettings Store save failed:", error);
-        }
-      })();
-      return next;
-    });
+    dirtyRef.current = true;
+    setSettingsState((prev) => sanitize({ ...prev, ...patch }));
   }, []);
 
   return [settings, setSettings];

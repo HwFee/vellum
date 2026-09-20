@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isScrollKey } from "./scrollInput";
+import { isScrollInputKey, isScrollKey } from "./scrollInput";
 
 describe("isScrollKey", () => {
   it("认会滚动容器的按键", () => {
@@ -26,5 +26,25 @@ describe("isScrollKey", () => {
     for (const key of ["k", "K", "e", "s", "Escape", "a", "Enter", "Shift", "Control"]) {
       expect(isScrollKey(key), key).toBe(false);
     }
+  });
+});
+
+describe("isScrollInputKey", () => {
+  it("滚动键不带 Alt 才算用户滚动输入", () => {
+    for (const key of ["ArrowUp", "ArrowDown", "PageUp", "Home", " ", "Tab"]) {
+      expect(isScrollInputKey({ key, altKey: false }), key).toBe(true);
+    }
+    // 非滚动键与快捷键照旧不算
+    for (const key of ["k", "Escape", "Enter"]) {
+      expect(isScrollInputKey({ key, altKey: false }), key).toBe(false);
+    }
+  });
+
+  it("Alt+←/→ 是历史导航，不算滚动输入（否则后退键会取消宽度过渡期的钉住）", () => {
+    // 箭头键在滚动清单里，靠 Alt 排除；这一条若散在调用方各写一份，漏一处就静默失效
+    expect(isScrollInputKey({ key: "ArrowLeft", altKey: true })).toBe(false);
+    expect(isScrollInputKey({ key: "ArrowRight", altKey: true })).toBe(false);
+    // 其它修饰键不改变分类（Ctrl+← 之类的滚动意图仍按滚动键算）
+    expect(isScrollInputKey({ key: "ArrowLeft", altKey: false })).toBe(true);
   });
 });

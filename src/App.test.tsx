@@ -2682,6 +2682,17 @@ test("Ctrl+P 调 window.print 并吞掉默认行为（打印样式见 kami.css �
 
   expect(fireEvent.keyDown(window, { key: "p", ctrlKey: true })).toBe(false);
   expect(printSpy).toHaveBeenCalledTimes(1);
+  // 本套件没有全局 restoreMocks：不还原的话这枚 spy 会跟着后面的用例跑
+  printSpy.mockRestore();
+});
+
+test("Ctrl+Shift+P 不是打印：不调 window.print、也不吞键", () => {
+  const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
+  render(<App />);
+
+  expect(fireEvent.keyDown(window, { key: "P", ctrlKey: true, shiftKey: true })).toBe(true);
+  expect(printSpy).not.toHaveBeenCalled();
+  printSpy.mockRestore();
 });
 
 test("环境没有 window.print 时 Ctrl+P 静默：不抛错、不动作、也不吞按键", () => {

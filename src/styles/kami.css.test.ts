@@ -284,7 +284,10 @@ describe("kami.css mdlog widget and live indicator tokens", () => {
   });
 
   it("declares live indicator rules with 5x5px square dot and breathing animation", () => {
-    const liveRule = css.match(/\.mdlog-live\s*\{[^}]*\}/s)?.[0] ?? "";
+    // 打印段也有一条 .mdlog-live（display:none，排在前面）：这里要的是**屏幕态**那条，
+    // 按「首个 mdlog widget 选择器之后」的区段取，避免命中打印段
+    const liveRule =
+      css.slice(css.indexOf(".mdlog-widget")).match(/\.mdlog-live\s*\{[^}]*\}/s)?.[0] ?? "";
     expect(liveRule).toMatch(/margin:\s*30px 0 0/);
     expect(liveRule).toMatch(/color:\s*var\(--stone\)/);
     expect(liveRule).toMatch(/font:\s*10px\/1 var\(--mono\)/);
@@ -583,9 +586,38 @@ describe("kami.css reader-polish task-3 小修（2026-09-20）", () => {
     expect(button).toMatch(/border-radius:\s*6px/);
     expect(button).toMatch(/padding:\s*7px 16px/);
     expect(button).toMatch(/font-weight:\s*500/);
+    // 高度写死：空态「打开文件…」与错态「重新打开」在两个页面里逐像素同高
+    expect(button).toMatch(/height:\s*32px/);
 
     const hover = css.match(/\.button\.button-primary:hover\s*\{[^}]*\}/s)?.[0] ?? "";
     expect(hover).toMatch(/0 1px 2px rgba\(20,\s*20,\s*19,\s*0\.04\)/);
+
+    // 按下态：只压深底色，不位移（正文 button:active 的 1px 下沉是正文控件的语汇）
+    const active = css.match(/\.button\.button-primary:active\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(active).not.toBe("");
+    expect(active).toMatch(/background:\s*color-mix/);
+    expect(active).not.toMatch(/transform/);
+  });
+
+  it("搜索框清除按钮：幽灵小按钮规格（16×16 命中区），hover 转 brand", () => {
+    const clear = css.match(/\.outline-search__clear\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(clear).not.toBe("");
+    expect(clear).toMatch(/width:\s*16px/);
+    expect(clear).toMatch(/height:\s*16px/);
+
+    // 与上/下导航共用 .outline-search__nav 的幽灵语汇：stone 图标、hover warm-sand 底 + brand
+    const nav = css.match(/\.outline-search__nav\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(nav).toMatch(/background:\s*transparent/);
+    expect(nav).toMatch(/color:\s*var\(--stone\)/);
+    const navHover = css.match(/\.outline-search__nav:hover\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(navHover).toMatch(/background:\s*var\(--warm-sand\)/);
+    expect(navHover).toMatch(/color:\s*var\(--brand\)/);
+
+    // 两条同为 0,1,0：尺寸覆写必须排在 .outline-search__nav 之后才生效
+    expect(css.search(/^\.outline-search__clear\s*\{/m)).toBeGreaterThan(
+      css.search(/^\.outline-search__nav\s*\{/m)
+    );
+    expect(css.indexOf(".outline-search__clear")).toBeLessThan(css.indexOf(".mdlog-widget"));
   });
 
   it("document-scroll 键盘聚焦给 1px 靛青内描边（克制款 focus-visible）", () => {
@@ -801,7 +833,7 @@ describe("kami.css reader-polish task-9 打印样式（2026-09-20）", () => {
     expect(printBlock).toMatch(/@media\s*print\s*\{/);
   });
 
-  it("打印隐藏清单：顶栏 / 侧栏 / 拖宽手柄 / 纱罩 / 滚动条 / 跳底 / 印章 / 提示条 / 设置弹层", () => {
+  it("打印隐藏清单：顶栏 / 侧栏 / 拖宽手柄 / 纱罩 / 滚动条 / 跳底 / 印章 / 提示条 / 设置弹层 / 记录中章", () => {
     const hiddenRule = printBlock.match(/\.top-bar,\s*[\s\S]*?display:\s*none;/)?.[0] ?? "";
     expect(hiddenRule).not.toBe("");
     for (const selector of [
@@ -815,6 +847,7 @@ describe("kami.css reader-polish task-9 打印样式（2026-09-20）", () => {
       ".editor-toast",
       ".editor-hint",
       ".settings-popover",
+      ".mdlog-live",
     ]) {
       expect(hiddenRule, `打印隐藏清单缺 ${selector}`).toContain(selector);
     }

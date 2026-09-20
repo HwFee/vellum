@@ -34,7 +34,7 @@ import {
 } from "./lib/navHistory";
 import { captureViewportAnchor, restoreViewportAnchor, type ViewportAnchor } from "./lib/viewportAnchor";
 import { startViewportPin, type ViewportPin } from "./lib/viewportPin";
-import { isScrollKey } from "./lib/scrollInput";
+import { isScrollInputKey } from "./lib/scrollInput";
 import { animateScrollTo, cancelScrollAnimation } from "./lib/smoothScroll";
 import { isContainerNearBottom } from "./lib/scrollStick";
 import { computeRecheckDelay, type MdlogState } from "./lib/mdlogState";
@@ -95,6 +95,8 @@ export default function App() {
   // 文档代际：每次「由外部装入内容」（换文档 / 热重载）递增一次，只由装入路径递增
   // （编辑 / 勾选自己的写入不算换代）。勾选的在途落盘失败后据此判断「这次写入针对的
   // 还是不是同一篇文档」——跨代际回滚会把上一篇的 markdown 写进新文档的内存。
+  // 经 getter 交给 useDocumentEditor 同步读：递增发生在这里、渲染提交在其后，
+  // 传值快照会漏掉中间那个调度窗（见该 hook 的 getDocumentGeneration 注释）。
   const documentGenerationRef = useRef(0);
   // 当前内存里的 markdown（file-changed 回声判据的对照物，裁定 F30）。
   // 分流函数在挂载时注册一次，直接读 state 会拿到过期闭包值，故经 ref 读取最新内容；
@@ -373,10 +375,12 @@ export default function App() {
       // （微软 WebView2 打印文档的 ShowPrintUI / 反馈 #42 都确认这条路径），打印样式见
       // kami.css 的两段 @media print。守卫只为「环境没有 print」时留一条安静的路：
       // 拿不到实现就什么都不做（也不吞按键），而不是抛错。
-      if (key === "p") {
+      // Ctrl+Shift+P 不归这里（带 Shift 是另一个组合键，不打印、不吞键）。
+      if (key === "p" && !event.shiftKey) {
         if (typeof window.print !== "function") return;
         event.preventDefault();
         window.print();
+        return;
       }
     }
     window.addEventListener("keydown", handleGlobalShortcut);
@@ -917,7 +921,9 @@ export default function App() {
     mdlogActive: isMdlogActive,
     onMarkdownChange: applyMarkdown,
     save: saveMarkdown,
-    documentGeneration: documentGenerationRef.current,
+    // 传 getter 而不是值：装入路径递增的是上面那个 ref，此刻渲染尚未提交，
+    // 值快照会让 hook 在「递增 → 提交」的调度窗里仍按旧代际判断（勾选回滚可能写坏新文档）
+    getDocumentGeneration: () => documentGenerationRef.current,
   });
   editorRef.current = editor;
 
@@ -1058,14 +1064,14 @@ export default function App() {
       lastUserScrollAtRef.current = performance.now();
       cancelScrollAnimation(container);
     };
-    // 按键只在**会滚动的键**上记为「滚动输入」（清单见 lib/scrollInput.ts，带单元测试）：
-    // 任何按键都记会把 Ctrl+K / Ctrl+E / Ctrl+S / Escape 这类快捷键误判成用户接管——
-    // Ctrl+K 开侧栏时钉住会被当场取消，宽度回流又没人补偿（快捷键路径重新出现跳动）。
-    // Alt+←/→ 是历史导航（另一条快捷键），同理不算滚动输入：箭头键本身在清单里，
-    // 靠修饰键排除。
+    // 按键只在**会滚动的键**上记为「滚动输入」（清单与修饰键例外都在 lib/scrollInput.ts，
+    // 带单元测试）：任何按键都记会把 Ctrl+K / Ctrl+E / Ctrl+S / Escape 这类快捷键误判成
+    // 用户接管——Ctrl+K 开侧栏时钉住会被当场取消，宽度回流又没人补偿（快捷键路径重新出现跳动）。
+    // Alt+←/→ 是历史导航（另一条快捷键），由 isScrollInputKey 里的修饰键例外排除，
+    // 不在调用方另写一份判据（漏一处就等于按后退键被当成用户接管）。
     // 取消动画仍然对所有按键生效（任何按键都说明用户接管了滚动意图），只是不污染时间戳。
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isScrollKey(event.key) && !event.altKey) {
+      if (isScrollInputKey(event)) {
         lastUserScrollAtRef.current = performance.now();
       }
       cancelScrollAnimation(container);
@@ -1403,16 +1409,17 @@ export default function App() {
         onReaderSettingsChange={handleReaderSettingsChange}
       />
       <div className={`app-shell__body ${isOutlineOpen ? "app-shell__body--outline-open" : ""}`}>
-        {/* 热重载提示（二）：印章，悬浮于窗口中下方、不随文档滚动；key 变化即重播 */}
+        {/* 热重载提示（二）：印章，悬浮于窗口中下方、不随文档滚动；key 变化即重播。
+            key 带前缀：两个提示都从 1 起计数，裸数字会与下面的 editor-toast 撞 key */}
         {showReloadNote && (
-          <div key={reloadTick} className="reload-note" role="status">
+          <div key={`reload-${reloadTick}`} className="reload-note" role="status">
             墨迹未干
           </div>
         )}
         {/* 编辑提示条（HTML/交互块只读、记录中禁用、保存失败）：与「墨迹未干」同一视觉语言，
             由 App 层统一渲染 —— 不放进 memo 化的解析层，避免把提示状态带进正文渲染 */}
         {editor.toast ? (
-          <div key={editor.toast.id} className="editor-toast" role="status">
+          <div key={`toast-${editor.toast.id}`} className="editor-toast" role="status">
             {editor.toast.message}
           </div>
         ) : null}
@@ -1432,6 +1439,7 @@ export default function App() {
             onSearchChange={handleSearchChange}
             matchCount={matchCount}
             activeMatchIndex={activeMatchIndex}
+            searchQueryPending={searchQueryPending}
             onNextMatch={handleNextMatch}
             onPrevMatch={handlePrevMatch}
             searchInputRef={searchInputRef}
