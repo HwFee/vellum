@@ -101,7 +101,7 @@ node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/ex
 
 - **素材是静态成品**：仓库里**没有导出脚本**——改一张图就是改一张图（旧的 `promo/build-assets.mjs` 随宣传片工程一并删除，见下）。
 - **落地页**：单文件、内联 CSS、零依赖，双击即开；字体与截图走相对路径（`../public/fonts/`、`promo/assets/`、`../assets/images/logo.svg`）。
-  - **单独部署必须把 `public/fonts/` 与 `promo/assets/` 一并搬走**：字体是仓耳今楷 8.4MB×2，缺了会回退到系统宋体。
+  - **单独部署必须把 `public/fonts/`、`promo/assets/` 与 `assets/images/logo.svg`（favicon，落地页走 `../assets/images/`）一并搬走**：字体是仓耳今楷 8.4MB×2，缺了会回退到系统宋体；漏搬 favicon 则页签图标 404。
   - **不引第二个强调色、不加大圆角与厚度投影**（照 `DESIGN.md` 的 Do's/Don'ts）；动效只有「进场淡入」一种（260ms）且尊重 `prefers-reduced-motion`；页面顶部那条 2px 靛青进度条与应用大纲的激活指示条同一语汇。
   - **等宽字体没有汉字**：中文小字一律用衬线，落到 JetBrains Mono 上会掉进系统 CJK 字体、行高与字重都对不上。
   - 窗口截图抓的是 `~/Documents/Notes` 下那份演示文档的**暂存副本**——顶栏会原样显示绝对路径，所以素材里的路径不是仓库路径。

@@ -24,7 +24,7 @@
 单文件、无构建步骤、无 CDN：CSS 全内联，字体与截图走相对路径
 （`../public/fonts/`、`../assets/`、`promo/assets/`）。
 **整个仓库 clone 下来双击 `promo/index.html` 就能看**；若要单独部署，
-把 `public/fonts/` 与 `promo/assets/` 一并搬走即可。
+把 `public/fonts/`、`promo/assets/` 与 `assets/images/logo.svg`（favicon）一并搬走即可。
 
 - 版式与配色取自 `DESIGN.md`：暖纸三层底（parchment / ivory / warm-sand）、
   墨色文字阶、单一靛青（页面占比 ≤5%）、圆角 2–6px、层次靠发丝线不靠投影。
