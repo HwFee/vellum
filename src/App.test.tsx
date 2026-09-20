@@ -137,6 +137,20 @@ vi.mock("@tauri-apps/plugin-store", () => ({
   },
 }));
 
+// 拖放处理器需可被用例触发：mock 工厂在 import 期执行，故用 vi.hoisted 提前建桶
+const dragDrop = vi.hoisted(() => ({
+  handlers: [] as Array<(event: { payload: unknown }) => void>,
+}));
+
+vi.mock("@tauri-apps/api/webviewWindow", () => ({
+  getCurrentWebviewWindow: vi.fn(() => ({
+    onDragDropEvent: vi.fn((handler: (event: { payload: unknown }) => void) => {
+      dragDrop.handlers.push(handler);
+      return Promise.resolve(() => {});
+    }),
+  })),
+}));
+
 const loadedDoc = {
   path: "C:/notes/readme.md",
   fileName: "readme.md",
@@ -188,6 +202,7 @@ beforeEach(() => {
   storeSet.mockImplementation(() => Promise.resolve());
   lastOpenedGet.mockReset();
   lastOpenedGet.mockResolvedValue(undefined);
+  dragDrop.handlers.length = 0;
   vi.mocked(listen).mockReset();
   vi.mocked(listen).mockResolvedValue(() => {});
   heavyCommitMsOverride.value = undefined;
@@ -2830,4 +2845,139 @@ test("切换文档前先提交活动块：草稿落回原文档，不写进新�
   // 覆盖层随提交清场，新文档以阅读渲染呈现
   expect(blockEditorInput()).toBeNull();
   expect(screen.getByText("Body text elsewhere.")).toBeInTheDocument();
+});
+
+// ===== 最近打开 + 拖放打开接线（Task 4） =====
+
+/// 拖放处理器在挂载时注册，且只注册一次；用例经此取出它来派发事件
+async function dragDropHandler(): Promise<(event: { payload: unknown }) => void> {
+  return waitFor(() => {
+    expect(dragDrop.handlers.length).toBeGreaterThan(0);
+    return dragDrop.handlers[0];
+  });
+}
+
+function dropTarget(): Element | null {
+  return document.querySelector(".document-scroll--drop-target");
+}
+
+test("启动恢复读 recentFiles[0]（新格式优先于旧 key）", async () => {
+  storeGet.mockImplementation((key: string) =>
+    Promise.resolve(key === "recentFiles" ? ["C:/notes/newest.md", "C:/notes/older.md"] : undefined)
+  );
+  backendInvoke.mockResolvedValueOnce({
+    path: "C:/notes/newest.md",
+    fileName: "newest.md",
+    parentPath: "C:/notes",
+    markdown: "# Newest",
+  });
+
+  render(<App />);
+
+  await waitFor(() =>
+    expect(backendInvoke).toHaveBeenCalledWith("load_document", { path: "C:/notes/newest.md" })
+  );
+  expect(backendInvoke).not.toHaveBeenCalledWith("load_document", { path: "C:/notes/older.md" });
+});
+
+test("成功打开文档后把该路径置顶写入 recentFiles", async () => {
+  await loadDocument();
+  await waitFor(() =>
+    expect(storeSet).toHaveBeenCalledWith("recentFiles", ["C:/notes/readme.md"])
+  );
+
+  // 再开一篇：新的一篇在前，旧的一篇仍在列表里
+  storeGet.mockImplementation((key: string) =>
+    Promise.resolve(key === "recentFiles" ? ["C:/notes/readme.md"] : undefined)
+  );
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/other.md");
+  backendInvoke.mockResolvedValueOnce({
+    path: "C:/notes/other.md",
+    fileName: "other.md",
+    parentPath: "C:/notes",
+    markdown: "# Other",
+  });
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Other" })).toBeInTheDocument());
+
+  await waitFor(() =>
+    expect(storeSet).toHaveBeenCalledWith("recentFiles", ["C:/notes/other.md", "C:/notes/readme.md"])
+  );
+});
+
+test("打开失败：走既有错误管线（ErrorState），并把该条从 recentFiles 摘掉", async () => {
+  storeGet.mockImplementation((key: string) =>
+    Promise.resolve(key === "recentFiles" ? ["C:/notes/gone.md", "C:/notes/kept.md"] : undefined)
+  );
+  backendInvoke.mockRejectedValueOnce("Cannot open file");
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/gone.md");
+
+  render(<App />);
+  // 启动恢复先尝试 recentFiles[0]（同一份失败响应），直接进入错误态
+  expect(await screen.findByRole("alert")).toHaveTextContent("Cannot open file");
+
+  // 失效条目被摘掉：列表里只剩还能打开的那条
+  await waitFor(() => expect(storeSet).toHaveBeenCalledWith("recentFiles", ["C:/notes/kept.md"]));
+  // 「重新打开」按钮仍在（既有错误管线未被改动）
+  expect(screen.getByRole("button", { name: "重新打开" })).toBeInTheDocument();
+});
+
+test("拖放：enter 亮提示描边，drop 取第一个 Markdown 路径打开并熄灭提示", async () => {
+  render(<App />);
+  const handler = await dragDropHandler();
+
+  await act(async () => {
+    handler({ payload: { type: "enter", paths: ["C:/notes/other.md"], position: { x: 0, y: 0 } } });
+  });
+  expect(dropTarget()).toBeInTheDocument();
+
+  backendInvoke.mockResolvedValueOnce({
+    path: "C:/notes/other.md",
+    fileName: "other.md",
+    parentPath: "C:/notes",
+    markdown: "# Dropped",
+  });
+  await act(async () => {
+    handler({
+      payload: {
+        type: "drop",
+        paths: ["C:/notes/other.md", "C:/notes/second.md"],
+        position: { x: 0, y: 0 },
+      },
+    });
+  });
+
+  // 多文件只取第一个；提示态在 drop 时熄灭
+  await waitFor(() =>
+    expect(backendInvoke).toHaveBeenCalledWith("load_document", { path: "C:/notes/other.md" })
+  );
+  expect(dropTarget()).toBeNull();
+  expect(backendInvoke).not.toHaveBeenCalledWith("load_document", { path: "C:/notes/second.md" });
+});
+
+test("拖放：over 续亮提示态；非 Markdown 文件不打开；leave 熄灭提示态", async () => {
+  render(<App />);
+  const handler = await dragDropHandler();
+
+  // over 只带坐标、不带路径，仍须续亮（enter 之后鼠标每次移动都走这条）
+  await act(async () => {
+    handler({ payload: { type: "over", position: { x: 10, y: 10 } } });
+  });
+  expect(dropTarget()).toBeInTheDocument();
+
+  await act(async () => {
+    handler({ payload: { type: "drop", paths: ["C:/images/pic.png"], position: { x: 0, y: 0 } } });
+  });
+  expect(dropTarget()).toBeNull();
+  expect(backendInvoke).not.toHaveBeenCalledWith("load_document", expect.anything());
+
+  await act(async () => {
+    handler({ payload: { type: "enter", paths: ["C:/images/pic.png"], position: { x: 0, y: 0 } } });
+  });
+  expect(dropTarget()).toBeInTheDocument();
+
+  await act(async () => {
+    handler({ payload: { type: "leave" } });
+  });
+  expect(dropTarget()).toBeNull();
 });

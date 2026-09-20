@@ -779,6 +779,21 @@ mark.search-match--current {
   }
 }
 
+/* 拖放提示态：文件悬停在窗口上时，正文区亮一道靛青内描边（与 :focus-visible 同款克制描边，
+   不引底色、不加粗）。transition 必须写全两个属性——本规则会覆盖 .document-scroll 的
+   transition 简写，只写 box-shadow 会把侧栏开关的 margin-left 过渡一起关掉。
+   本规则与它的 reduced-motion 覆写都排在既有 reduced-motion 块之后，才能压过那条 transition: none。 */
+.document-scroll--drop-target {
+  box-shadow: inset 0 0 0 1px var(--brand);
+  transition: margin-left 250ms ease, box-shadow 180ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .document-scroll--drop-target {
+    transition: none;
+  }
+}
+
 /* 布局过渡窗的滚动容器过渡关停：拖宽时正文 margin 即时跟随指针，不做 250ms 滞后动画 */
 .app-shell--sidebar-resizing .document-scroll {
   transition: none;
@@ -973,6 +988,96 @@ mark.search-match--current {
   max-width: 100%;
   margin-bottom: 16px;
   overflow-wrap: anywhere;
+}
+
+/* ===== 空态的「最近打开」列表 ===== */
+/* 一行 = 文件名（500 字重，剥 .md）+ 右侧 mono 10px 灰石目录路径；悬停 ivory 底、文件名转靛青。
+   整行都是按钮但视觉上不留按钮痕迹（无框线/无底色），点哪一行就打开哪一篇。
+   区块自身用上发丝线与大标题分隔，列表为空时整个区块不渲染（由组件判定）。 */
+.empty-recents {
+  margin-top: 30px;
+  padding-top: 16px;
+  border-top: 1px solid var(--hairline);
+  text-align: left;
+}
+
+.empty-recents__title {
+  /* 语义上是 h2（列表的小标题），视觉上退成 mono 小字眉题：UA 的 h2 外边距必须显式归零 */
+  margin: 0 0 6px;
+  color: var(--stone);
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.empty-recents__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.empty-recents__link {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.empty-recents__name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--near-black);
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.empty-recents__dir {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--stone);
+  font: 10px/1.5 var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty-recents__link:hover {
+  background: var(--ivory);
+}
+
+.empty-recents__link:hover .empty-recents__name {
+  color: var(--brand);
+}
+
+.empty-recents__link:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .empty-recents__link,
+  .empty-recents__name {
+    transition: none;
+  }
+}
+
+/* 拖放提示行：必须带 .empty-state 前缀——同级的 `.empty-state p` 是 0,1,1，
+   裸类名（0,1,0）压不过它的 olive 字色与 22px 下边距 */
+.empty-state .empty-hint {
+  margin: 18px 0 0;
+  color: var(--stone);
+  font-size: 11px;
 }
 
 /* ===== 文档标题（Obsidian 的 inline title） ===== */

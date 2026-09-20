@@ -1,4 +1,4 @@
-import { compactPath, fileNameToTitle, isSamePath } from "./path";
+import { basename, compactPath, dirname, fileNameToTitle, isMarkdownPath, isSamePath } from "./path";
 
 test("fileNameToTitle strips the .md extension only", () => {
   expect(fileNameToTitle("cpp-std-move.md")).toBe("cpp-std-move");
@@ -32,4 +32,28 @@ test("isSamePath distinguishes different files and rejects empty inputs", () => 
   expect(isSamePath(null, "C:/notes/a.md")).toBe(false);
   expect(isSamePath("C:/notes/a.md", null)).toBe(false);
   expect(isSamePath(null, null)).toBe(false);
+});
+
+test("basename takes the last segment for either separator and ignores trailing slashes", () => {
+  expect(basename("C:/vault/note.md")).toBe("note.md");
+  expect(basename("C:\\vault\\note.md")).toBe("note.md");
+  expect(basename("C:/vault/")).toBe("vault");
+  expect(basename("note.md")).toBe("note.md");
+  expect(basename("")).toBe("");
+});
+
+test("dirname returns the parent directory with forward slashes", () => {
+  expect(dirname("C:/vault/note.md")).toBe("C:/vault");
+  expect(dirname("C:\\vault\\sub\\note.md")).toBe("C:/vault/sub");
+  expect(dirname("C:/note.md")).toBe("C:");
+  // 裸文件名没有父目录
+  expect(dirname("note.md")).toBe("");
+});
+
+test("isMarkdownPath accepts only .md / .markdown, case-insensitively", () => {
+  expect(isMarkdownPath("C:/vault/note.md")).toBe(true);
+  expect(isMarkdownPath("C:\\vault\\note.MARKDOWN")).toBe(true);
+  expect(isMarkdownPath("C:/vault/note.txt")).toBe(false);
+  // 扩展名之外的后缀不算：`.md.bak` 不是 Markdown 文档
+  expect(isMarkdownPath("C:/vault/note.md.bak")).toBe(false);
 });

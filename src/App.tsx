@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BlockEditor } from "./components/BlockEditor";
 import { CustomScrollbar } from "./components/CustomScrollbar";
@@ -17,9 +18,9 @@ import { useOutlineSync } from "./hooks/useOutlineSync";
 import { OUTLINE_WIDTH_DEFAULT, useOutlineWidth } from "./hooks/useOutlineWidth";
 import { useReaderSettings, type ReaderSettings } from "./hooks/useReaderSettings";
 import { extractOutline, matchHeadingByFragment } from "./lib/outline";
-import { fileNameToTitle, isSamePath } from "./lib/path";
+import { fileNameToTitle, isMarkdownPath, isSamePath } from "./lib/path";
 import { extractWikilinkTargets } from "./lib/wikilink";
-import { loadLastOpened, saveLastOpened } from "./lib/lastOpened";
+import { addRecent, loadRecentFiles, removeRecent } from "./lib/recentFiles";
 import { loadScrollPosition, saveScrollPosition } from "./lib/scrollMemory";
 import { captureScrollPosition, restoreScrollPosition } from "./lib/scrollRestore";
 import { captureViewportAnchor, restoreViewportAnchor, type ViewportAnchor } from "./lib/viewportAnchor";
@@ -40,6 +41,10 @@ const EMPTY_WIKILINKS: ReadonlyMap<string, string | null> = new Map();
 
 export default function App() {
   const [state, setState] = useState<DocumentState>({ status: "empty" });
+  // 最近打开列表（新→旧）：空态列表与「启动恢复上一篇」共用同一份状态
+  const [recentFiles, setRecentFiles] = useState<string[]>([]);
+  // 拖放提示态：文件悬停在窗口上时正文区亮一道靛青内描边
+  const [isDropTarget, setIsDropTarget] = useState(false);
   const [reloadTick, setReloadTick] = useState(0);
   const [showReloadNote, setShowReloadNote] = useState(false);
   const [mdlogState, setMdlogState] = useState<MdlogState | null>(null);
@@ -399,7 +404,8 @@ export default function App() {
       }
       if (loadRequestRef.current !== requestId) return;
       setState({ status: "ready", document, wikilinks });
-      void saveLastOpened(document.path);
+      // 「成功打开」的单一收口：最近打开列表在此置顶（列表状态与持久化同步更新）
+      void addRecent(document.path).then(setRecentFiles);
 
       try {
         const liveState = await invoke<MdlogState | null>("read_mdlog_state");
@@ -420,6 +426,10 @@ export default function App() {
       // 加载失败：本次片段随之作废（绝不让它落到下一次加载上）
       pendingFragmentRef.current = null;
       setState({ status: "error", message: String(error), path });
+      // 打不开的条目留在「最近打开」里没有意义（列表点击命中已删除的文件是常态，
+      // 启动恢复命中已删除的文件同理）：摘掉它，列表不残留死条目。
+      // removeRecent 对不在列表里的路径是 no-op（不落盘），故从对话框打开失败也不受影响。
+      void removeRecent(path).then(setRecentFiles);
     }
   }
 
@@ -499,6 +509,48 @@ export default function App() {
     }
   }
 
+  /// 拖放打开（Tauri 2 的 webview 拖放事件）。提示态与打开动作分离：
+  /// enter/over 亮描边（over 只带坐标、不带路径，故判定不依赖 paths），
+  /// leave 熄灭；drop 先熄灭再取**第一个** Markdown 路径走既有打开管线——
+  /// 非 Markdown（图片/压缩包等）整体忽略，多文件也只认第一个。
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    async function bindDragDrop() {
+      const unlistenFn = await getCurrentWebviewWindow().onDragDropEvent((event) => {
+        const payload = event.payload;
+        if (payload.type === "enter" || payload.type === "over") {
+          setIsDropTarget(true);
+          return;
+        }
+        if (payload.type === "leave") {
+          setIsDropTarget(false);
+          return;
+        }
+        setIsDropTarget(false);
+        const path = payload.paths.find(isMarkdownPath);
+        if (path) {
+          // 经 ref 取最新一份 loadPath：本 effect 只在挂载时注册一次
+          void loadPathRef.current(path);
+        }
+      });
+      if (cancelled) {
+        unlistenFn();
+      } else {
+        unlisten = unlistenFn;
+      }
+    }
+
+    // 拖放能力缺失（旧 WebView2 / 权限未授予）不该影响阅读：失败即静默降级
+    void bindDragDrop().catch(() => {});
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     let unlistenClose: (() => void) | undefined;
@@ -566,7 +618,13 @@ export default function App() {
       await drainPendingPaths();
       if (!openRequestSeenRef.current && !startupLoaded.current) {
         startupLoaded.current = true;
-        const lastPath = await loadLastOpened();
+        // 最近打开列表（新→旧）：列表供空态渲染，首条即「启动恢复」的目标。
+        // 空列表不写 state——初值就是空数组，省掉一次无谓的重渲染
+        const recents = await loadRecentFiles();
+        if (recents.length > 0) {
+          setRecentFiles(recents);
+        }
+        const lastPath = recents[0] ?? null;
         if (lastPath && !openRequestSeenRef.current) {
           await loadPath(lastPath);
         }
@@ -1180,7 +1238,11 @@ export default function App() {
             onDoubleClick={() => setOutlineWidth(OUTLINE_WIDTH_DEFAULT)}
           />
         )}
-        <div ref={scrollRef} className="document-scroll" tabIndex={0}>
+        <div
+          ref={scrollRef}
+          className={"document-scroll" + (isDropTarget ? " document-scroll--drop-target" : "")}
+          tabIndex={0}
+        >
           <div
             ref={contentRef}
             className={
@@ -1189,7 +1251,13 @@ export default function App() {
             }
           >
             <div ref={documentContentRef} className="document-content">
-              {state.status === "empty" ? <EmptyState onOpen={handleOpen} /> : null}
+              {state.status === "empty" ? (
+                <EmptyState
+                  onOpen={handleOpen}
+                  recentFiles={recentFiles}
+                  onOpenRecent={(path) => void loadPathRef.current(path)}
+                />
+              ) : null}
               {state.status === "loading" ? (
                 <section className="empty-state" role="status">
                   加载中...

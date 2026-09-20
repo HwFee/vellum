@@ -6,7 +6,7 @@ let storePromise: Promise<Store> | null = null;
 
 /**
  * 共享的 settings.json Store 单例。
- * lastOpened、outlineOpen 等设置项都存于同一个 settings.json，
+ * recentFiles、outlineOpen、阅读设置等设置项都存于同一个 settings.json，
  * 复用同一个 Store 实例可避免各模块分别 Store.load 产生的冗余 IPC 往返。
  * 加载失败时不缓存，让下次调用可以重试。
  */
