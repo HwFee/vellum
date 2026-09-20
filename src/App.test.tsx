@@ -534,6 +534,98 @@ test("wikilink 换文档后可后退（Alt+←）：栈条目自带的位置记�
   expect(screen.getByRole("button", { name: "后退" })).not.toBeDisabled();
 });
 
+/// 历史导航两条边界路径的夹具：a.md ⇄ b.md（a 里有一枚指向 b 的 wikilink），
+/// 加载行为由用例通过 `failNextA` / `hangNextA` 开关控制
+function mockHistoryPair(control: { failNextA: boolean; hangNextA: boolean; loadCalls: string[] }) {
+  const docs: Record<string, { fileName: string; parentPath: string; markdown: string }> = {
+    "C:/vault/a.md": { fileName: "a.md", parentPath: "C:/vault", markdown: "见 [[wiki/b]]。" },
+    "C:/vault/wiki/b.md": {
+      fileName: "b.md",
+      parentPath: "C:/vault/wiki",
+      markdown: "B 篇正文。",
+    },
+  };
+  let resolveHungA: (value: unknown) => void = () => {};
+  const hungA = new Promise((resolve) => {
+    resolveHungA = resolve;
+  });
+  backendInvoke.mockImplementation(async (command: string, args?: unknown) => {
+    if (command === "load_document") {
+      const { path } = args as { path: string };
+      control.loadCalls.push(path);
+      if (path === "C:/vault/a.md" && control.failNextA) {
+        throw new Error("Cannot open file");
+      }
+      if (path === "C:/vault/a.md" && control.hangNextA) {
+        return hungA;
+      }
+      return { path, ...docs[path] };
+    }
+    if (command === "resolve_wikilinks") return { "wiki/b": "C:/vault/wiki/b.md" };
+    return null;
+  });
+  return { docs, resolveHungA: (path: string) => resolveHungA({ path, ...docs[path] }) };
+}
+
+/// 打开 a.md 再点 wikilink 到 b.md：此时 back=[a.md]、forward 空
+async function openHistoryPair() {
+  vi.mocked(open).mockResolvedValueOnce("C:/vault/a.md");
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+  await waitFor(() => expect(document.querySelector("a.wikilink")).toBeInTheDocument());
+  fireEvent.click(document.querySelector("a.wikilink") as HTMLElement);
+  await waitFor(() => expect(screen.getByRole("heading", { name: "b" })).toBeInTheDocument());
+}
+
+test("历史加载失败后按 Alt+→ 退回上一篇（错误页恢复成正文，不是空转）", async () => {
+  const control = { failNextA: false, hangNextA: false, loadCalls: [] as string[] };
+  mockHistoryPair(control);
+  await openHistoryPair();
+  expect(screen.getByRole("button", { name: "后退" })).not.toBeDisabled();
+
+  // 后退到 a.md 失败：错误页；栈已按这一步走（back 空、forward=[b]）
+  control.failNextA = true;
+  fireEvent.keyDown(window, { key: "ArrowLeft", altKey: true });
+  expect(await screen.findByRole("alert")).toHaveTextContent("Cannot open file");
+  expect(screen.getByRole("button", { name: "后退" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "前进" })).not.toBeDisabled();
+
+  // 前进回 b.md：currentPathRef 仍指向 b（失败时它不更新），走同路径热重载分支恢复正文。
+  // 若用「目标路径 == currentPathRef」当在途判据，这里会被判成「已在屏上」而彻底不动作
+  fireEvent.keyDown(window, { key: "ArrowRight", altKey: true });
+  await waitFor(() => expect(screen.getByRole("heading", { name: "b" })).toBeInTheDocument());
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "后退" })).not.toBeDisabled();
+  expect(screen.getByRole("button", { name: "前进" })).toBeDisabled();
+});
+
+test("换文档在途时按 Alt+→ 整体忽略：栈不被改写，落地后仍可前进", async () => {
+  const control = { failNextA: false, hangNextA: false, loadCalls: [] as string[] };
+  const pair = mockHistoryPair(control);
+  await openHistoryPair();
+
+  // 后退到 a.md：这一次挂在半空（在途窗口）
+  control.hangNextA = true;
+  fireEvent.keyDown(window, { key: "ArrowLeft", altKey: true });
+  await waitFor(() => expect(control.loadCalls).toHaveLength(3));
+  expect(screen.getByRole("button", { name: "后退" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "前进" })).not.toBeDisabled();
+
+  // 窗口内按 Alt+→：忽略——不发新加载，栈也不动（若照走一步，落地后栈会与屏幕相反）
+  fireEvent.keyDown(window, { key: "ArrowRight", altKey: true });
+  expect(control.loadCalls).toHaveLength(3);
+  expect(screen.getByRole("button", { name: "后退" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "前进" })).not.toBeDisabled();
+
+  // 放行 a.md：落在 a，栈仍是「可前进到 b」
+  await act(async () => {
+    pair.resolveHungA("C:/vault/a.md");
+  });
+  await waitFor(() => expect(screen.getByRole("heading", { name: "a" })).toBeInTheDocument());
+  expect(screen.getByRole("button", { name: "后退" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "前进" })).not.toBeDisabled();
+});
+
 test("wikilink：热重载沿用原有解析表，新出现的目标异步补齐", async () => {
   vi.mocked(listen).mockClear();
 

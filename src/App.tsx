@@ -116,8 +116,9 @@ export default function App() {
   // 进 DOM 之后才谈得上定位，故随加载记下、由 handleContentRendered 消费；
   // 消费即清空（命中与落空都清），加载失败也清——绝不留给下一次加载
   const pendingFragmentRef = useRef<{ path: string; fragment: string } | null>(null);
-  // 后退/前进条目自带的阅读位置记录（同 pendingFragmentRef 的时序：随本次加载记下、
-  // 由 handleContentRendered 消费，命中与落空都清，加载失败也清）。
+  // 后退/前进条目自带的阅读位置记录（与 pendingFragmentRef 同一时序：随本次加载记下、
+  // 由 handleContentRendered 按路径命中后消费并清空，加载失败也清）。
+  // 每次换文档的 loadPath 都会显式重设它（无记录即置 null），故残值不会跨到下一次加载；
   // 栈条目记的就是离开该文档时的位置，与持久化存储里那份同源，但不依赖那次写入成功
   const pendingRestoreRef = useRef<{ path: string; record: ScrollPositionRecord } | null>(null);
   const scrollSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -264,9 +265,18 @@ export default function App() {
   // 故栈与当前位置都经 ref 读最新一份——与 loadPathRef/editorRef 同一套路
   const navHistoryRef = useRef(navHistory);
   navHistoryRef.current = navHistory;
+  // 一次换文档是否仍在途：期间前进/后退**整体忽略**（不动栈、不发加载）。
+  // 判据不能是「currentPathRef 是否等于目标」——那个 ref 只在加载成功时写入
+  // （loadPath 的 catch 与在途窗口里都还指着上一篇），拿它当「目标已在屏上」的替身
+  // 会让后退/前进在错误页上变成互相抵消的空转。标志由「有文档重新显示」（ready 提交）
+  // 或本次加载失败解除，故不会卡死
+  const navInFlightRef = useRef(false);
 
   /// 后退/前进一步：当前文档 + 当前位置互换进另一侧栈，再经 loadPath 打开目标文档
   const stepNav = useCallback((direction: "back" | "forward") => {
+    // 在途期间整体忽略：此刻「当前文档 + 当前位置」都不是确定的（正文还是加载过渡帧），
+    // 走这一步只会在栈里留下与屏幕不符的条目
+    if (navInFlightRef.current) return;
     const path = currentPathRef.current;
     const container = scrollRef.current;
     if (!path || !container) return;
@@ -282,9 +292,9 @@ export default function App() {
     // 同步写回 ref：连按两次时第二次按键必须看到刚走完的那一步
     navHistoryRef.current = step.history;
     setNavHistory(step.history);
-    // 目标即当前文档：只发生在「上一次换文档仍在途」的窗口里（currentPathRef 尚未更新）。
-    // 栈已经按这一步对齐，不必也不该再加载一次
-    if (isSamePath(step.target.path, path)) return;
+    // 目标恰好就是当前文档时不做特殊处理：loadPath 的同路径分支会走静默热重载
+    // （提交活动块、恢复位置，且在该分支返回，绝不入栈）。历史加载失败后按前进退回
+    // 上一篇正是靠这条路径恢复的——拦下它才是错的
     void loadPathRef.current(step.target.path, {
       source: "history",
       restore: step.target.record,
@@ -297,7 +307,8 @@ export default function App() {
   // 全局快捷键：⌘K / Ctrl+K 聚焦搜索框，Ctrl+B 切换侧栏开关（所有宽度下，含侧栏已开时
   // 关闭——搜索框聚焦也不吞），Ctrl+E 切换编辑视图，Ctrl+S 提交当前块，
   // Alt+← / Alt+→ 历史后退/前进。
-  // 依赖里只有侧栏开关（其余经 editorRef/callback ref 读取），热重载与每次按键都不重新订阅。
+  // 依赖只有侧栏开关与两个历史回调（它们都是空依赖 useCallback，引用恒定；其余经
+  // editorRef/callback ref 读取），热重载与每次按键都不重新订阅。
   useEffect(() => {
     function handleGlobalShortcut(event: KeyboardEvent) {
       // Alt+← / Alt+→ 必须在下面的 Ctrl/Cmd 早退之前处理（Alt 组合没有 ctrl/meta）。
@@ -482,8 +493,11 @@ export default function App() {
     // 片段只属于**本次**加载：无片段时显式清空，落空的旧片段不许跑进下一次加载里
     pendingFragmentRef.current = fragment ? { path, fragment } : null;
     // 后退/前进自带的阅读位置记录同属**本次**加载（无记录时显式清空，
-    // 由 handleContentRendered 消费：命中则取代持久化存储的读取）
+    // 由 handleContentRendered 按路径命中后消费并取代持久化存储的读取）
     pendingRestoreRef.current = restore ? { path, record: restore } : null;
+    // 从这里到「有文档重新显示」为止都算换文档在途：期间前进/后退整体忽略
+    // （见 stepNav）。解除点有两个：ready 提交、本次加载失败
+    navInFlightRef.current = true;
     setShowReloadNote(false);
     // 首次加载（尚无文档展示）跳过中间「加载中...」帧，直接 empty → ready，
     // 少一次无意义渲染；切换文档时保留 loading 态作为反馈。
@@ -505,6 +519,8 @@ export default function App() {
       }
       if (loadRequestRef.current !== requestId) return;
       setState({ status: "ready", document, wikilinks });
+      // 有文档重新显示 ⇒ 本次换文档不再在途（解除点之一，另一个是下面的 catch）
+      navInFlightRef.current = false;
       // 历史栈只在**加载成功**后动（失败时 currentPathRef 仍指向上一篇，入栈会造出
       // 「退回到其实还在显示的文档」的条目）：wikilink 换文档压入 back 并清空 forward；
       // 其余来源是「新导航」，只作废 forward，back 留给用户退回来处。
@@ -542,9 +558,11 @@ export default function App() {
       }
     } catch (error) {
       if (loadRequestRef.current !== requestId) return;
-      // 加载失败：本次片段与后退/前进的位置记录随之作废（绝不让它们落到下一次加载上）
+      // 加载失败：本次片段与后退/前进的位置记录随之作废（绝不让它们落到下一次加载上），
+      // 换文档在途标志同样解除——错误页上仍要能按前进退回上一篇（走同路径热重载恢复）
       pendingFragmentRef.current = null;
       pendingRestoreRef.current = null;
+      navInFlightRef.current = false;
       setState({ status: "error", message: String(error), path });
       // 打不开的条目留在「最近打开」里没有意义（列表点击命中已删除的文件是常态，
       // 启动恢复命中已删除的文件同理）：摘掉它，列表不残留死条目。
@@ -611,6 +629,13 @@ export default function App() {
       }
     } catch {
       // 重载失败时保留旧内容，不打扰用户
+    } finally {
+      // 热重载可以顶掉一次仍在途的换文档（提交 ready 或失败都算「这一轮结束了」）：
+      // 不在这里解除，被顶掉的那次导航留下的在途标志会让前进/后退永久失效。
+      // 只由**最新一次**请求解除：更晚的请求可能还在途，标志归它所有
+      if (loadRequestRef.current === requestId) {
+        navInFlightRef.current = false;
+      }
     }
   }
 
@@ -967,8 +992,9 @@ export default function App() {
 
     // 先归零，避免沿用上一篇文档的滚动位置
     container.scrollTop = 0;
-    // 位置记录来源：后退/前进条目自带的那份优先（消费即清空），否则读持久化存储。
-    // 两者同源（离开该文档时同时写进栈与存储），但条目不受一次失败的写入影响
+    // 位置记录来源：后退/前进条目自带的那份优先（**路径命中**才消费并清空；
+    // 路径不符说明这份记录不属于本次加载，退回存储），两者同源（离开该文档时同时
+    // 写进栈与存储），但条目不受一次失败的写入影响
     const carried = pendingRestoreRef.current;
     let recordPromise: Promise<ScrollPositionRecord | null>;
     if (carried && isSamePath(carried.path, path)) {
