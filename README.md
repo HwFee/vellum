@@ -39,14 +39,12 @@ Chinese cut: [`promo/assets/vellum-promo-zh.mp4`](./promo/assets/vellum-promo-zh
 The easiest way to get started is to download the latest installer from
 [GitHub Releases](https://github.com/HwFee/vellum/releases).
 
-Two Windows installer formats are provided:
+A single Windows installer is provided:
 
-- **MSI** — `素笺_<版本>_x64_en-US.msi`
-  推荐用于系统级或受管安装。
-- **NSIS Setup** — `素笺_<版本>_x64-setup.exe`
-  推荐用于单用户轻量安装。
+- **NSIS Setup** — `Vellum_<版本>_x64-setup.exe`
+  单用户轻量安装。
 
-Both installers automatically register `.md` and `.markdown` file associations, so you can open
+The installer automatically registers `.md` and `.markdown` file associations, so you can open
 Markdown files directly from File Explorer.
 
 > **Platform note:** Vellum · 素笺 is currently built and tested for **Windows 10/11 x64** only.
@@ -55,9 +53,9 @@ Markdown files directly from File Explorer.
 
 ### 读 · Reading
 
-- **纸墨排版。** 正文 14px / 1.55 行高 / 0.4px 字距，列宽 `min(1080px, 100%)` 居中；
+- **纸墨排版。** 正文 14px / 1.55 行高 / 0.4px 字距，列宽 `min(800px, 100%)` 居中；
   层级只靠字号、字重、留白与 ivory 填充承担——标题没有前导短线，引用没有侧线，表格默认没有斑马纹。
-- **GitHub Flavored Markdown。** 表格、任务列表、删除线、引用、围栏代码，以及折叠在页边的脚注。
+- **GitHub Flavored Markdown。** 表格、任务列表、删除线、引用、围栏代码，以及脚注。
 - **数学公式。** KaTeX 行内与行间公式，含 Pandoc 式货币保护（`$5 和 $10` 不会被误判成公式）。
 - **代码高亮。** 20 种常用语言（PrismLight，不会为每种语言生成 chunk），带语言标签与复制按钮。
 - **本地图片与 GIF。** 相对路径按文档位置解析，GIF 保持动画。
@@ -99,7 +97,7 @@ Markdown files directly from File Explorer.
 - **多实例。** 双击几个 `.md` 就开几个窗口，各自加载各自的文档，阅读位置按文件路径键控。
 - **离线优先。** 没有云、没有账号、不联网；打开的是磁盘上的那个文件，写回的也是它。
 - **真机验收。** 数学 / 搜索 / 编辑 / 滚动这类热路径都有 CDP 真机探针与回归测试
-  （34 个测试文件 / 459 个用例），性能与滚动的取舍记在 [`OPTIMIZATION_HANDOFF.md`](./OPTIMIZATION_HANDOFF.md)。
+  （38 个测试文件 / 766 个用例）。
 
 ## Usage
 

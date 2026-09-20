@@ -147,7 +147,7 @@ node promo/build-assets.mjs
 
 ### 完整优化记录
 
-- 完整优化记录见 `OPTIMIZATION_HANDOFF.md`（含评估后放弃的方向）。
+- 逐次优化的取舍记在 `CHANGELOG.md` 的版本条目里。
 
 ### 入口 chunk（`dist/assets/index-*.js`）尺寸历史
 

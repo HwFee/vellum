@@ -51,3 +51,8 @@ outputs/
 
 # ZCode local runtime: plan-mode drafts, one file per session
 .zcode/
+
+# Other agents' project-local skill junctions (same pattern as .agents/)
+.commandcode/
+.kimi-code/
+.opencode/
