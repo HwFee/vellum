@@ -19,7 +19,7 @@ Tauri 2 + React 19 桌面 Markdown 阅读器，Windows 10/11 x64。
 ```bash
 npm run dev          # Vite 开发服务器（端口 1420）
 npm run build        # tsc + vite build
-npm test             # vitest run（45 测试文件，914 用例）
+npm test             # vitest run（48 测试文件，969 用例）
 npm run tauri        # Tauri CLI
 node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wisdom 真实笔记库；库不存在则整体跳过）
 ```
@@ -55,15 +55,18 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 12. `.pi/skills/` 与 `extensions/mdlog` 是目录联接：`git ls-files .pi/skills/` 有输出就是错；别用 `rm -rf` 删那个路径（会顺着联接删真身）。 → `docs/agents/tooling.md`
 13. kami.css 新规则只要含 `.mdlog-widget` 字样，就必须放在首个该选择器出现处**之后**。 → `docs/agents/widgets.md`
 14. katex 版本必须与 rehype-katex 嵌套依赖的 katex 严格同版（当前均 0.16.47）。 → `docs/agents/rendering.md`
-15. 顶栏不显示文件名（`.top-bar__title` 已移除），换文档的判据一律看 `h1.document-title`。 → `docs/agents/obsidian.md`
+15. 顶栏不显示文件名与路径（`.top-bar__title` / `.top-bar__path` / `.top-bar__meta` 均已移除，中列只剩拖动热区）；完整路径的归宿只有两处——正文标题 `h1.document-title` 的 `title` tooltip 与设置页「关于与数据 · 当前文档」，换文档的判据一律看 `h1.document-title`。 → `docs/agents/obsidian.md`
 16. `read_mdlog_state` 的返回值必须 `?? null` 归一后再入 state，否则 `undefined` 会被误判为记录中。 → `docs/agents/widgets.md`
 17. 任务列表勾选只能走 `useDocumentEditor.toggleTask`（`<li>` 源码起点 → 块单元内按序号翻转标记）：mdlog 门禁 / 只读块忽略 / 编辑视图不接管 / 在途串行 / **回滚只在「同一文档代际（代际经 `getDocumentGeneration` getter 同步读 App 的 `documentGenerationRef`，不是 prop 快照——递增发生在渲染提交之前）且内存仍是我写的那份」时生效**，一处都不能少。 → `docs/agents/rendering.md`
 18. 打印只允许新增 `@media print` 段（屏幕态规则一律不动）：主段（隐藏界面件 / 放开版心 / 分页保护）排在首个 `.mdlog-widget` 之前且注释里也不得出现该字样，含该字样的交互块打印规则排在它之后；**屏幕态规则落在主段之后的（mdlog 区段内的）选择器，其打印覆写必须放文件末尾那段**——同特异度靠来源序取胜、媒体查询不参与特异度，放主段等于没写（`.mdlog-live` 踩过）。 → `docs/agents/rendering.md`
+19. **打印覆写要压过屏幕态规则时，屏幕态规则不能写成逗号列表**：构建期 minifier 会把列表包进 `:is()` 并取参数里最高特异度，只在产物里静默失效；屏幕态拆成单选择器、打印覆写与它逐字同选择器靠来源序取胜（勾选划线踩过）。 → `docs/agents/rendering.md`
+20. 设置视图打开时侧栏只换内容（`SettingsNav`，「設定」题头 + 分节导航），**仍是同一枚 `.outline-sidebar`**：宽度、开合与拖宽的全部入口照旧走 `beginWidthTransition()`，别为设置页另写一套侧栏。 → `docs/agents/rendering.md`
 
 ## 关键路径
 
 - 应用字体资源：`public/fonts/`（~17MB）。
 - 前端状态与持久化：`src/lib/recentFiles.ts`（最近 8 篇，Store key `recentFiles`，含 `lastOpenedPath` 迁移）、`src/lib/navHistory.ts`（wikilink 前进/后退两栈，条目自带三级位置记录）、`src/lib/taskList.ts`（任务标记定位与翻转，绝对偏移纯函数）、`src/hooks/useReaderSettings.ts`（字号/栏宽/行高，覆写根 CSS 变量，改值前须走 `beginWidthTransition()`）。
+- 设置页与界面偏好：`src/components/SettingsView.tsx`（四节内容栏；`SETTINGS_SECTIONS` / `settingsSectionElementId` 是分节清单的唯一来源，侧栏导航据此生成）、`src/components/SettingsNav.tsx`（设置视图的侧栏内容）、`src/lib/appPreferences.ts`（Store key `sidebarOpenOnLaunch` / `autoCheckUpdates`，读盘失败回退出厂值）、`src/lib/updater.ts`（`checkForUpdates(manual?)`：启动静默检查 + 设置页「立即检查」）。
 - pi 扩展实体：`extensions/mdlog/`（pi 的加载位 `~/.pi/agent/extensions/mdlog` 是指向它的目录联接）；技能联接：`.pi/skills/<skill-name>` → 全局库 `C:/Users/17445/Desktop/HwFee-skills/skills/`。
 - 宣传品：落地页 `promo/index.html`；对外素材 `promo/assets/`（真实窗口截图 / 海报帧 / 社交分享卡）。
 - 真机探针：`scripts/cdp-*.mjs`（`cdp-verify` / `cdp-perf-scroll` / `cdp-sidebar-jump` / `cdp-anchor-synthetic` / `cdp-obsidian-verify`）。
@@ -73,7 +76,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 
 | 文档 | 管什么 | 什么时候读 |
 |------|--------|-----------|
-| `docs/agents/rendering.md` | 渲染结构、搜索跳转、大纲跟随、侧栏布局与宽度、阅读位置记忆、热重载恢复、布局过渡窗、`viewportPin`、数学公式、块级就地编辑不变量、打印样式、文件索引 | 改渲染管线 / 滚动 / 编辑器 / 大纲 / 打印时 |
+| `docs/agents/rendering.md` | 渲染结构、搜索跳转、大纲跟随、侧栏布局与宽度（含设置视图的侧栏内容切换）、设置视图、阅读位置记忆、热重载恢复、布局过渡窗、`viewportPin`、数学公式、块级就地编辑不变量、任务勾选、打印样式、文件索引 | 改渲染管线 / 滚动 / 编辑器 / 大纲 / 设置页 / 打印时 |
 | `docs/agents/obsidian.md` | frontmatter 属性卡、callout、wikilink 端到端与片段跳转、文档标题与属性卡/提示块定稿形态、CJK 强调兜底、全库语料检查与真机验收 | 碰三族语法或 `rehypeObsidian` 时 |
 | `docs/agents/widgets.md` | `WidgetSandbox` 存活上限与懒挂载、沙箱根溢出保护、交互块授权台账、停帧降载与静态图指针防线、预载视距与高度夹取、mdlog 状态与吸底、sidecar 清理 | 改 mdlog 或 widget 沙箱时 |
 | `docs/agents/tooling.md` | shell 入口细节、技能安装与 pi 扩展、宣传品（`promo/`）、性能技能表与入口 chunk 尺寸、打包与生产构建坑、真机探针、`custom-protocol` | 配环境、打包发布、改宣传品时 |

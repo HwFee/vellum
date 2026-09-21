@@ -88,7 +88,7 @@
 - `App.tsx` 在 `state.status === "ready"` 分支里、`<MarkdownDocument>` **之前**渲染 `h1.document-title`，文本取 `fileNameToTitle(state.document.fileName)`（`path.ts`，只剥 `.md`、大小写不敏感）。
 - 它刻意留在 `.markdown-body` **之外**：标题不是文档内容，因此不进 markdown 解析 / 搜索高亮 / 块单元 / 大纲，也不需要在 `components` 或 rehype 侧做任何事。
 - CSS 用与 `.markdown-body` 同参的 `min(800px, 100%)` + `40px 32px` 保证左缘与正文首块逐像素对齐。
-- 不可回退 **顶栏不显示文件名**：`.top-bar__title` 与 `TopBar` 的 `fileName` prop 已移除（中栏只报所在目录，无文件时显示「未打开文件」），文件名只在正文首行出现一次。
+- 不可回退 **顶栏不显示文件名与路径**：`.top-bar__title` / `TopBar` 的 `fileName` prop 与 `.top-bar__path` / `.top-bar__meta` 均已移除（中列只剩拖动热区 `.top-bar__spacer`，顶栏是纯工具栏），文件名只在正文首行出现一次；**完整路径的归宿只有两处**——`h1.document-title` 的 `title` tooltip（`App.tsx` 传 `state.document.path`）与设置页「关于与数据 · 当前文档」（无文档时显示「未打开文件」）。
 - **换文档的判据一律看 `h1.document-title`**（真机探针 `cdp-obsidian-verify.mjs`、`App.test.tsx` 的用例都已改），别再引用 `.top-bar__title`。
 - 不可回退 **标题贴顶**：`.document-scroll__content:has(.document-title)` 把正文区顶部留白从 70px 收到 42px、`.document-content:has(.document-title) .markdown-body` 把正文顶距从 40px 收到 20px。
 - 那 70/40 是给**没有标题**的页面（空状态 / 错误页 / 加载中）准备的呼吸感，别为了「统一」删掉这两条 `:has()`，否则标题会掉回正文原本的位置（`kami.css.test.ts` 有对应断言）。

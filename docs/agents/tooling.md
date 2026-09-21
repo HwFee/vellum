@@ -104,7 +104,7 @@ node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/ex
   - **单独部署必须把 `public/fonts/`、`promo/assets/` 与 `assets/images/logo.svg`（favicon，落地页走 `../assets/images/`）一并搬走**：字体是仓耳今楷 8.4MB×2，缺了会回退到系统宋体；漏搬 favicon 则页签图标 404。
   - **不引第二个强调色、不加大圆角与厚度投影**（照 `DESIGN.md` 的 Do's/Don'ts）；动效只有「进场淡入」一种（260ms）且尊重 `prefers-reduced-motion`；页面顶部那条 2px 靛青进度条与应用大纲的激活指示条同一语汇。
   - **等宽字体没有汉字**：中文小字一律用衬线，落到 JetBrains Mono 上会掉进系统 CJK 字体、行高与字重都对不上。
-  - 窗口截图抓的是 `~/Documents/Notes` 下那份演示文档的**暂存副本**——顶栏会原样显示绝对路径，所以素材里的路径不是仓库路径。
+  - 窗口截图抓的是 `~/Documents/Notes` 下那份演示文档的**暂存副本**——素材里的路径不是仓库路径。**2026-09-20 起顶栏是纯工具栏、不再显示路径**（路径只在正文标题 tooltip 与设置页「当前文档」出现），旧素材里顶栏还带着那行路径，重抓时不再有。
 - **界面像素必须来自真实运行的 Vellum**（CDP 抓取），不是重画的示意图。`scripts/cdp-*.mjs` 是**验收探针**、不做截图；要重抓素材得自备抓图脚本（原抓图脚本在已删除的 `video/capture/capture.mjs` 里，可从 git 历史取回）。
 - **宣传片工程已于 1.9.0 整体删除**（用户明确不再维护）：`video/`（Remotion 分镜 / CDP 抓取脚本 / 配乐合成器 / 中英两套素材与文档）、`promo/build-assets.mjs`、`promo/assets/vellum-promo*`（中英正片与 GIF）、`promo/announcement.md`（1.7.0 旧稿）。落地页与窗口截图保留。原文与历史说明可查 git（`e305a23` 及之前；1.8.0 条目里那段宣传片叙述属历史记录，不要照它去跑命令）。
 
@@ -142,6 +142,10 @@ node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/ex
   - **计划各任务落地后为 184.19KB**（controller 记录，未逐任务留档）：设置面板 / 最近打开 / 导航历史 / h1–h6 大纲 / 任务勾选 / 打印样式 / 自动更新 / UI 修复批量一批增量累计 +18.6KB（设置变量消费、`recentFiles.ts`、`navHistory.ts`、`taskList.ts`、`scrollRestore` 复用、updater 启动检查、几处渲染与快捷键接线）。
   - **终验 fix wave 后为 184.43KB**（`index-icw-KE6P.js`，gzip 52.53KB，再 +0.24KB：代际 getter 接线、搜索 pending 抑帧、`Ctrl+P` 守卫、提示条 key 前缀、`isScrollInputKey`、阅读设置落盘改 effect）——**2026-09-20 终验实测**（`npm test` 45 文件 / 914 用例全绿（终验后又 +1：弹层锚定断言）、`npm run build` 通过）。同一轮复审的打印级联修复只改了 CSS 与断言：JS 尺寸不变（184.43KB / gzip 52.53KB），只换了内容哈希（`index-BJne7Dx_.js` → `index-icw-KE6P.js`）；入口 CSS 从 33.41KB / gzip 6.82KB 涨到 **33.43KB / gzip 6.83KB**（`index-j3mC1w28.css`，**+13 字节 = 末尾段新增 `.mdlog-live{display:none}`（25 字节）− 主段清单去掉 `,.mdlog-live`（12 字节）**，即规则挪位本身；与注释无关——生产 CSS 经压缩、注释已被剥离，`grep -c` 在产物里找不到注释文字）。
 - 若后续继续增长，按裁定 F11 的退路把单元计算移回 lazy 侧。
+- 设置页 / 顶栏 B / 勾选定稿（2026-09-20 第二批，T1–T3）：
+  - **终态为 192.90KB**（gzip 54.69KB，再 +8.47KB / +2.16KB：设置页两个新组件 `SettingsView` / `SettingsNav` 与顶栏齿轮按下态接线、`updater.ts`（`checkForUpdates` 抽公共）、`appPreferences.ts`、`recentFiles.clearRecentFiles`、`useOutlineSync` 的 `revision` 参数、勾选写回接线）——**2026-09-21 实测**（`npm test` **48 文件 / 969 用例**全绿、`npm run build` 通过）。
+    - 分两次读数：T2 落地后 **192.86KB / gzip 54.68KB**，T2 审阅修复（窄屏 Escape 依赖表 + 进设置视图归零）后 **192.90KB / gzip 54.69KB**；T3 只改 CSS 与断言，JS 尺寸不变。
+  - 入口 CSS 从 33.43KB / gzip 6.83KB 涨到 **34.74KB / gzip 7.04KB**（+1.31KB）：设置视图段与三个迁出的通用类（`.segments` / `.seg`、`.text-button`、`.button.button-ghost`）、齿轮按下态、勾选定稿（自绘方框 + 钤印 + 划线）与打印覆写；同时删掉 `.settings-popover*` / `.settings-anchor`，打印隐藏清单去掉 `.settings-popover`。
 
 ## 注意事项
 
@@ -164,8 +168,9 @@ node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/ex
 
 ### 发布与自动更新（签名密钥 / `latest.json`）
 
-- 自动更新走 `tauri-plugin-updater`：Rust 侧在 `src-tauri/src/main.rs` 注册（`tauri_plugin_updater::Builder::new().build()`），npm 侧 `@tauri-apps/plugin-updater`；检查挂在 `src/main.tsx` 的启动路径上。
-  - **只在生产构建里跑**（`import.meta.env.PROD` 守卫）：dev 实例不该被 release 包自动替换。无更新 / 检查失败 / 更新失败一律静默（失败时把已出的提示撤掉，只落 console）；拿到更新就**先出提示再下载**——Windows 上安装会拉起安装器并退出进程，这条提示是「应用即将关闭」的唯一预警。
+- 自动更新走 `tauri-plugin-updater`：Rust 侧在 `src-tauri/src/main.rs` 注册（`tauri_plugin_updater::Builder::new().build()`），npm 侧 `@tauri-apps/plugin-updater`；检查逻辑集中在 `src/lib/updater.ts`（`checkForUpdates(manual?)`，`Update` 句柄在 `finally` 里 `close()`，提示条复用 `.editor-toast` 挂在 body 上）。两个入口：`src/main.tsx` 的启动静默路径（先读 `src/lib/appPreferences.ts` 的 `autoCheckUpdates`，为开才查；读盘不阻塞渲染）与设置页「更新 · 立即检查」（**不看**该开关，结果一律回执）。
+  - **自动路径只在生产构建里跑**（`canInstall` 由 `import.meta.env.PROD` 初始化，测试经 `__setUpdaterInstallForTest` 打开——否则「启动静默更新」这条路径在测试里永远不可达）：dev 实例不该被 release 包自动替换。无更新 / 检查失败 / 更新失败一律静默（失败时把已出的提示撤掉，只落 console）；拿到更新就**先出提示再下载**——Windows 上安装会拉起安装器并退出进程，这条提示是「应用即将关闭」的唯一预警。
+  - 手动路径（`manual = true`）无论开关都查，结果一律回执：有新版本同一句「发现新版本，重启后更新」（不可安装时只报告、不替换当前进程）、已最新「已是最新版本」、失败「检查失败，稍后再试」；回执 4 秒自动消失（自动路径那条不设时限）。
 - **发布前必须先有签名密钥对**：`npm run tauri signer generate -- -w "%USERPROFILE%\.tauri\vellum.key"`（等价于 `tauri signer generate`，会一并打印公钥），把**公钥**填进 `tauri.conf.json` 的 `plugins.updater.pubkey`。
   - **`-w` 要给 Windows 绝对路径**：cmd 不展开 `~`，写 `~/.tauri/vellum.key` 会在当前目录建出一个名字真叫 `~` 的目录（Git Bash 里 `~` 才有意义，别照抄 Unix 文档）。
   - 当前 `pubkey` 是占位串 `PLACEHOLDER_REPLACE_WITH_TAURI_SIGNER_GENERATE_PUBKEY`：占位状态下 `download()` 的签名校验必然失败 ⇒ **install 步 inert**（不会误装任何包，这也是「自动更新不会在开发机上乱动」的第二层保险），但 **download 步不 inert**：`check()` 不验签，endpoint 上只要有 `latest.json`，安装包会被真的下完（~21MB，见下条时序红线）。
@@ -211,6 +216,10 @@ node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/ex
 | `promo/index.html` | 宣传落地页（单文件、内联 CSS、零依赖，双击即开） |
 | `promo/assets/` | 对外素材（真实窗口截图 / 海报帧 / 社交分享卡，中英各一套） |
 | `promo/README.md` | 宣传品清单与部署注意（本节约束的详版） |
+| `src/lib/updater.ts` | 更新检查（启动静默路径 + 设置页「立即检查」，提示条复用 `.editor-toast`） |
+| `src/lib/appPreferences.ts` | 界面行为偏好（`sidebarOpenOnLaunch` / `autoCheckUpdates`，与 `outlineWidth` 同一个 settings Store） |
+| `src/components/SettingsView.tsx` | 设置视图四节内容栏（`SETTINGS_SECTIONS` 分节清单唯一来源） |
+| `src/components/SettingsNav.tsx` | 设置视图的侧栏内容（复用 `.outline-panel*` / `.outline-search*` 语汇） |
 | `scripts/check-obsidian-corpus.test.tsx` | Obsidian 全库语料检查（真实渲染管线跑 wisdom 每一篇 `.md`，三族语法各计识别数 + 未处理构造必须为 0） |
 | `scripts/check-obsidian-corpus.mjs` | 语料检查入口（拉起 vitest 并透传退出码；检查本体在 .test.tsx 里，见文件头注释） |
 | `scripts/cdp-obsidian-verify.mjs` | 真机验收 CDP 探针（完整说明见 `docs/agents/obsidian.md`） |

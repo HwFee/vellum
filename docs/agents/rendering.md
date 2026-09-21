@@ -37,10 +37,22 @@
 
 - 目錄 header + 搜索框固定在滚动区外，只有大纲列表在 `.outline-panel__scroll` 内滚动，跟随滚动以它为参照容器。
 - **不要**把搜索框改回 sticky 或放回滚动容器内——会重新引入「搜索框遮挡激活项」和「连点导航按钮时搜索框上浮误点」。
+- **设置视图打开时侧栏只换内容**（`SettingsNav`，2026-09-20 第二批）：`App.tsx` 里仍是同一枚 `<aside className="outline-sidebar">`，`isSettingsOpen ? <SettingsNav/> : <OutlinePanel/>`——宽度变量、开合（`--open` + `beginWidthTransition()`）、拖宽手柄、窄屏浮层与纱罩、默认关全部自动跟随，**别为设置页另写一套侧栏**。题头复用 `.outline-panel__header`（「設定」，唯一繁体，与「目錄」同例），搜索框与条目复用 `.outline-search*` / `.outline-panel__link*`；`Ctrl+K` 聚焦的是同一枚 `searchInputRef`（两枚面板不会同时在 DOM 里）。
 - 侧边栏宽度可调：`useOutlineWidth`（200–320px，默认 240，双击手柄复位）覆写根 `--outline-width` 变量，`--outline-shift` 由 calc 派生自动跟随。
 - 启动时侧边栏**恒为关闭**：`App.tsx` 必须传 `useOutlineOpen(false)`，该 hook 启动时不读取持久化状态（用户交互后的状态仍照写，只是不回读）。改回 `true` 会让侧栏每次启动都自行展开——这是产品决定，不是待修项。
 - 手柄 `.outline-resize-handle` 必须作 aside 的**兄弟节点**外置（aside 有 `overflow:hidden`）。
 - `JumpToBottom`：距底 >300px 浮现的右下角跳底按钮，z 序须低于窄屏遮罩（750）；点击走 `animateScrollTo` 缓动，用户输入可被全局监听打断。
+
+## 设置视图（替换正文区，2026-09-20 第二批）
+
+- 入口是顶栏齿轮（`TopBar` 的 `isSettingsOpen` / `onToggleSettings`；按下态 = `background: var(--warm-sand); color: var(--brand)` + `aria-pressed="true"`，`aria-label` / `title` 逐字不变）。**弹层 `SettingsPopover` 已退役**——组件与测试删除，`kami.css` 的 `.settings-popover*` / `.settings-anchor` 规则一并删。理由：236px 弹层装不下「界面行为 / 自动更新 / 数据自洁」三节，而它唯一的杀手锏「边调边看正文」由设置页的「样张」接住（样张消费与正文同一组 `--reader-*` 变量）。
+- 正文（含 widget iframe 与就地编辑覆盖层）**整体退出 DOM**，不是 `display:none` 藏起来——后者会把 widget iframe 高度塌成 0、把滚动容器夹到 0（与红线 7 的停帧机制同源）。代价：进出设置视图 = 重建正文（markdown 重新解析 + iframe 重建），量级与换文档相当。
+- 阅读位置交接（进出都走既有管线，不另造一套）：`openSettings()` 先用 `currentScrollRecord()` 取下三级记录 → 存 `settingsScrollRecordRef` + 交给 `pendingRestoreRef`（与「后退/前进」同一条落位管线）并即刻落盘 → 复位 `lastRestoredPathRef` → 把**共用滚动容器 `scrollTop` 归零**。顺序不能颠倒（先取位置、后归零）：不归零的话浏览器会把旧 `scrollTop` 钳到设置页的最大值，从长文档中部进来就落在设置页中段/底部。退出时正文回来，`handleContentRendered` 先归零再按记录落位。
+- 设置视图期间 `currentScrollRecord()` 在 stash 的路径与当前文档一致时直接返回那一份、`persistCurrentScroll()` 整体跳过——**绝不量设置页的偏移当阅读位置**。换文档时 `loadPath` 在**离场位置测量之后**才调 `closeSettings()`（顺序提前会量到设置内容）。
+- 视图边界：设置视图里 `Ctrl+E` 不切编辑视图（正文不在 DOM，静默改状态会让「返回阅读」后与预期不符）、`JumpToBottom` 不渲染、`.document-scroll__content--editing` 与覆盖层只在正文分支出现。窄屏 `Escape` 只退设置视图、不连带关侧栏——`App.tsx` 那条关侧栏监听的**依赖表必须含 `isSettingsOpen`**（只写在守卫里的话 effect 不随视图开合重跑，陈旧闭包会把侧栏一起关掉；2026-09-21 审阅修复，有用例钉住）。`SettingsNav` 搜索框里的 `Escape` 就地清词并 `stopPropagation`（栈式语义，不冒到 window）。
+- 大纲观察器重挂：`useOutlineSync(scrollRef, headings, navTargetRef, revision)` 的第 4 参数取 `revision = isSettingsOpen ? "settings" : "document"`——正文重新进 DOM 的是**新元素**，不重挂观察器就再也不会回调（大纲高亮停在空白态）。
+- 分节清单单一来源：`SETTINGS_SECTIONS` / `settingsSectionElementId()` 从 `SettingsView.tsx` 导出，侧栏导航据此生成；点条目 → `handleSelectSettingsSection` 切激活态并用与大纲同一条 `animateContainerTo` 缓动滚到 `#settings-section-*`（设置页与正文**共用同一个滚动容器**，不另开滚动区）。
+- 打印：设置视图**不在**主打印段的隐藏清单里——它打开时正文整块不在 DOM，藏掉只会印出一张白纸（弹层时代 `.settings-popover` 浮在正文上，藏掉才印得着正文）。`kami.css.test.ts` 显式断言主段清单**不含** `.settings-view`。
 
 ## 阅读位置记忆与恢复
 
@@ -127,11 +139,15 @@
 - 勾选**在途串行**（`taskChainRef`）：两次并发会让后一次以「前一次的乐观结果」为基准，前一次失败回滚就把后一次一起抹掉。链上的后续调用读 `markdownRef` / `unitsRef` / 代际 getter 的**此刻值**，不得用自己那次点击的闭包快照。
 - 勾选态由源码字符串单向驱动（`checked` 受控 + `readOnly` + `flushSync(onMarkdownChange)`）：**不得**改成 `defaultChecked`——那样落盘失败回滚后复选框不会回到源码状态。
 - 勾选**不**递增 `reloadTick`、不播印章、不做滚动补偿（同块编辑提交）；watcher 回声照旧由「磁盘 vs 内存比对」抑制。
+- **勾选长相（2026-09-20 定稿「钤印 + 划线」）**：自绘方框（`appearance: none` / 15×15 / 1px 发丝描边 / 2px 圆角 / 透明底 / **`padding: 0`**）+ 已勾填 `--tag-bg` 实色 + 靛青 data-URI 对勾；同项文字灰化（`--stone`）+ 1px 删除线。全部规则带 `:not(:disabled)`，编辑视图（复选框恒 disabled）与原始 HTML 写死的 disabled 一条都命中不了。`padding: 0` 不是可选优化：`.markdown-body input` 的通用控件规则给了 `6px 10px`，自绘后没人再压住它，border-box 下 `width: 15px` 会被顶到 ~22px（原生 `appearance: auto` 时 Blink 强制复选框 `padding: 0`，所以以前不显形）。
+- **灰化/划线靠 `:has()`**：GFM 产物里文字是复选框的兄弟**文本节点**（没有可命中的元素），定位只能落在 `<li>` 上认「本级自己的复选框已勾」。引擎前提是 WebView2 = Chromium 105+（本文件 `:has()` 早有先例）——**若退到更老的 WebView2，降级只是划线/灰化整条消失**，自绘方框与钤印不受影响（它们不用 `:has()`），不会把页面弄坏。
+- **父项已勾时，其下嵌套子项视同完成**：删除线与灰化从 `<li>` 传播到块级后代，所以已勾父条目下嵌套子列表的文字一起灰化 + 划线（既定行为，实测无意外）。反向不成立——`:has()` 用直接子级限定（`> input` / `> p > input`），子项已勾、父项未勾时父条目不划线。
 
 ## 打印样式（2026-09-20 新增）
 
 - 两段 `@media print` 都在 `kami.css`，都**不动屏幕态规则**：**主段**（隐藏界面件 / 放开版心 / 分页保护）排在首个 mdlog widget 选择器**之前**，**末段**（隐 chrome 题头栏、恢复停帧 iframe、隐记录小章）含该字样、排在其**之后**。主段的注释里也**不得**出现该字样——`kami.css.test.ts` 用 `indexOf` 找扫描起点，注释同样会把它提前（本轮就是这么踩到的）。
-- **覆写放哪一段由「屏幕态规则的位置」决定，不是由选择器长什么样决定**：媒体查询**不参与特异度与来源序**，同特异度（0,1,0）时后出现的屏幕态规则在打印下照样胜出。所以主段的隐藏清单只收**屏幕态规则排在主段之前**的选择器（顶栏 / 侧栏 / 拖宽手柄 / 纱罩 / 自定义滚动条 / 跳底 / 印章 / 编辑提示条 / 重文档提示 / 设置弹层）；mdlog 区段里的 `.mdlog-live`（屏幕态 `display: flex` 在文件后段）必须放**末段**，否则那条 `display:none` 是死的（2026-09-20 复审抓到的正是这一处，headless Chrome 打印媒体实测：修前 `print` 下仍是 `flex`，修后 `none`）。`kami.css.test.ts` 同时钉了「主段清单不含 `.mdlog-live`」与「末段覆写排在屏幕态规则之后」。
+- **覆写放哪一段由「屏幕态规则的位置」决定，不是由选择器长什么样决定**：媒体查询**不参与特异度与来源序**，同特异度（0,1,0）时后出现的屏幕态规则在打印下照样胜出。所以主段的隐藏清单只收**屏幕态规则排在主段之前**的选择器（顶栏 / 侧栏 / 拖宽手柄 / 纱罩 / 自定义滚动条 / 跳底 / 印章 / 编辑提示条 / 重文档提示）；mdlog 区段里的 `.mdlog-live`（屏幕态 `display: flex` 在文件后段）必须放**末段**，否则那条 `display:none` 是死的（2026-09-20 复审抓到的正是这一处，headless Chrome 打印媒体实测：修前 `print` 下仍是 `flex`，修后 `none`）。`kami.css.test.ts` 同时钉了「主段清单不含 `.mdlog-live`」与「末段覆写排在屏幕态规则之后」。**设置视图不在此列**（2026-09-20 第二批）：它打开时正文整块不在 DOM，藏掉只会印出一张白纸——弹层时代的 `.settings-popover` 浮在正文上，藏掉才印得着正文，那条已随弹层一并删除；测试显式断言主段清单不含 `.settings-view`。
+- **屏幕态规则不能写成逗号列表**（凡打印覆写要压过它时，2026-09-21 修复轮教训）：构建期 minifier 会把逗号列表整条包进 `:is()`，而 `:is()` 取参数里**最高**的特异度——列表里最低的那条会被一起抬高，打印段按源码特异度对齐的覆写就静默失效，且**只在产物里失效**（源码与 `npm test` 都看不出来）。踩坑处是任务勾选划线：屏幕态原本一条逗号列表装紧/松散两种形状，产物里成了 `:is(A, B)`，紧列表 (0,5,1) 被 (0,5,2) 抬了一档，打印段三条覆写全没压住（headless Chrome 打印媒体实测：修前三种形状都仍是灰字）。修法：屏幕态两种形状拆成两条**单选择器**规则（即使被包进 `:is()` 特异度也逐字不变），打印段三条覆写与屏幕态**逐字同选择器**靠来源序取胜。`kami.css.test.ts` 用 `selectorListOf()` 断言选择器列表逐字等于那一个选择器（逗号列表 / `:is()` 包裹都过不了）。产物里还有同手法先例：打印段那条 `:is(.document-scroll__content, .document-scroll__content:has(.document-title)){padding:0}`。
 - 版心必须放开：屏幕态把正文关在「`100vh` + `overflow:hidden`/`scroll`」的壳里（窗口内滚动），不改成 `height:auto` + `overflow:visible` 就只印得出第一屏。侧栏开启时的 `--outline-shift` 位移与 `.document-scroll__content:has(.document-title)` 的 42px 顶距都是 0,2,0，打印段必须用同特异度显式归零——同特异度靠顺序取胜，所以打印段整体必须排在屏幕态规则之后（测试锁死）。
 - 列宽：`.markdown-body` 与 `.document-title` 的 `max-width` 打印下放开到 100%（左右 32px 内边距保留，标题与正文左缘的对齐关系不变）。**正文字号不另设**：沿用 `--reader-font-size`，用户的阅读设置就是他的选择。
 - 分页：`.code-block` / `.markdown-body pre` / `table` / `blockquote` / `img` 加 `break-inside: avoid`；`.document-title` 与 h1–h6 加 `break-after: avoid`；**不设 `@page`**，页边距交给浏览器默认。
@@ -142,8 +158,12 @@
 
 | 文件 | 职责 |
 |------|------|
-| `src/App.tsx` | 主入口、文档加载、窗口显示、编辑视图接线（提交落盘 / 回声抑制 / 外部变更分流 / 文档代际） |
+| `src/App.tsx` | 主入口、文档加载、窗口显示、编辑视图接线（提交落盘 / 回声抑制 / 外部变更分流 / 文档代际）、设置视图接线（正文区替换 / 阅读位置交接 / 侧栏内容切换） |
 | `src/components/MarkdownDocument.tsx` | Markdown 渲染（`React.lazy` 懒加载） |
+| `src/components/SettingsView.tsx` | 设置视图四节内容栏（`SETTINGS_SECTIONS` / `settingsSectionElementId` 分节清单唯一来源） |
+| `src/components/SettingsNav.tsx` | 设置视图的侧栏内容（「設定」题头 + 分节导航，复用 `.outline-panel*` 语汇） |
+| `src/lib/appPreferences.ts` | 界面行为偏好（Store key `sidebarOpenOnLaunch` / `autoCheckUpdates`，与 `outlineWidth` 同一 settings Store） |
+| `src/lib/updater.ts` | 更新检查（启动静默 + 设置页「立即检查」，`Update` 句柄归还） |
 | `src/components/BlockEditor.tsx` | 就地编辑面（隐藏原块锁高、自增高推流、Esc/失焦提交） |
 | `src/hooks/useDocumentEditor.ts` | 编辑会话状态机（视图门禁、草稿、提交即落盘、提示条） |
 | `src/lib/editUnits.ts` | Markdown → 块单元（纯函数：区间、可编辑性、HTML/widget/frontmatter 结构性只读） |
