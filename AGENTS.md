@@ -61,6 +61,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 18. 打印只允许新增 `@media print` 段（屏幕态规则一律不动）：主段（隐藏界面件 / 放开版心 / 分页保护）排在首个 `.mdlog-widget` 之前且注释里也不得出现该字样，含该字样的交互块打印规则排在它之后；**屏幕态规则落在主段之后的（mdlog 区段内的）选择器，其打印覆写必须放文件末尾那段**——同特异度靠来源序取胜、媒体查询不参与特异度，放主段等于没写（`.mdlog-live` 踩过）。 → `docs/agents/rendering.md`
 19. **打印覆写要压过屏幕态规则时，屏幕态规则不能写成逗号列表**：构建期 minifier 会把列表包进 `:is()` 并取参数里最高特异度，只在产物里静默失效；屏幕态拆成单选择器、打印覆写与它逐字同选择器靠来源序取胜（勾选划线踩过）。 → `docs/agents/rendering.md`
 20. 设置视图打开时侧栏只换内容（`SettingsNav`，「設定」题头 + 分节导航），**仍是同一枚 `.outline-sidebar`**：宽度、开合与拖宽的全部入口照旧走 `beginWidthTransition()`，别为设置页另写一套侧栏。 → `docs/agents/rendering.md`
+21. 导出为 PDF（Ctrl+P，打印对话框已退役）：纸面底色必须刷在 `@page` 上——`body` 背景分页时不传播满页边区（会漏白，真机像素取证）；页眉页脚走导出视图运行时注入的 `@page` 边盒，不落 kami.css；预览测量容器必须含 `h1.document-title`，否则预览页界与 PDF 错开一块标题高度。 → `docs/agents/rendering.md`
 
 ## 关键路径
 
@@ -75,7 +76,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 
 | 文档 | 管什么 | 什么时候读 |
 |------|--------|-----------|
-| `docs/agents/rendering.md` | 渲染结构、搜索跳转、大纲跟随、侧栏布局与宽度（含设置视图的侧栏内容切换）、设置视图、阅读位置记忆、热重载恢复、布局过渡窗、`viewportPin`、数学公式、块级就地编辑不变量、任务勾选、打印样式、文件索引 | 改渲染管线 / 滚动 / 编辑器 / 大纲 / 设置页 / 打印时 |
+| `docs/agents/rendering.md` | 渲染结构、搜索跳转、大纲跟随、侧栏布局与宽度（含设置视图的侧栏内容切换）、设置视图、阅读位置记忆、热重载恢复、布局过渡窗、`viewportPin`、数学公式、块级就地编辑不变量、任务勾选、打印样式、导出为 PDF、文件索引 | 改渲染管线 / 滚动 / 编辑器 / 大纲 / 设置页 / 打印 / 导出时 |
 | `docs/agents/obsidian.md` | frontmatter 属性卡、callout、wikilink 端到端与片段跳转、文档标题与属性卡/提示块定稿形态、CJK 强调兜底、全库语料检查与真机验收 | 碰三族语法或 `rehypeObsidian` 时 |
 | `docs/agents/widgets.md` | `WidgetSandbox` 存活上限与懒挂载、沙箱根溢出保护、交互块授权台账、停帧降载与静态图指针防线、预载视距与高度夹取、mdlog 状态与吸底、sidecar 清理 | 改 mdlog 或 widget 沙箱时 |
 | `docs/agents/tooling.md` | shell 入口细节、技能安装与 pi 扩展、已删除的宣传品（`promo/`）、性能技能表与入口 chunk 尺寸、打包与生产构建坑、真机探针、`custom-protocol` | 配环境、打包发布时 |

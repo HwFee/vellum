@@ -147,6 +147,7 @@ node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/ex
 - **多实例（2026-09-12）**：无单实例锁（`early_single_instance` 模块与 `tauri-plugin-single-instance` 均已移除），每次启动都是独立进程/窗口，各自从命令行参数加载自己的文档。
   - settings Store 跨进程共享、后写覆盖——阅读位置按文件路径键控，不同文件的实例互不干扰；同一份设置（侧栏宽等）以最后退出者为准。
   - 运行期不再有 `pending-open-paths` 事件，前端只在启动时 drain 一次 `drain_pending_open_paths`。
+- **直接跑过 `cargo check` / `cargo test` 之后，`tauri dev` 可能起成「生产模式」实例**（2026-09-21 导出 PDF 验收时踩实）：cargo 复用了不带 Tauri CLI 环境变量的构建脚本产物，二进制把 `devUrl` 丢掉了——页面落在 `http://tauri.localhost/`、加载**二进制里内嵌的旧 dist**（资源在 `generate_context!()` 编译期内嵌），而不是 vite dev server。症状：改前端代码、硬刷新、甚至 `ignoreCache` 重载都不生效，CSS 永远是旧的。判别：CDP 里看 `location.href`（dev 应是 `http://localhost:1420/`）。处置：`npm run build` 刷新 dist 后重启 dev（dist 变动会让 tauri-build 重跑、重新内嵌）；要严格对齐 dev 行为就先 `cargo clean -p vellum` 再 `tauri dev`。
 - **打包前必须确认没有 Vellum 实例在跑**（`Get-Process vellum` 为空）：release 二进制被占用时 `npm run tauri build` 会在链接阶段报 `failed to remove file ... vellum.exe / os error 5 拒绝访问`。
   - 且**前端产物已构建完成**，很容易误以为是代码错。先 `taskkill /IM vellum.exe /F` 再打包。
 

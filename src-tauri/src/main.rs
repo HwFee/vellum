@@ -141,6 +141,109 @@ async fn resolve_wikilinks(
     Ok(document::resolve_wikilink_map(Path::new(&from_path), &targets))
 }
 
+
+/// 导出为 PDF（2026-09-21）：前端「导出为 PDF」视图（方案三·纸张舞台，Ctrl+P）的落盘端。
+///
+/// 规格对齐上游 kami 的 WeasyPrint 模板（tw93/kami references/production.md）：A4、
+/// 边距 20mm/22mm、宣纸底色、首页留白、第 2 页起页眉页码 + 页脚「题名 · 素笺」。
+/// 页眉页脚不是 Chromium 的 headerTemplate，而是 CSS @page 边盒——前端在导出视图挂载时
+/// 注入规则（ExportPdfView / buildExportPageStyle），Chromium printToPDF 在
+/// preferCSSPageSize 下会渲染边盒内容（Playwright 实机验证见 docs/design/shots/margin-box-test.pdf）。
+///
+/// 实现：对主窗口的 WebView2 直接调 CDP Page.printToPDF——同一页面上演，不另起隐藏
+/// webview。打印底稿藏在导出视图里（屏幕态 display:none，@media print 下独占纸面），
+/// 整套分页/版式复用 kami.css 打印段。COM 调用必须发生在主线程（with_webview 负责派发），
+/// 而 CDP 回执异步经消息泵回来，所以本命令在 spawn_blocking 线程里用 mpsc 等回执，
+/// 主线程事件循环保持转动，互不阻塞。
+#[tauri::command]
+async fn export_pdf(window: tauri::WebviewWindow, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || export_pdf_blocking(&window, &path))
+        .await
+        .map_err(|error| format!("export task join failed: {error}"))?
+}
+
+#[cfg(windows)]
+fn export_pdf_blocking(window: &tauri::WebviewWindow, path: &str) -> Result<(), String> {
+    use base64::Engine as _;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
+    use windows_core::{w, HSTRING};
+
+    // 闸门：只收 .pdf 绝对路径（前端系统保存对话框之外的服务端兜底，与 save_document 同理）。
+    let target = Path::new(path);
+    let is_pdf = target
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"));
+    if !target.is_absolute() || !is_pdf {
+        return Err(format!("invalid export path: {path}"));
+    }
+
+    // CDP 参数：边距单位是英寸（20mm≈0.7874in、22mm≈0.8661in），与前端 @page 常量同值。
+    // preferCSSPageSize 让 @page 的 A4 尺寸与边盒页眉页脚生效；printBackground 带出宣纸底色。
+    let params = serde_json::json!({
+        "printBackground": true,
+        "preferCSSPageSize": true,
+        "marginTop": 0.7874,
+        "marginBottom": 0.7874,
+        "marginLeft": 0.8661,
+        "marginRight": 0.8661,
+    })
+    .to_string();
+
+    let (tx, rx) = mpsc::channel::<Result<String, String>>();
+    window
+        .with_webview(move |webview| {
+            let tx_fallback = tx.clone();
+            let dispatch = move || -> Result<(), String> {
+                let core = unsafe { webview.controller().CoreWebView2() }
+                    .map_err(|error| format!("CoreWebView2 unavailable: {error}"))?;
+                let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
+                    move |result: windows_core::Result<()>, json: String| {
+                        let outcome = result
+                            .map(|_| json)
+                            .map_err(|error| format!("printToPDF failed: {error}"));
+                        let _ = tx.send(outcome);
+                        Ok(())
+                    },
+                ));
+                unsafe {
+                    core.CallDevToolsProtocolMethod(
+                        w!("Page.printToPDF"),
+                        &HSTRING::from(params.as_str()),
+                        &handler,
+                    )
+                }
+                .map_err(|error| format!("CallDevToolsProtocolMethod failed: {error}"))?;
+                Ok(())
+            };
+            // 派发失败（主线程退出等）不能让 rx 空等：错误同样走通道回传。
+            if let Err(error) = dispatch() {
+                let _ = tx_fallback.send(Err(error));
+            }
+        })
+        .map_err(|error| format!("with_webview dispatch failed: {error}"))?;
+
+    let json = rx
+        .recv_timeout(Duration::from_secs(30))
+        .map_err(|error| format!("printToPDF timed out: {error}"))??;
+
+    let data = serde_json::from_str::<serde_json::Value>(&json)
+        .ok()
+        .and_then(|value| value["data"].as_str().map(str::to_owned))
+        .ok_or_else(|| "printToPDF response missing data".to_string())?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|error| format!("PDF base64 decode failed: {error}"))?;
+    std::fs::write(target, bytes).map_err(|error| format!("write {path} failed: {error}"))
+}
+
+#[cfg(not(windows))]
+fn export_pdf_blocking(_window: &tauri::WebviewWindow, _path: &str) -> Result<(), String> {
+    Err("export_pdf is only supported on Windows".to_string())
+}
+
 /// 从一组命令行参数中提取第一个 .md / .markdown 文件路径。
 fn first_markdown_from_args(args: &[String]) -> Option<String> {
     args.iter()
@@ -380,6 +483,7 @@ fn main() {
             resolve_wikilinks,
             save_document,
             drain_pending_open_paths,
+            export_pdf,
             vellum_lib::widget::register_widget,
             vellum_lib::widget::unregister_widget,
             vellum_lib::widget::read_mdlog_state,

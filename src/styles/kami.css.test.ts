@@ -1087,6 +1087,34 @@ describe("kami.css reader-polish task-9 打印样式（2026-09-20）", () => {
     expect(hiddenRule).not.toContain(".mdlog-live");
   });
 
+  it("导出为 PDF（2026-09-21）：底稿屏幕态隐藏、打印独占纸面，舞台与头行进隐藏清单", () => {
+    // 屏幕态：底稿 .export-sheet display:none，且屏幕规则必须排在主打印段之前
+    //（同特异度靠来源序取胜，反过来打印覆写就输了）
+    const sheetScreen = css.match(/^\.export-sheet\s*\{[^}]*\}/m)?.[0] ?? "";
+    expect(sheetScreen).toMatch(/display:\s*none/);
+    expect(css.indexOf(".export-sheet")).toBeLessThan(printStart);
+
+    // 打印：底稿显示、视图撑高归零（屏幕舞台的 min-height 不归零会多印一页空白）
+    const printSheet = printBlock.match(/\.export-sheet\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(printSheet).toMatch(/display:\s*block/);
+    const printView = printBlock.match(/\.export-view\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(printView).toMatch(/min-height:\s*0/);
+
+    // 导出视图的头行（返回按钮 / 状态行）与舞台（预览纸页 + 工具条）是界面件，
+    // 与顶栏侧栏同列——打印件里只有底稿
+    const hiddenRule = printBlock.match(/\.top-bar,\s*[\s\S]*?display:\s*none;/)?.[0] ?? "";
+    expect(hiddenRule).toContain(".export-view__head");
+    expect(hiddenRule).toContain(".export-view__stage");
+
+    // 纸张固定 A4（上游 kami 模板常量）：@page 声明尺寸与整页宣纸底色
+    //（底色必须在 @page 上——body 背景在分页时不会传播满页边区，真机实测白边），
+    // 页眉页脚边盒由导出视图运行时注入（文档题是运行时值，不落本文件）
+    const pageRule = printBlock.match(/@page\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(pageRule).toMatch(/size:\s*A4/);
+    expect(pageRule).toMatch(/background:\s*var\(--parchment\)/);
+    expect(printBlock).not.toContain("@top-right");
+  });
+
   it("版心放开：外壳改内容高度、溢出可见，列宽放开到 100%，侧栏位移归零", () => {
     const shellRule = printBlock.match(/\.app-shell,\s*[\s\S]*?\{[^}]*\}/s)?.[0] ?? "";
     expect(shellRule).not.toBe("");

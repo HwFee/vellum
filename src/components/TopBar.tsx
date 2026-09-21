@@ -74,6 +74,18 @@ function ChevronRightIcon() {
   );
 }
 
+/// 导出为 PDF：笺纸 + 落款箭头 —— 线性风格与其它顶栏图标一致
+function ExportIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" opacity="0.35" />
+      <path d="M12 11v7" />
+      <path d="M9 15l3 3 3-3" />
+    </svg>
+  );
+}
+
 /// 阅读设置：齿轮 —— 线性风格与其它顶栏图标一致
 function GearIcon() {
   return (
@@ -104,6 +116,12 @@ type TopBarProps = {
   isSettingsOpen?: boolean;
   /// 齿轮点击：进入/退出设置视图（视图本身在正文区，弹层已于 2026-09-20 退役）
   onToggleSettings?: () => void;
+  /// 有已渲染的文档且不在设置视图里才可导出（底稿取自阅读 DOM）
+  canExport?: boolean;
+  /// 导出视图是否打开（导出按钮呈按下态，与齿轮同一语汇）
+  isExportOpen?: boolean;
+  /// 导出按钮点击：进入/退出「导出为 PDF」视图（Ctrl+P 同款开关）
+  onToggleExport?: () => void;
 };
 
 export function TopBar({
@@ -120,6 +138,9 @@ export function TopBar({
   onToggleEdit,
   isSettingsOpen = false,
   onToggleSettings,
+  canExport = false,
+  isExportOpen = false,
+  onToggleExport,
 }: TopBarProps) {
   const window = getCurrentWindow();
 
@@ -173,6 +194,19 @@ export function TopBar({
         <button className="open-button" type="button" aria-label="打开文件" title="打开文件" onClick={onOpen}>
           <OpenIcon />
         </button>
+        {onToggleExport && (
+          <button
+            className="open-button export-toggle"
+            type="button"
+            aria-label="导出为 PDF"
+            aria-pressed={isExportOpen}
+            disabled={!canExport && !isExportOpen}
+            title="导出为 PDF（Ctrl+P）"
+            onClick={onToggleExport}
+          >
+            <ExportIcon />
+          </button>
+        )}
         {onToggleSettings && (
           <>
             <span className="top-bar__divider" aria-hidden="true" />

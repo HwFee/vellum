@@ -1,6 +1,6 @@
 [package]
 name = "vellum"
-version = "1.9.0"
+version = "1.10.0"
 description = "Vellum · 素笺 - an elegant Markdown viewer for Windows"
 authors = ["Vellum · 素笺"]
 edition = "2021"
@@ -25,6 +25,10 @@ tauri-plugin-store = "2"
 tauri-plugin-updater = "2"
 urlencoding = "2"
 uuid = { version = "1", features = ["v4"] }
+# 导出为 PDF：对 WebView2 调 CDP Page.printToPDF。版本必须与 wry 的嵌套依赖严格同版
+#（0.38.2 / windows-core 0.61.2），否则接口类型不统一（与 katex 同版约束同理）
+webview2-com = "0.38.2"
+windows-core = "0.61"
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_System_Threading",

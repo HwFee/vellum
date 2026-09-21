@@ -16,6 +16,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: vi.fn(),
+  save: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -2688,35 +2689,35 @@ test("Ctrl+B 切换侧栏开关，焦点在搜索框上时也能关闭", () => {
   expect(document.querySelector(".outline-sidebar--open")).toBeNull();
 });
 
-test("Ctrl+P 调 window.print 并吞掉默认行为（打印样式见 kami.css 的两段 @media print）", () => {
-  const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
-  render(<App />);
+test("Ctrl+P 打开「导出为 PDF」纸张舞台并吞键，再按一次退出（系统打印对话框退役）", async () => {
+  await loadDocument();
 
+  // 打开：正文区整页换成纸张舞台，顶栏导出按钮呈按下态
   expect(fireEvent.keyDown(window, { key: "p", ctrlKey: true })).toBe(false);
-  expect(printSpy).toHaveBeenCalledTimes(1);
-  // 本套件没有全局 restoreMocks：不还原的话这枚 spy 会跟着后面的用例跑
-  printSpy.mockRestore();
+  expect(await screen.findByText("A4 · 边距 20/22mm · 宣纸")).toBeInTheDocument();
+  expect(document.querySelector(".export-toggle")).toHaveAttribute("aria-pressed", "true");
+
+  // 再按一次退出：回到阅读视图（Esc / 「‹ 返回阅读」同款动线）
+  expect(fireEvent.keyDown(window, { key: "p", ctrlKey: true })).toBe(false);
+  await waitFor(() => {
+    expect(document.querySelector(".export-view")).toBeNull();
+  });
+  expect(document.querySelector(".export-toggle")).toHaveAttribute("aria-pressed", "false");
 });
 
-test("Ctrl+Shift+P 不是打印：不调 window.print、也不吞键", () => {
-  const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
-  render(<App />);
+test("Ctrl+Shift+P 不是导出快捷键：不切视图、也不吞键", async () => {
+  await loadDocument();
 
   expect(fireEvent.keyDown(window, { key: "P", ctrlKey: true, shiftKey: true })).toBe(true);
-  expect(printSpy).not.toHaveBeenCalled();
-  printSpy.mockRestore();
+  expect(document.querySelector(".export-view")).toBeNull();
 });
 
-test("环境没有 window.print 时 Ctrl+P 静默：不抛错、不动作、也不吞按键", () => {
-  // 目标环境是 WebView2（有 print）；这条守的是「拿不到实现」的兜底分支
-  vi.stubGlobal("print", undefined);
-  expect(typeof window.print).toBe("undefined");
+test("空文档时 Ctrl+P 吞键但不开导出视图（底稿取自阅读 DOM，没有可导的）", () => {
   render(<App />);
 
-  expect(() => fireEvent.keyDown(window, { key: "p", ctrlKey: true })).not.toThrow();
-  // 不能打印就不该吞键：preventDefault 只在我们真的走 print 时调
-  expect(fireEvent.keyDown(window, { key: "p", ctrlKey: true })).toBe(true);
-  vi.unstubAllGlobals();
+  // 无条件吞键：没有文档可导时也不把按键让给 WebView 的浏览器加速键
+  expect(fireEvent.keyDown(window, { key: "p", ctrlKey: true })).toBe(false);
+  expect(document.querySelector(".export-view")).toBeNull();
 });
 
 test("全局 Ctrl+S 拦截 WebView 默认保存并在有活动块时提交", async () => {

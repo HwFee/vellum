@@ -39,7 +39,7 @@ const SHORTCUTS = [
   { label: "聚焦搜索", keys: ["CTRL", "K"] },
   { label: "就地编辑", keys: ["CTRL", "E"] },
   { label: "提交保存", keys: ["CTRL", "S"] },
-  { label: "打印", keys: ["CTRL", "P"] },
+  { label: "导出为 PDF", keys: ["CTRL", "P"] },
   { label: "后退·前进", keys: ["ALT", "←", "→"] },
 ] as const;
 

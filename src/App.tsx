@@ -16,6 +16,7 @@ import {
   settingsSectionElementId,
   type SettingsSectionId,
 } from "./components/SettingsView";
+import { ExportPdfView } from "./components/ExportPdfView";
 import { TopBar } from "./components/TopBar";
 import { useAppPreferences } from "./hooks/useAppPreferences";
 import { useDocumentEditor } from "./hooks/useDocumentEditor";
@@ -25,6 +26,7 @@ import { useOutlineSync } from "./hooks/useOutlineSync";
 import { OUTLINE_WIDTH_DEFAULT, useOutlineWidth } from "./hooks/useOutlineWidth";
 import { useReaderSettings, type ReaderSettings } from "./hooks/useReaderSettings";
 import { loadAppPreferences } from "./lib/appPreferences";
+import { buildExportDocument, type ExportDocument } from "./lib/exportDocument";
 import { extractOutline, matchHeadingByFragment } from "./lib/outline";
 import { fileNameToTitle, isMarkdownPath, isSamePath } from "./lib/path";
 import { extractWikilinkTargets } from "./lib/wikilink";
@@ -160,6 +162,13 @@ export default function App() {
   // 进入设置视图时取下的阅读位置：正文退出 DOM 期间它就是「当前阅读位置」——
   // 容器里滚的是设置内容，此刻再测容器量到的是设置页的偏移
   const settingsScrollRecordRef = useRef<{ path: string; record: ScrollPositionRecord } | null>(null);
+  // 导出为 PDF 视图（2026-09-21：Ctrl+P 改绑到这里，系统打印对话框退役）。
+  // 与设置视图同一动线：正文区整块替换、进入时暂存阅读位置、Esc / 「‹ 返回阅读」退出。
+  // 底稿（消毒后的正文 HTML）在进入时从阅读 DOM 取定，预览 / 测量 / 打印共用同一份
+  const [exportDoc, setExportDoc] = useState<ExportDocument | null>(null);
+  const isExportOpen = exportDoc !== null;
+  const isExportOpenRef = useRef(false);
+  isExportOpenRef.current = isExportOpen;
   // 布局过渡窗：侧边栏开关动画 / 拖宽期间，所有 widget iframe 随容器宽度集体重排，
   // 若恰逢 mdlog 追加触发的热重载（整篇重解析），主线程被「过渡重排 + 解析提交」
   // 双重工作饱和——页面完全卡死、过一会儿自愈（mdlog 连接中开关侧边栏卡死的根因）。
@@ -300,7 +309,8 @@ export default function App() {
   // ===== 设置视图（正文区整块替换） =====
   // 进入：正文（含 widget iframe）整块退出 DOM，先把阅读位置取下来——退出时按既有落位
   // 管线放回去。currentScrollRecord 只读 ref，故这里空依赖捕获的首帧闭包与最新一份等价
-  const openSettings = useCallback(() => {
+  /** 进入整页视图（设置 / 导出）前的同一套暂存：取下阅读位置、落盘、共用容器归零 */
+  const stashReadingPosition = useCallback(() => {
     const path = currentPathRef.current;
     const record = currentScrollRecord();
     if (path && record) {
@@ -320,9 +330,15 @@ export default function App() {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = 0;
     }
+    // 注意：不在这里 setIsSettingsOpen——stash 是「进入设置 / 导出」两条动线的共用
+    // 前半程，开哪个视图由各自动线自己决定（导出视图不复用设置的分节导航）
+  }, []);
+
+  const openSettings = useCallback(() => {
+    stashReadingPosition();
     setSettingsSectionId("reading");
     setIsSettingsOpen(true);
-  }, []);
+  }, [stashReadingPosition]);
 
   const closeSettings = useCallback(() => {
     settingsScrollRecordRef.current = null;
@@ -334,8 +350,35 @@ export default function App() {
       closeSettings();
       return;
     }
+    // 两个整页视图互斥：导出视图开着时不进设置（先「‹ 返回阅读」退回导出前的位置）
+    if (isExportOpenRef.current) return;
     openSettings();
   }, [closeSettings, openSettings]);
+
+  // ===== 导出为 PDF（纸张舞台） =====
+  // 底稿从阅读 DOM 取（预览 / 测量 / 打印共用同一份消毒 HTML），故只能从阅读视图进入：
+  // 设置视图期间正文不在 DOM 里，没有可取的（顶栏按钮此时禁用，Ctrl+P 同守）
+  const openExport = useCallback(() => {
+    if (isSettingsOpenRef.current || isExportOpenRef.current) return;
+    const root = documentContentRef.current;
+    if (!root || !root.querySelector(".markdown-body")) return;
+    const doc = buildExportDocument(root);
+    stashReadingPosition();
+    setExportDoc(doc);
+  }, [stashReadingPosition]);
+
+  const closeExport = useCallback(() => {
+    settingsScrollRecordRef.current = null;
+    setExportDoc(null);
+  }, []);
+
+  const toggleExport = useCallback(() => {
+    if (isExportOpenRef.current) {
+      closeExport();
+      return;
+    }
+    openExport();
+  }, [closeExport, openExport]);
 
   /// 清空最近打开列表（设置页「关于与数据」）：显式落盘空数组，旧 key 迁移不会再播种
   const handleClearRecent = useCallback(() => {
@@ -390,7 +433,7 @@ export default function App() {
   const handleNavForward = useCallback(() => stepNav("forward"), [stepNav]);
 
   // 全局快捷键：⌘K / Ctrl+K 聚焦搜索框，Ctrl+B 切换侧栏开关（所有宽度下，含侧栏已开时
-  // 关闭——搜索框聚焦也不吞），Ctrl+E 切换编辑视图，Ctrl+S 提交当前块，Ctrl+P 打印，
+  // 关闭——搜索框聚焦也不吞），Ctrl+E 切换编辑视图，Ctrl+S 提交当前块，Ctrl+P 导出为 PDF，
   // Alt+← / Alt+→ 历史后退/前进。
   // 依赖只有侧栏开关与两个历史回调（它们都是空依赖 useCallback，引用恒定；其余经
   // editorRef/callback ref 读取），热重载与每次按键都不重新订阅。
@@ -429,9 +472,9 @@ export default function App() {
 
       if (key === "e") {
         event.preventDefault();
-        // 设置视图里不切视图：正文不在 DOM 里，切了也看不见（编辑视图是正文区的语义，
-        // 静默改掉它只会让「返回阅读」时状态与预期不符）
-        if (isSettingsOpenRef.current) return;
+        // 整页视图（设置 / 导出）里不切视图：正文不在 DOM 里，切了也看不见
+        //（编辑视图是正文区的语义，静默改掉它只会让「返回阅读」时状态与预期不符）
+        if (isSettingsOpenRef.current || isExportOpenRef.current) return;
         void editorRef.current?.toggleView();
         return;
       }
@@ -453,21 +496,19 @@ export default function App() {
         return;
       }
 
-      // Ctrl+P（2026-09-20）：打印。WebView2 的 window.print() 走 Chromium 打印管线
-      // （微软 WebView2 打印文档的 ShowPrintUI / 反馈 #42 都确认这条路径），打印样式见
-      // kami.css 的两段 @media print。守卫只为「环境没有 print」时留一条安静的路：
-      // 拿不到实现就什么都不做（也不吞按键），而不是抛错。
-      // Ctrl+Shift+P 不归这里（带 Shift 是另一个组合键，不打印、不吞键）。
+      // Ctrl+P（2026-09-21 改绑）：打开 / 退出「导出为 PDF」视图（纸张舞台），
+      // 系统打印对话框退役——导出走后端 CDP Page.printToPDF 直接落盘，界面与预览都是
+      // 自家的。无条件吞键：没有文档可导时也不把按键让给 WebView 的浏览器加速键。
+      // Ctrl+Shift+P 不归这里（带 Shift 是另一个组合键，不切视图、不吞键）。
       if (key === "p" && !event.shiftKey) {
-        if (typeof window.print !== "function") return;
         event.preventDefault();
-        window.print();
+        toggleExport();
         return;
       }
     }
     window.addEventListener("keydown", handleGlobalShortcut);
     return () => window.removeEventListener("keydown", handleGlobalShortcut);
-  }, [isOutlineOpen, setOutlineOpenPinned, toggleOutlinePinned, handleNavBack, handleNavForward]);
+  }, [isOutlineOpen, setOutlineOpenPinned, toggleOutlinePinned, handleNavBack, handleNavForward, toggleExport]);
 
   const scheduleRecheck = useCallback((liveState: MdlogState | null) => {
     if (recheckTimerRef.current !== null) {
@@ -1041,7 +1082,7 @@ export default function App() {
   // 设置视图里点铅笔同样不切视图：正文不在 DOM 里，切了也看不见；静默改掉 viewMode
   // 只会让「返回阅读」时落在编辑态（与 Ctrl+E 分支同款守卫，两处必须一致）
   const handleToggleEdit = useCallback(() => {
-    if (isSettingsOpenRef.current) return;
+    if (isSettingsOpenRef.current || isExportOpenRef.current) return;
     void editorRef.current?.toggleView();
   }, []);
 
@@ -1390,7 +1431,7 @@ export default function App() {
   // 陈旧监听闭包里的它永远是 false（先开侧栏、后开设置视图就正好命中这条），
   // 于是窄屏下一次 Escape 会把设置视图与侧栏一起关掉
   useEffect(() => {
-    if (!isNarrow || !isOutlineOpen || isSettingsOpen) return;
+    if (!isNarrow || !isOutlineOpen || isSettingsOpen || isExportOpen) return;
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -1400,7 +1441,7 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isNarrow, isOutlineOpen, isSettingsOpen, setOutlineOpenPinned]);
+  }, [isNarrow, isOutlineOpen, isSettingsOpen, isExportOpen, setOutlineOpenPinned]);
 
   const headings = useMemo(
     () => (activeDocument ? extractOutline(activeDocument.markdown) : []),
@@ -1413,7 +1454,7 @@ export default function App() {
     scrollRef,
     headings,
     outlineNavTargetRef,
-    isSettingsOpen ? "settings" : "document"
+    isSettingsOpen ? "settings" : isExportOpen ? "export" : "document"
   );
 
   // 侧边栏拖宽：右缘手柄按下后全局跟踪指针，即时覆写宽度并持续续布局过渡窗；
@@ -1532,6 +1573,9 @@ export default function App() {
         onToggleEdit={handleToggleEdit}
         isSettingsOpen={isSettingsOpen}
         onToggleSettings={handleToggleSettings}
+        canExport={state.status === "ready" && !isSettingsOpen}
+        isExportOpen={isExportOpen}
+        onToggleExport={toggleExport}
       />
       <div className={`app-shell__body ${isOutlineOpen ? "app-shell__body--outline-open" : ""}`}>
         {/* 热重载提示（二）：印章，悬浮于窗口中下方、不随文档滚动；key 变化即重播。
@@ -1603,6 +1647,7 @@ export default function App() {
             className={
               "document-scroll__content" +
               (isSettingsOpen ? " document-scroll__content--settings" : "") +
+              (isExportOpen ? " document-scroll__content--export" : "") +
               (!isSettingsOpen && editor.viewMode === "editing"
                 ? " document-scroll__content--editing"
                 : "")
@@ -1621,6 +1666,12 @@ export default function App() {
                 recentCount={recentFiles.length}
                 onClearRecent={handleClearRecent}
                 onExit={closeSettings}
+              />
+            ) : exportDoc ? (
+              <ExportPdfView
+                title={exportDoc.title}
+                bodyHtml={exportDoc.bodyHtml}
+                onExit={closeExport}
               />
             ) : (
               <>
@@ -1701,7 +1752,7 @@ export default function App() {
       </div>
       <CustomScrollbar containerRef={scrollRef} contentRef={contentRef} />
       {/* 跳底按钮是正文的装置：设置视图里没有「文档底部」可言 */}
-      {state.status === "ready" && !isSettingsOpen && <JumpToBottom containerRef={scrollRef} />}
+      {state.status === "ready" && !isSettingsOpen && !isExportOpen && <JumpToBottom containerRef={scrollRef} />}
       {isOutlineOpen && isNarrow && (
         <div className="outline-scrim" role="presentation" onClick={() => setOutlineOpenPinned(false)} />
       )}

@@ -249,6 +249,13 @@ textarea {
   color: var(--brand);
 }
 
+/* 导出按钮的按下态：导出视图打开期间与齿轮同款（warm-sand 底 + brand 字色）。
+   单列一条而不并进上面的选择器列表：那条被 kami.css.test.ts 逐字钉住 */
+.export-toggle[aria-pressed="true"] {
+  background: var(--warm-sand);
+  color: var(--brand);
+}
+
 /* mdlog 记录中小章：与 .editor-toast 同族（tag-bg 实色底 + mono 10px），字色用靛青。
    挂在齿轮右侧（2026-09-20 前挂在路径右侧；记录状态不只出现在文档尾部） */
 .top-bar__recording {
@@ -2123,6 +2130,155 @@ mark.search-match--current {
   }
 }
 
+/* ===== 导出为 PDF · 纸张舞台（2026-09-21） =====
+   整页替换正文区（与设置视图同一动线）：舞台铺满余量、纸面居中铺开，
+   选项收进底部一条浮动工具条。页面规格（A4 / 边距 20/22mm / 宣纸）是模板常量——
+   对齐上游 kami 的 WeasyPrint 模板（tw93/kami references/production.md），
+   以一行小字陈列，不是选项。
+   位置约束与设置视图相同：屏幕态规则必须排在主打印段之前（打印覆写靠来源序取胜）。 */
+
+/* 容器内边距：纸页自带边距，内容区不再留正文的呼吸感。复合选择器 (0,2,0)——
+   正文那条 :has(.document-title) 的 42px 覆写同为 (0,2,0)，底稿里的 h1.document-title
+   会让它命中，这里靠来源序压回（本规则排在其后） */
+.document-scroll__content.document-scroll__content--export {
+  padding: 18px 0 0;
+}
+
+.export-view {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 64px);
+}
+
+.export-view__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px 14px;
+}
+
+/* 顶行右侧说明 / 导出回执：mono 10px stone（与 settings-view__note 同语汇） */
+.export-view__note {
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 0.4px;
+  color: var(--stone);
+}
+
+/* 舞台：暖砂底，宣纸纸页自其中浮起 */
+.export-view__stage {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  padding: 36px 24px 120px;
+  background: var(--warm-sand);
+}
+
+.export-view__pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+}
+
+/* 纸页：A4 @96dpi（794×1123），边距 20mm/22mm 换算 75.6px/83.2px——
+   与 src/lib/exportLayout.ts 的常量同一份换算（Chromium 打印同样以 96dpi 为 CSS 基准），
+   两处不各自漂移 */
+.export-page__sheet {
+  position: relative;
+  width: 794px;
+  height: 1123px;
+  padding: 75.6px 83.2px;
+  background: var(--parchment);
+  border: 1px solid var(--hairline);
+  box-shadow: 0 1px 3px rgba(20, 20, 19, 0.08);
+  overflow: hidden;
+}
+
+/* 纸面里的正文：列宽放开到纸宽（与打印段同款语义——纸张就是版心） */
+.export-page__sheet .markdown-body {
+  max-width: none;
+}
+
+/* 页眉页脚（预览摹 @page 边盒：页码右上、页脚居中；首页留白——首枚纸页不渲染这两枚） */
+.export-page__hdr {
+  position: absolute;
+  top: 34px;
+  right: 83px;
+  font: 400 12px/1 var(--serif);
+  color: var(--stone);
+}
+
+.export-page__ftr {
+  position: absolute;
+  bottom: 32px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font: 400 12px/1 var(--serif);
+  color: var(--stone);
+}
+
+/* 浮动工具条：吸住视口底缘（sticky），内容短时由 margin-top:auto 沉底 */
+.export-view__toolbar {
+  position: sticky;
+  bottom: 26px;
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--ivory);
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--hairline), 0 1px 2px rgba(20, 20, 19, 0.04);
+  padding: 8px 12px;
+}
+
+.export-view__spec {
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 0.4px;
+  color: var(--stone);
+  white-space: nowrap;
+}
+
+.export-view__sep {
+  width: 1px;
+  height: 20px;
+  background: var(--hairline);
+}
+
+.export-view__filename {
+  width: 220px;
+  background: var(--parchment);
+  border: none;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  padding: 7px 10px;
+  font: 400 12px/1.5 var(--mono);
+  color: var(--near-black);
+}
+
+.export-view__filename:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--brand),
+    0 0 0 2px color-mix(in srgb, var(--brand) 10%, transparent);
+}
+
+/* 打印底稿：屏幕态不渲染，主打印段里 display:block 独占纸面 */
+.export-sheet {
+  display: none;
+}
+
+/* 测量容器：屏外布局。visibility 而非 display:none——后者没有布局盒、量不到块高 */
+.export-measure {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 /* ===== 打印（@media print） ===== */
 /* 打印只做三件事：隐藏界面件、放开版心、保护分页；屏幕态规则一律不动（本段只在打印
    媒体下生效）。位置约束：本段不含 mdlog widget 选择器字样，排在首个该选择器出现处
@@ -2131,7 +2287,7 @@ mark.search-match--current {
    正文字号不另设：`.markdown-body` 消费 --reader-font-size，打印沿用用户的阅读设置。 */
 @media print {
   /* 界面件：顶栏 / 侧栏 / 拖宽手柄 / 纱罩 / 自定义滚动条 / 跳底按钮 / 印章 /
-     编辑提示条——打印件里全是噪点。
+     编辑提示条 / 导出视图的头行与舞台——打印件里全是噪点。
      本清单的前提是这些选择器的**屏幕态规则都排在主打印段之前**（同特异度靠顺序取胜）。
      屏幕态规则落在主段之后的（mdlog 区段里的记录小章就是），覆写必须放文件末尾那段——
      放这里等于没写：媒体查询不参与特异度与来源序，靠后的屏幕态规则照样胜出。
@@ -2145,8 +2301,27 @@ mark.search-match--current {
   .jump-bottom,
   .reload-note,
   .editor-toast,
-  .editor-hint {
+  .editor-hint,
+  .export-view__head,
+  .export-view__stage {
     display: none;
+  }
+
+  /* 导出为 PDF（2026-09-21）：打印底稿在屏幕态是 display:none，打印时独占纸面——
+     预览（舞台上的纸页）与底稿是同一份消毒 HTML，所见即所得。
+     页面尺寸以 @page 为准（后端 CDP 里 preferCSSPageSize:true），边距由后端
+     PrintSettings 给出（A4、20mm/22mm，对齐上游 kami 模板常量）；
+     页眉页脚边盒（页码右上 / 页脚居中「文档题 · 素笺」/ 首页留白）由导出视图
+     运行时注入 <style>（文档题是运行时值，见 src/lib/exportDocument.ts）。
+     .export-view 的 min-height 是屏幕舞台的撑高，打印必须归零——否则底稿后面
+     会多出一页空白 */
+  .export-sheet {
+    display: block;
+  }
+
+  .export-view {
+    display: block;
+    min-height: 0;
   }
 
   /* 版心（一）：屏幕态把正文关在「100vh + overflow:hidden/scroll」的壳里（为的是窗口内
@@ -2232,6 +2407,16 @@ mark.search-match--current {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+}
+
+/* 导出纸张固定 A4（上游 kami 模板常量，不是用户选项）。@page 只在分页媒体生效，
+   屏幕态忽略；边盒规则由导出视图运行时注入，不落这里（文档题是运行时值）。
+   底色必须刷在 @page 上：屏幕态的宣纸色挂在 body 上，而 Chromium 分页时 body 背景
+   不会传播满整页画布（页边区留白，2026-09-21 真机实测像素取证），@page 背景才是
+   覆盖页边区的正路——与上游 kami 的 WeasyPrint 模板同一手法（@page background） */
+@page {
+  size: A4;
+  background: var(--parchment);
 }
 
 /* ===== Pi 对话记录与沙箱交互块 ===== */

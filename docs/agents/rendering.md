@@ -154,7 +154,18 @@
 - 列宽：`.markdown-body` 与 `.document-title` 的 `max-width` 打印下放开到 100%（左右 32px 内边距保留，标题与正文左缘的对齐关系不变）。**正文字号不另设**：沿用 `--reader-font-size`，用户的阅读设置就是他的选择。
 - 分页：`.code-block` / `.markdown-body pre` / `table` / `blockquote` / `img` 加 `break-inside: avoid`；`.document-title` 与 h1–h6 加 `break-after: avoid`；**不设 `@page`**，页边距交给浏览器默认。
 - 交互块：`--parked` 停帧（`visibility:hidden`）按**屏幕视口**判定，打印时落在后几页的 widget 会整块空白，故打印段里恢复 `visibility:visible`——这不是「停帧禁止用 `display:none`」那条红线的例外，只是打印媒体下的另一份取值。
-- `Ctrl+P` 走 `window.print()`（`App.tsx` 全局快捷键，`typeof window.print === "function"` 守卫；拿不到实现时既不动作也不 `preventDefault`，不无谓吞键；分支末尾 `return`，且带 Shift 的组合键（`Ctrl+Shift+P`）不归它）。WebView2 具备这条路径（Chromium 打印管线），但**真机未验证**：打印对话框是否真的弹出、打印件里 widget iframe 是否渲染都只有引擎级证据（headless Chrome `printToPDF`）+ 微软 WebView2 打印文档。**在真机确认之前，README 不写这条快捷键**；确认方式见 `docs/agents/tooling.md` 的真机探针一节（起 release exe + CDP）。
+- `Ctrl+P` 自 2026-09-21 起**不再走 `window.print()`**：系统打印对话框退役，改开「导出为 PDF」视图（见下一节）。两段 `@media print` 继续服役——导出件正是靠这套打印规则排版（底稿 `.export-sheet` 屏幕态 `display:none`、打印独占纸面）。
+
+## 导出为 PDF（2026-09-21）
+
+- **入口**：`Ctrl+P` 或顶栏导出按钮（齿轮左侧，幽灵按钮 + 按下态与齿轮同款）。整页替换正文区（与设置视图同一动线：进入取下阅读位置、退出 `Esc` / 「‹ 返回阅读」按既有落位管线放回），与设置视图互斥。只能**从阅读视图**进入——底稿取自阅读 DOM，设置视图期间正文不在 DOM 里没有可取的（顶栏按钮此时禁用，`Ctrl+P` 同守但无条件吞键：不把按键让给 WebView 的浏览器加速键；`Ctrl+Shift+P` 不归它）。
+- **规格是模板常量，不是选项**：A4 纵向、边距 20mm/22mm、宣纸底色、首页页眉页脚留白、第 2 页起页码右上 + 页脚居中「文档题 · 素笺」——逐字对齐上游 kami 的 WeasyPrint 模板（tw93/kami `skills/kami/references/production.md`），界面上只有文件名输入框与导出按钮，规格以一行小字陈列。
+- **三处共用同一份底稿**：`buildExportDocument()`（`src/lib/exportDocument.ts`）从阅读 DOM 克隆消毒（摘掉 `.mdlog-live` / 复制按钮 / 复制回执，解包搜索高亮 `mark.search-match`），预览纸页、屏外测量容器、打印底稿（`.export-sheet`）都渲染这同一份 HTML——预览即所得的地基。
+- **预览分页按行摹 Chromium**（`src/lib/exportPagination.ts`）：块级装不下的段落按行盒拆开（`lineBoxes` 量行、`charOffsetAtLine` 二分断点、`trimCloneToChars` 裁克隆），孤行/寡行约束 = 2 与 Chromium 默认一致；段落整段移走时带走紧邻的前置标题（`break-after: avoid` 的预览语义）；页首块上边距截断、下半段克隆 `marginTop: 0`。测量容器必须含 `h1.document-title`——打印底稿首页是标题开篇，漏掉它预览分页与 PDF 会错开一块标题的高度（真机踩过：页界差一块，段落整段后移）。已知余差：页界可能差一行以内（行高亚像素累计），内容与顺序严格一致。
+- **页眉页脚是 `@page` 边盒，不是 Chromium 的 headerTemplate**：`@top-right` 页码 / `@bottom-center` 页脚 / `@page:first` 留白，9pt 衬线石灰。文档题是运行时值，整段由导出视图挂载时注入 `<style data-vellum-export-page>`、卸载移除，不落 kami.css。Chromium 131+ 支持边盒（真机实测渲染正确）；更旧运行时静默降级为无页眉页脚，内容不受影响。
+- **纸面底色必须刷在 `@page` 上**（真机像素取证）：屏幕态宣纸色挂在 `body` 上，Chromium 分页时 body 背景不会传播满整页画布——页边区漏白（PPM 逐像素：四角 #ffffff、版心 #f5f4ed）。`@page { background: var(--parchment) }` 才是覆盖页边区的正路（与上游模板同一手法），修后四角与版心同为 #f5f4ed。`kami.css.test.ts` 钉住了 `@page` 的 `size` + `background`。
+- **落盘**：前端系统保存对话框（`dialog:allow-save` 已入 capabilities）拿路径 → `export_pdf` 命令（`src-tauri/src/main.rs`）→ 对主窗口 WebView2 直接调 CDP `Page.printToPDF`（`webview2-com` 的 `CallDevToolsProtocolMethod`，与 wry 嵌套依赖严格同版 0.38.2 / windows-core 0.61.2，与 katex 同版约束同理）——同一页面上演，不另起隐藏 webview。COM 调用必须在主线程（`with_webview` 派发），CDP 回执异步经消息泵回来，故命令在 `spawn_blocking` 里用 mpsc 等回执（30s 超时）。参数：`printBackground:true`（宣纸底色）、`preferCSSPageSize:true`（`@page` 尺寸与边盒生效）、边距按英寸换算（20mm≈0.7874in、22mm≈0.8661in，与前端 `exportLayout.ts` 常量同值）。路径闸门：只收 .pdf 绝对路径。
+- **真机验收手法**：`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` 起 dev 实例（可带样章路径作首个参数），CDP 直接发同参数的 `Page.printToPDF`（与后端同一条管线），pdftoppm 出 PPM 逐像素量四角/页眉区/版心。注意先读 `docs/agents/tooling.md` 的「嵌入资源缓存」坑——dev 实例可能跑的是二进制里内嵌的旧 dist。
 
 ## 文件索引
 
@@ -163,6 +174,10 @@
 | `src/App.tsx` | 主入口、文档加载、窗口显示、编辑视图接线（提交落盘 / 回声抑制 / 外部变更分流 / 文档代际）、设置视图接线（正文区替换 / 阅读位置交接 / 侧栏内容切换） |
 | `src/components/MarkdownDocument.tsx` | Markdown 渲染（`React.lazy` 懒加载） |
 | `src/components/SettingsView.tsx` | 设置视图四节内容栏（`SETTINGS_SECTIONS` / `settingsSectionElementId` 分节清单唯一来源） |
+| `src/components/ExportPdfView.tsx` | 「导出为 PDF」纸张舞台（预览分页 / 缩放 / 浮动工具条 / @page 边盒注入 / 保存对话框） |
+| `src/lib/exportDocument.ts` | 导出底稿消毒（克隆阅读 DOM）与 @page 边盒规则文本 |
+| `src/lib/exportLayout.ts` | 导出页面几何常量（A4 / 20mm/22mm，96dpi 换算唯一来源） |
+| `src/lib/exportPagination.ts` | 预览分页：段落按行拆分 / 标题随块 / 页首边距截断（DOM 耦合） |
 | `src/components/SettingsNav.tsx` | 设置视图的侧栏内容（「設定」题头 + 分节导航，复用 `.outline-panel*` 语汇） |
 | `src/lib/appPreferences.ts` | 界面行为偏好（Store key `sidebarOpenOnLaunch` / `autoCheckUpdates`，与 `outlineWidth` 同一 settings Store） |
 | `src/lib/updater.ts` | 更新检查（启动静默 + 设置页「立即检查」，`Update` 句柄归还） |

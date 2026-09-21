@@ -1,0 +1,180 @@
+<!doctype>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>导出为 PDF · 界面定稿 — Vellum 素笺</title>
+<link rel="stylesheet" href="../../src/styles/kami.css">
+<style>
+/* file:// 打开时 kami.css 里的 /fonts 绝对路径失效，这里用相对路径补一份同名 @font-face */
+@font-face { font-family: "TsangerJinKai02"; src: url("../../public/fonts/TsangerJinKai02-W04.woff2") format("woff2"); font-weight: 400; }
+@font-face { font-family: "TsangerJinKai02"; src: url("../../public/fonts/TsangerJinKai02-W05.woff2") format("woff2"); font-weight: 500; }
+@font-face { font-family: "JetBrains Mono"; src: url("../../public/fonts/JetBrainsMono.woff2") format("woff2"); font-weight: 400 500; }
+
+/* ===== 设计稿自身版式 ===== */
+.doc { max-width: 1120px; margin: 0 auto; padding: 64px 40px 96px; }
+.doc-eyebrow { font: 500 10px/1.5 var(--mono); letter-spacing: 0.42em; color: var(--stone); }
+.doc-title { font: 500 30px/1.2 var(--serif); color: var(--near-black); margin: 10px 0 8px; }
+.doc-meta { font: 400 11px/1.6 var(--mono); color: var(--stone); margin: 0 0 14px; }
+.doc-lede { color: var(--olive); max-width: 680px; margin: 0 0 8px; }
+.doc-lede code, .spec-list code { font: 400 11px/1.5 var(--mono); background: var(--inline-code-bg); border-radius: 3px; padding: 1px 5px; color: var(--dark-warm); }
+.doc-h2 { font: 500 21px/1.25 var(--serif); color: var(--near-black); margin: 52px 0 6px; }
+.doc-sub { font-size: 12.5px; color: var(--stone); margin: 0 0 20px; }
+
+.upstream { border-left: 2px solid var(--brand); padding: 4px 0 4px 18px; margin: 18px 0 8px; max-width: 700px; }
+.upstream pre { font: 400 12px/1.6 var(--mono); background: var(--ivory); border-radius: 6px; box-shadow: inset 0 0 0 1px var(--hairline); padding: 14px 18px; overflow-x: auto; color: var(--near-black); margin: 10px 0; }
+.upstream p { color: var(--olive); font-size: 13px; margin: 8px 0; }
+
+.spec-list { font-size: 13px; color: var(--olive); line-height: 2.05; padding-left: 0; list-style: none; margin: 14px 0 0; }
+.spec-list li { padding-left: 18px; position: relative; }
+.spec-list li::before { content: ""; position: absolute; left: 0; top: 0.95em; width: 5px; height: 5px; border-radius: 1px; background: var(--brand); }
+.spec-list strong { font-weight: 500; color: var(--dark-warm); }
+
+/* ===== 窗口框架与顶栏 ===== */
+.frame { border: 1px solid var(--hairline); border-radius: 6px; overflow: hidden; background: var(--parchment); margin-top: 20px; }
+.m-topbar { height: 46px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding: 0 12px 0 14px; border-bottom: 1px solid var(--border-soft); background: color-mix(in srgb, var(--parchment) 94%, var(--ivory)); }
+.m-topbar__group { display: flex; align-items: center; gap: 6px; }
+.m-iconbtn { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; color: var(--stone); }
+.m-iconbtn svg { width: 15px; height: 15px; }
+.m-winctl { display: flex; gap: 16px; color: var(--stone); font: 400 11px/1 var(--mono); padding: 0 4px; }
+.m-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--hairline); }
+.m-note { font: 500 10px/1.5 var(--mono); letter-spacing: 0.4px; color: var(--stone); }
+
+/* ===== 纸张舞台 ===== */
+.stage { position: relative; padding: 40px 24px 116px; display: flex; flex-wrap: wrap; justify-content: center; gap: 28px; background: var(--warm-sand); }
+.pv { overflow: hidden; }
+.pwrap { transform-origin: top left; }
+.paper { width: 794px; height: 1123px; background: var(--parchment); border: 1px solid var(--hairline); box-shadow: 0 1px 3px rgba(20,20,19,0.08); padding: 76px 83px; overflow: hidden; position: relative; }
+.paper-hdr { position: absolute; top: 34px; right: 83px; font: 400 12px/1 var(--serif); color: var(--stone); }
+.paper-ftr { position: absolute; bottom: 32px; left: 0; right: 0; text-align: center; font: 400 12px/1 var(--serif); color: var(--stone); }
+.paper-tag { position: absolute; top: -26px; left: 2px; font: 500 10px/1.5 var(--mono); letter-spacing: 0.4px; color: var(--stone); }
+.pv-shell { position: relative; }
+
+/* ===== 底部浮动工具条 ===== */
+.toolbar { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; white-space: nowrap; background: var(--ivory); border-radius: 6px; box-shadow: inset 0 0 0 1px var(--hairline), 0 1px 2px rgba(20,20,19,0.04); padding: 8px 12px; }
+.toolbar .button { flex: none; white-space: nowrap; }
+.toolbar__spec { font: 500 10px/1.5 var(--mono); letter-spacing: 0.4px; color: var(--stone); }
+.toolbar__sep { width: 1px; height: 20px; background: var(--hairline); }
+.m-input { width: 210px; background: var(--parchment); border: none; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--hairline); padding: 7px 10px; font: 400 12px/1.5 var(--mono); color: var(--near-black); }
+
+.variant-notes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 32px; margin-top: 18px; font-size: 12.5px; color: var(--olive); }
+.variant-notes p { margin: 0; }
+.variant-notes strong { font-weight: 500; color: var(--dark-warm); }
+.doc-foot { margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--hairline); font-size: 11.5px; color: var(--stone); line-height: 1.8; }
+</style>
+</head>
+<body>
+<div class="doc">
+
+  <div class="doc-eyebrow">VELLUM 素笺 · 界面设计稿</div>
+  <h1 class="doc-title">导出为 PDF · 纸张舞台（定稿）</h1>
+  <div class="doc-meta">2026-09-21 · 选定方案三 · 页面规格对齐上游 kami（WeasyPrint 模板）</div>
+  <p class="doc-lede">上游 kami 的 PDF 由 HTML 模板经 WeasyPrint 生成，纸张、边距、底色都是模板里的常量，从不交给用户挑。本设计照此办理：<strong>不设纸张与边距选项</strong>，整扇窗只留纸面预览、文件名与一枚导出章。纸面直接引用 <code>src/styles/kami.css</code> 与 <code>public/fonts/</code> 的仓耳今楷，所见即纸上所得。</p>
+
+  <h2 class="doc-h2">上游依据</h2>
+  <p class="doc-sub">tw93/kami · <code>references/production.md</code> Part 1「HTML → PDF (WeasyPrint)」</p>
+  <div class="upstream">
+    <pre>@page {
+  size: A4;              /* 纸张是模板常量 */
+  margin: 20mm 22mm;     /* 边距也是模板常量 */
+  background: #f5f4ed;   /* 宣纸底色漫过边距，不留白边 */
+}
+
+@page {
+  @top-right    { content: counter(page);          /* 页码：衬线 9pt 石灰 */ }
+  @bottom-center{ content: "{{DOC_NAME}} · {{AUTHOR}}"; }
+}
+@page:first { @top-right { content: "" } @bottom-center { content: "" } }  /* 首页干净 */</pre>
+    <p>页码与页脚自第二页起出现，首页不落款；另有一种「白纸打印」变体（@page 背景换白、ivory 浮层改由宣纸承接），上游标注为家用打印机省墨的可选配方，默认仍是宣纸。</p>
+  </div>
+
+  <h2 class="doc-h2">界面定稿</h2>
+  <p class="doc-sub">整页替换正文区（同设置页动线）；舞台底色用暖砂，宣纸纸面自其中浮起</p>
+  <div class="frame">
+    <div class="m-topbar">
+  <div class="m-topbar__group">
+    <span class="m-iconbtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2.5 4h11M2.5 8h11M2.5 12h7"/></svg></span>
+    <span class="m-iconbtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg></span>
+  </div>
+  <div></div>
+  <div class="m-topbar__group">
+    <span class="m-iconbtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1"/></svg></span>
+    <span class="m-winctl"><span>—</span><span>▢</span><span>✕</span></span>
+  </div>
+</div>
+    <div class="m-head">
+      <button type="button" class="button button-ghost">‹ 返回阅读</button>
+      <span class="m-note">ESC · 预览即所得</span>
+    </div>
+    <div class="stage">
+      <div class="pv-shell">
+        <span class="paper-tag">第 1 页 · 首页不落款</span>
+        <div class="pv" style="width:492px;height:697px;">
+          <div class="pwrap" style="transform:scale(0.62);">
+            <div class="paper"><div class="markdown-body"><h1 class="document-title" title="C:\Users\17445\Documents\wisdom\集部\小窗幽记-卷一.md">小窗幽记 · 卷一</h1>
+<div class="md-props">
+  <div class="md-props__row"><span class="md-props__key">created</span><span class="md-props__value">2026-09-12</span></div>
+  <div class="md-props__row md-props__row--tags"><span class="md-props__key">tags</span><span class="md-props__list"><span class="md-props__chip">集部</span><span class="md-props__chip">清言</span><span class="md-props__chip">笔记</span></span></div>
+  <div class="md-props__row"><span class="md-props__key">related</span><span class="md-props__list"><a href="#">菜根谭</a><span class="md-props__item">围炉夜话</span></span></div>
+</div>
+<p>宠辱不惊，闲看庭前<strong>花开花落</strong>；去留无意，漫随天外<code>云卷云舒</code>。此则与<a class="wikilink" href="#">菜根谭</a>旨趣相通，皆言胸中旷达，不为外物所拘。今人读之，犹当于窗下置一榻、焚一炷香，缓缓咀嚼。</p>
+<h2>醒</h2>
+<p>食中山之酒，一醉千日。今世之昏昏逐逐，无一日不醉；趋名者醉于朝，趋利者醉于野，豪者醉于声色车马。安得一服清凉散，人人解酲？</p>
+<blockquote class="callout callout--tip" data-callout="tip"><div class="callout__title">Tip</div><p>「醒」为全书眼目。陈继儒以清言醒世，语短而味长，宜置于案头，倦时读一二则。</p></blockquote>
+<h2>集韵</h2>
+<p>谈空反被空迷，耽静多为静缚。以下数则，皆以简笔写远意：</p>
+<div class="code-block"><div class="code-block__header"><span class="code-block__lang">rust</span></div><div class="code-block__body"><pre><code>fn main() {
+    let rain = "小楼一夜听春雨";
+    println!("{rain}，深巷明朝卖杏花。");
+}</code></pre></div></div></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="pv-shell">
+        <span class="paper-tag">第 2 页 · 页码右上 / 页脚居中</span>
+        <div class="pv" style="width:492px;height:697px;">
+          <div class="pwrap" style="transform:scale(0.62);">
+            <div class="paper"><div class="markdown-body"><p>清言体例，与近世笔记对照如下：</p>
+<table><thead><tr><th>书</th><th>朝代</th><th>体例</th></tr></thead><tbody><tr><td>小窗幽记</td><td>明</td><td>清言</td></tr><tr><td>菜根谭</td><td>明</td><td>语录</td></tr><tr><td>围炉夜话</td><td>清</td><td>格言</td></tr></tbody></table>
+<p>林下漏月光，疏疏如残雪。译文不必逐字，贵在得神；注家纷纷，反而障眼。读书须用意，一字值千金。</p>
+<ul>
+<li class="task-list-item"><input type="checkbox" checked> 校毕卷一、卷二</li>
+<li class="task-list-item"><input type="checkbox" checked> 补「集韵」篇目</li>
+<li class="task-list-item"><input type="checkbox"> 待校《荆园小语》引文</li>
+</ul>
+<blockquote><p>大事难事，看担当；逆境顺境，看襟度；临喜临怒，看涵养；群行群止，看识见。</p></blockquote>
+<hr>
+<p><em>岁在丙午，秋窗校书记。</em></p></div><div class="paper-hdr">2</div><div class="paper-ftr">小窗幽记-卷一 · 素笺</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="toolbar">
+        <span class="toolbar__spec">A4 · 边距 20/22mm · 宣纸</span>
+        <span class="toolbar__sep"></span>
+        <input class="m-input" value="小窗幽记-卷一.pdf" aria-label="文件名">
+        <button type="button" class="button button-primary">导出为 PDF</button>
+      </div>
+    </div>
+  </div>
+  <div class="variant-notes">
+    <p><strong>定位</strong>　预览即主角：纸面铺满窗口，唯一的控件是底部一条浮动工具条——固定的页面规格以一行小字陈列（A4 · 20/22mm · 宣纸），不是选项。</p>
+    <p><strong>取舍</strong>　文件名收进工具条（点按即编辑）；若日后要「白纸打印」变体，可在规格小字旁加一枚两档纸色开关——上游认可的唯一可选项。</p>
+  </div>
+
+  <h2 class="doc-h2">定稿细节</h2>
+  <ul class="spec-list">
+    <li><strong>入口</strong>　Ctrl+P 与顶栏按钮打开本视图（替换正文区，同设置页），不再调 <code>window.print()</code> 的系统对话框；Esc 或「‹ 返回阅读」退出。</li>
+    <li><strong>页面规格</strong>　A4 纵向，边距 20mm / 22mm，宣纸底色 <code>#f5f4ed</code> 漫至纸边——全部固定，对齐上游模板常量。</li>
+    <li><strong>页眉页脚</strong>　页码自第 2 页起居右上（衬线 9pt 石灰）；页脚居中「文档名 · 素笺」；首页两者皆空。</li>
+    <li><strong>版式</strong>　纸面与阅读页渲染同一棵 Markdown 树，字号 / 栏宽 / 行高跟随阅读设置；分页保护沿用现有 <code>@media print</code> 的规则（代码块、表格、引用不跨页，标题不落页脚）。</li>
+    <li><strong>文件名</strong>　默认取文档题（如 <code>小窗幽记-卷一.pdf</code>），工具条内就地改名；导出时经系统保存对话框选落盘位置。</li>
+    <li><strong>实现定稿（2026-09-21 真机验证）</strong>　后端对主窗口 WebView2 直调 CDP <code>Page.printToPDF</code>（<code>preferCSSPageSize:true</code>，边距 20/22mm 按英寸传）；页码页脚用 CSS <code>@page</code> 边盒（Chromium 131+ 认，真机实测渲染正确，由导出视图运行时注入，文档题是运行时值）；纸面底色必须刷 <code>@page { background: var(--parchment) }</code>——body 背景在分页时不传播满页边区，会漏白（PPM 逐像素取证）。预览分页按行摹 Chromium：段落按行盒拆分、孤行寡行 = 2、标题随块换页（<code>src/lib/exportPagination.ts</code>）。</li>
+  </ul>
+
+  <div class="doc-foot">
+    本页直接引用 <code>src/styles/kami.css</code> 与 <code>public/fonts/</code>，样式随真实组件同步演化；双击本文件即可在浏览器中查看。上游参考：<code>tw93/kami</code> 仓库 <code>references/production.md</code>。
+  </div>
+
+</div>
+</body>
+</html>

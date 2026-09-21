@@ -205,7 +205,7 @@ describe("SettingsView", () => {
       ["聚焦搜索", ["CTRL", "K"]],
       ["就地编辑", ["CTRL", "E"]],
       ["提交保存", ["CTRL", "S"]],
-      ["打印", ["CTRL", "P"]],
+      ["导出为 PDF", ["CTRL", "P"]],
       ["后退·前进", ["ALT", "←", "→"]],
     ];
     for (const [label, keys] of rows) {
