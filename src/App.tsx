@@ -1038,7 +1038,10 @@ export default function App() {
     void loadPathRef.current(path, { fragment, source: "wikilink" });
   }, []);
 
+  // 设置视图里点铅笔同样不切视图：正文不在 DOM 里，切了也看不见；静默改掉 viewMode
+  // 只会让「返回阅读」时落在编辑态（与 Ctrl+E 分支同款守卫，两处必须一致）
   const handleToggleEdit = useCallback(() => {
+    if (isSettingsOpenRef.current) return;
     void editorRef.current?.toggleView();
   }, []);
 

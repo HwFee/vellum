@@ -3714,6 +3714,24 @@ describe("设置视图", () => {
     await enterEditingView();
   });
 
+  it("设置视图里点顶栏铅笔同样不切编辑视图（与 Ctrl+E 同款守卫）", async () => {
+    await loadDocument();
+    fireEvent.click(gear());
+
+    fireEvent.click(screen.getByRole("button", { name: "切换编辑视图" }));
+    expect(document.querySelector(".document-scroll__content--editing")).toBeNull();
+    expect(screen.getByRole("button", { name: "切换编辑视图" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+
+    // 退出设置视图后必须仍是阅读视图：静默切进编辑视图的话这里会落在编辑态
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Intro" })).toBeInTheDocument());
+    expect(document.querySelector(".document-scroll__content--editing")).toBeNull();
+    await enterEditingView();
+  });
+
   it("侧栏设置导航：点条目切激活态（滚动交给与大纲同一条缓动路径）", async () => {
     render(<App />);
     fireEvent.click(gear());
@@ -3801,6 +3819,42 @@ describe("设置视图", () => {
       flushFrames();
       expect(container.scrollTop).toBe(4800);
     });
+  });
+
+  it("设置视图打开期间换新文档：退出设置视图，交出去的仍是设置前那份阅读位置", async () => {
+    // 无标题文档：位置记录只剩比例兜底（jsdom 没有布局，锚点路径量不出位移）
+    const docA = { ...loadedDoc, markdown: "只有一段正文。" };
+    const docB = { ...loadedDoc, path: "C:/notes/next.md", fileName: "next.md", markdown: "下一篇正文。" };
+    backendInvoke.mockImplementation(async (command: string) =>
+      command === "load_document" ? docA : undefined
+    );
+    vi.mocked(open).mockResolvedValueOnce(docA.path);
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+    await waitFor(() => expect(screen.getByText("只有一段正文。")).toBeInTheDocument());
+
+    const container = document.querySelector(".document-scroll") as HTMLElement;
+    mockScrollable(container, 4800);
+
+    fireEvent.click(gear());
+    // 进入时把阅读位置即刻落盘（容器随即归零、正文退出 DOM）
+    await waitFor(() => expect(storeSet).toHaveBeenCalledWith(docA.path, { ratio: 0.25 }));
+    storeSet.mockClear();
+
+    // 设置视图打开期间换新文档：loadPath 的「离场测量 → closeSettings」次序若颠倒，
+    // 测量会落到归零后的设置页偏移上，把 ratio 0 写进上一篇（读者位置当场丢失）
+    backendInvoke.mockImplementation(async (command: string) =>
+      command === "load_document" ? docB : undefined
+    );
+    vi.mocked(open).mockResolvedValueOnce(docB.path);
+    fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+    await waitFor(() => expect(screen.getByText("下一篇正文。")).toBeInTheDocument());
+    // 读者要的是新文档，不是设置页
+    expect(document.querySelector(".settings-view")).toBeNull();
+    expect(storeSet).toHaveBeenCalledWith(docA.path, { ratio: 0.25 });
+    expect(storeSet).not.toHaveBeenCalledWith(docA.path, { ratio: 0 });
   });
 
   it("设置视图期间滚的是设置内容：不把它的偏移写进阅读位置", async () => {
