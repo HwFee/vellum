@@ -72,8 +72,7 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/test/setup.ts",
-    // 审核探针/草稿测试（包括其他 Agent 暂时放在 outputs/ 的验证文件）不得被全量跑拾取
     // extensions/ 是 pi 扩展（node:test 用例、另一套 tsconfig），不属于前端测试面
-    exclude: [...defaultExclude, "outputs/**", "dist/**", "extensions/**"],
+    exclude: [...defaultExclude, "dist/**", "extensions/**"],
   },
 });

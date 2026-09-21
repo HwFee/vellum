@@ -148,11 +148,9 @@ npm run typecheck   # tsc --noEmit（strict + erasableSyntaxOnly）
 本目录曾于 2026-09 被清空（`~/.pi` 重建时丢失，无 git 远端、无回收站副本）。
 本次重建的权威来源：
 
-- 设计契约：`Vellum/docs/superpowers/specs/2026-09-05-pi-mdlog-live-log-design.md`（含 v3.1 补记）；
-- 基线实现：`Vellum/docs/superpowers/plans/parts/wp4-pi-extension.md`（Task 4.1–4.6）；
-- 修复清单：`Vellum/outputs/mdlog/wp4-fix-log.md`、`wp4-fix2-log.md`（20 项定点修复）；
-- 复审意见：`Vellum/docs/superpowers/reviews/2026-09-05-wp4-review2-{qwen,gemini}.md`、`wp4-review4-gemini.md`
-  （合并原子性、断开闸门、降级追加接缝、超时定时器 unref、唤起直连候选优先级）。
+- 设计契约、基线实现与复审意见：`Vellum/docs/superpowers/**`（已于 2026-09-21 清理，从 git 历史取回）；
+- 修复清单：`Vellum/outputs/mdlog/*-fix-log.md`（同上，git 历史）；
+- 当时的验收语料：`Vellum/outputs/mdlog/acceptance-fixtures/`（同上）；
 
 与原实现的已知差异：图片处理被提到重试圈外（原实现重试会重复复制图片、留下孤儿资产）；
 `ensureTrailingNewlinesOnFile` 改为按文件尾部实测（原为每实例一次守卫，外部剥尾换行后接缝会黏连）。

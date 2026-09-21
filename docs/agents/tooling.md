@@ -1,13 +1,13 @@
 # 工程环境、技能、宣传品与发布
 
-`AGENTS.md` 的详情分册。收录三个执行入口的真实 shell、技能安装流程与 pi 扩展、已删除的宣传品（`promo/`，1.9.0 整体移除）的来历、性能优化技能表与死规则、入口 chunk 尺寸历史，以及打包与生产构建的注意事项、真机探针、`tauri/custom-protocol` feature。
+`AGENTS.md` 的详情分册。收录三个执行入口的真实 shell、技能安装流程与 pi 扩展、性能优化技能表与死规则、入口 chunk 尺寸历史，以及打包与生产构建的注意事项、签名与发布、真机探针、`tauri/custom-protocol` feature。
 
 ## 跑命令用哪个 shell（三个入口不是一个 shell）
 
 | 入口 | 实际 shell | 语法 |
 |------|-----------|------|
 | 前台 `bash` 工具 | Git Bash / MSYS，bash 5.3.15 | POSIX（`&&`、`$(…)`、`for … do … done`） |
-| `bg_run` 后台任务 | PowerShell 7.6.6（Core，`pwsh.exe`） | PowerShell 7（`&&`、`? :`、`??` 均可用） |
+| `bg_run` 后台任务 | **会变，别按表猜** | 不保证，先探明 |
 | `powershell` 工具 | PowerShell 7.6.6（Core） | 同上 |
 
 - **后台任务用哪个 shell 会变，别按表猜**：表里那一栏是**当时的**实测值。
@@ -25,7 +25,7 @@
 ### 仓库结构
 
 - 全局技能仓库：`C:/Users/17445/Desktop/HwFee-skills/skills/`
-- 每个项目通过**目录联接**引用仓库中的技能，**不拷贝**（本地 `.pi/skills/<skill-name>` 均为联接，永不入库；`.gitignore` 已忽略 `.pi/skills/`）。
+- 每个项目通过**目录联接**引用仓库中的技能，**不拷贝**（`.pi/skills/<skill-name>` 均为联接，永不入库；`.gitignore` 已忽略 `.pi/`）。
 - **git 会跟随联接读到真实内容**——所以这些路径可以被误 `git add` 进来，历史上就发生过。
   - 判据只有一条：`git ls-files .pi/skills/` 有输出就是错，用 `git rm -r --cached .pi/skills/<skill-name>/` 解除跟踪（`--cached` 只动索引）。
   - **别用 `rm -rf` 删那个路径**——它会顺着联接删掉全局库里的真身。
@@ -94,14 +94,6 @@ node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/ex
   - pi 加载扩展时走 jiti 别名，`node --test` 与 `tsc` 走 Node 原生解析——两套解析必须都能找到，且刻意指向同一份以防版本漂移。重建命令见 `extensions/mdlog/README.md`。
 - **它的 TS 不属于前端构建面**：app 的 `tsconfig.json` 只 `include: ["src"]`，`vite.config.ts` 的 `test.exclude` 已排除 `extensions/**`（那边的测试跑 `node:test`，被 vitest 拾取会必挂）。
 - 常用命令（在 `extensions/mdlog/` 里）：`npm test`、`npm run typecheck`。
-
-## 宣传品（`promo/`，已移除）
-
-`promo/` 已于 1.9.0 **整体删除**（用户明确不再维护，不再重做）：`video/` Remotion 宣传片工程（七场分镜 / CDP 抓图脚本 / 配乐合成器 / 中英两套素材与文档）、`promo/build-assets.mjs`、`promo/assets/vellum-promo*`、`promo/announcement.md`（1.7.0 旧稿）、落地页 `promo/index.html`、静态素材 `promo/assets/`（真实窗口截图 / 海报帧 / 社交分享卡，中英各一套）、`promo/README.md`。README 顶部的窗口截图与「落地页」链接随之撤下（`assets/screenshots/` 那三张是更早的旧版界面——顶栏还带着文件名，不回头用）。
-
-- 原文与历史说明可查 git（`e305a23` 及之前；1.8.0 条目里那段宣传片叙述属历史记录，不要照它去跑命令）。
-- **要重做落地页/素材，界面像素必须来自真实运行的 Vellum**（CDP 抓取），不是重画的示意图；`scripts/cdp-*.mjs` 是**验收探针**、不做截图，抓图脚本得重写（原脚本在 `video/capture/capture.mjs`，可从 git 历史取回）。
-- 落地页当年的硬约束一并进了历史，重做时按 `DESIGN.md` 的 Do's/Don'ts 重新定：单文件内联 CSS、零依赖双击即开；不引第二个强调色、不加大圆角与厚度投影；等宽字体没有汉字，中文小字一律用衬线。
 
 ## 性能优化
 

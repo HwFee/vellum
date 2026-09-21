@@ -3,7 +3,7 @@ import path from 'node:path';
 
 const templatePath = path.resolve(
   process.cwd(),
-  '.pi/skills/vellum-mdlog/assets/widget-template.html'
+  'C:/Users/17445/Desktop/HwFee-skills/skills/vellum-mdlog/assets/widget-template.html'
 );
 
 if (!fs.existsSync(templatePath)) {

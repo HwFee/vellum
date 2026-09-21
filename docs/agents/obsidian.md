@@ -81,7 +81,7 @@
 
 ## 文档标题（inline title）与属性卡 / 提示块的定稿形态
 
-2026-09-18 定稿：四项样式经 `docs/preview/note-block-styles.html` 候选页逐块选定，汇总预览在 `docs/preview/note-block-final.html`。
+2026-09-18 定稿：四项样式经候选页逐块选定（候选页与汇总预览已在 2026-09-21 仓库清理中移除，从 git 历史取回）。
 
 ### ① 标题搬进正文
 
