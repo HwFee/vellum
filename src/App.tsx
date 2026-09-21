@@ -312,6 +312,14 @@ export default function App() {
     }
     // 正文即将退出 DOM：复位「已恢复」标记，回来时 handleContentRendered 才会走恢复
     lastRestoredPathRef.current = null;
+    // 共用滚动容器归零（必须在上面取位置**之后**）：容器里的内容要换成设置页，
+    // 不归零的话浏览器会把旧 scrollTop 钳到设置页的最大值——从长文档中部进来就会落在
+    // 设置页的中段/底部，而不是顶部那一节。用直接赋值而非缓动：内容整块换了，
+    // 缓动看起来只会像设置页自己滑一段。退出时的回位走 pendingRestoreRef 那条管线，
+    // 与本行无关（handleContentRendered 会先归零再按记录落位）
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 0;
+    }
     setSettingsSectionId("reading");
     setIsSettingsOpen(true);
   }, []);
@@ -1374,7 +1382,10 @@ export default function App() {
   }, [isMdlogActive]);
 
   // 窄屏下按 Escape 关闭大纲面板。设置视图打开时 Escape 归设置视图（退出设置），
-  // 不在这里连带关侧栏——一次按键关两层是弹层时代就刻意避免的观感
+  // 不在这里连带关侧栏——一次按键关两层是弹层时代就刻意避免的观感。
+  // isSettingsOpen 必须进依赖表：只写在守卫里的话，effect 不随设置视图开合重跑，
+  // 陈旧监听闭包里的它永远是 false（先开侧栏、后开设置视图就正好命中这条），
+  // 于是窄屏下一次 Escape 会把设置视图与侧栏一起关掉
   useEffect(() => {
     if (!isNarrow || !isOutlineOpen || isSettingsOpen) return;
 
@@ -1386,7 +1397,7 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isNarrow, isOutlineOpen, setOutlineOpenPinned]);
+  }, [isNarrow, isOutlineOpen, isSettingsOpen, setOutlineOpenPinned]);
 
   const headings = useMemo(
     () => (activeDocument ? extractOutline(activeDocument.markdown) : []),

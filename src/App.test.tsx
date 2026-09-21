@@ -3731,6 +3731,38 @@ describe("设置视图", () => {
     await act(async () => {});
   });
 
+  it("从滚动位置进入设置视图：共用容器归零，落在设置页顶部那一节", async () => {
+    await loadDocument();
+
+    const container = document.querySelector(".document-scroll") as HTMLElement;
+    mockScrollable(container, 4800);
+
+    fireEvent.click(gear());
+
+    // 内容换成了设置页：不归零就会被浏览器钳到设置页的最大值（长文档中部进来
+    // 会落在设置页中段/底部，而不是顶部的「阅读」节）
+    expect(container.scrollTop).toBe(0);
+    expect(document.querySelector(".settings-view")).toBeInTheDocument();
+  });
+
+  it("窄屏下设置视图里的 Escape 只关设置，不连带关侧栏（陈旧监听不得残留）", async () => {
+    // 窄屏 + 先开侧栏 + 后开设置视图：关侧栏那条监听的闭包捕获的是「设置视图没开」，
+    // 依赖表漏掉 isSettingsOpen 就会一次 Escape 关两层
+    window.innerWidth = 500;
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
+    expect(document.querySelector(".outline-sidebar--open")).toBeInTheDocument();
+
+    fireEvent.click(gear());
+    expect(document.querySelector(".settings-view")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(document.querySelector(".settings-view")).toBeNull();
+    expect(document.querySelector(".outline-sidebar--open")).toBeInTheDocument();
+  });
+
   it("退出设置视图把阅读位置放回原处（正文退出 DOM 期间位置不丢）", async () => {
     // 无标题文档：位置记录只剩比例兜底（jsdom 没有布局，锚点路径量不出位移）
     backendInvoke.mockImplementation(async (command: string) =>
