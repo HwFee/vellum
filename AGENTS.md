@@ -81,7 +81,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 18. 打印只允许新增 `@media print` 段（屏幕态规则一律不动）：主段（隐藏界面件 / 放开版心 / 分页保护）排在首个 `.mdlog-widget` 之前且注释里也不得出现该字样，含该字样的交互块打印规则排在它之后；**屏幕态规则落在主段之后的（mdlog 区段内的）选择器，其打印覆写必须放文件末尾那段**——同特异度靠来源序取胜、媒体查询不参与特异度，放主段等于没写（`.mdlog-live` 踩过）。 → `docs/agents/rendering.md`
 19. **打印覆写要压过屏幕态规则时，屏幕态规则不能写成逗号列表**：构建期 minifier 会把列表包进 `:is()` 并取参数里最高特异度，只在产物里静默失效；屏幕态拆成单选择器、打印覆写与它逐字同选择器靠来源序取胜（勾选划线踩过）。 → `docs/agents/rendering.md`
 20. 设置视图打开时侧栏只换内容（`SettingsNav`，「設定」题头 + 分节导航），**仍是同一枚 `.outline-sidebar`**：宽度、开合与拖宽的全部入口照旧走 `beginWidthTransition()`，别为设置页另写一套侧栏。 → `docs/agents/rendering.md`
-21. 导出为 PDF（Ctrl+P，打印对话框已退役）：纸面底色必须刷在 `@page` 上——`body` 背景分页时不传播满页边区（会漏白，真机像素取证）；页眉页脚走导出视图运行时注入的 `@page` 边盒，不落 kami.css；预览测量容器必须含 `h1.document-title`，否则预览页界与 PDF 错开一块标题高度。 → `docs/agents/rendering.md`
+21. 导出为 PDF（Ctrl+P，打印对话框已退役）：纸面底色必须刷在 `@page` 上——`body` 背景分页时不传播满页边区（会漏白，真机像素取证）；页眉页脚走导出视图运行时注入的 `@page` 边盒，不落 kami.css；预览测量流必须与打印底稿逐块同构（注入题目在则是第一块，「原文」模式不注入）；正文自带同题 h1 时按题目样式去重——同一题目不排两次。 → `docs/agents/rendering.md`
 
 ## 关键路径
 

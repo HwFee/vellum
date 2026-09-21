@@ -7,7 +7,13 @@
 export interface ExportDocument {
   /** 文档题（h1.document-title 的文本）：页脚文案与默认文件名的来源 */
   title: string;
-  /** markdown-body 的内部 HTML（已消毒） */
+  /**
+   * 正文自带的头题：正文首块是 h1 且归一后与文档题相同（文件名常有连字符 /
+   * 空白之差，如「Kimi-K3」对「Kimi K3」），取其原文文本；没有则为 null。
+   * 「居中」模式下视图用它顶替注入的题目并把正文里那枚摘掉（同一题目不排两次）
+   */
+  ownTitle: string | null;
+  /** markdown-body 的内部 HTML（已消毒；正文自带的头题原样保留在其中） */
   bodyHtml: string;
 }
 
@@ -32,7 +38,54 @@ export function buildExportDocument(root: HTMLElement): ExportDocument {
   });
   const title = clone.querySelector("h1.document-title")?.textContent?.trim() || "未命名";
   const body = clone.querySelector(".markdown-body");
-  return { title, bodyHtml: body ? body.innerHTML : "" };
+  return { title, ownTitle: body ? readOwnTitle(body, title) : null, bodyHtml: body ? body.innerHTML : "" };
+}
+
+/// 题名归一：文件名派生题与正文 h1 常有连字符 / 空白 / 间隔号之差
+///（「Kimi-K3技术报告」对「Kimi K3 技术报告」），比对前全部抹平
+export function normalizeExportTitle(value: string): string {
+  return value.toLowerCase().replace(/[\s\-_·—–]+/g, "");
+}
+
+/// 首枚有布局盒的块：块单元外壳（display:contents 的 .vellum-unit-wrap）展平一层——
+/// 底稿克隆是游离节点，取不到应用样式后的 computed display，认类名而不是算样式
+function firstLayoutBlock(body: Element): Element | null {
+  let el = body.firstElementChild;
+  while (el && el.classList.contains("vellum-unit-wrap")) el = el.firstElementChild;
+  return el;
+}
+
+/** 正文自带的头题文本：首块是 h1 且归一后与文档题相同才认，否则返回 null */
+export function readOwnTitle(body: Element, title: string): string | null {
+  const first = firstLayoutBlock(body);
+  if (!first || first.tagName !== "H1") return null;
+  const text = first.textContent?.trim() ?? "";
+  const want = normalizeExportTitle(title);
+  return text && want && normalizeExportTitle(text) === want ? text : null;
+}
+
+/**
+ * 摘除正文自带的头题（首块 h1，连同只装它的块单元外壳）。用于「居中」模式：
+ * 头题由底稿开头的 h1.document-title 居中承担，正文里那枚同款 h1 不再重复排印。
+ * 只在 readOwnTitle 命中的底稿上调用（视图以 ownTitle 作闸门）。
+ */
+export function stripLeadingOwnTitle(bodyHtml: string): string {
+  const host = document.createElement("div");
+  host.innerHTML = bodyHtml; // bodyHtml 已是消毒后的底稿
+  const first = firstLayoutBlock(host);
+  if (!first || first.tagName !== "H1") return bodyHtml;
+  const wrap = first.parentElement;
+  first.remove();
+  if (
+    wrap &&
+    wrap !== host &&
+    wrap.classList.contains("vellum-unit-wrap") &&
+    wrap.childElementCount === 0 &&
+    !(wrap.textContent ?? "").trim()
+  ) {
+    wrap.remove();
+  }
+  return host.innerHTML;
 }
 
 /// CSS content 字符串转义：页脚要嵌文档题，引号 / 反斜杠 / 换行都得收编

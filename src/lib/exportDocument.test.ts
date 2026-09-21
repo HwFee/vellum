@@ -3,6 +3,8 @@ import {
   buildExportDocument,
   buildExportPageStyle,
   escapeCssContentString,
+  normalizeExportTitle,
+  stripLeadingOwnTitle,
 } from "./exportDocument";
 
 function makeRoot(inner: string): HTMLElement {
@@ -54,8 +56,56 @@ describe("buildExportDocument 底稿取样", () => {
   it("缺标题回退「未命名」，缺正文给空串", () => {
     expect(buildExportDocument(makeRoot("<p>nothing</p>"))).toEqual({
       title: "未命名",
+      ownTitle: null,
       bodyHtml: "",
     });
+  });
+
+  it("正文首块 h1 与文档题归一相同：ownTitle 取它的原文文本", () => {
+    const root = makeRoot(
+      '<h1 class="document-title">Kimi-K3技术报告通俗解读</h1>' +
+        '<div class="markdown-body"><h1>Kimi K3 技术报告通俗解读</h1><p>正文</p></div>'
+    );
+    const doc = buildExportDocument(root);
+    expect(doc.ownTitle).toBe("Kimi K3 技术报告通俗解读");
+    // 正文原样保留（摘除与否是视图按模式决定的）
+    expect(doc.bodyHtml).toContain("<h1>Kimi K3 技术报告通俗解读</h1>");
+  });
+
+  it("首块 h1 与文档题不同名：ownTitle 为 null（两枚标题都算数，不摘）", () => {
+    const root = makeRoot(
+      '<h1 class="document-title">2026-09-21 日志</h1>' +
+        '<div class="markdown-body"><h1>今天的三件事</h1><p>正文</p></div>'
+    );
+    expect(buildExportDocument(root).ownTitle).toBeNull();
+  });
+
+  it("首块套着块单元外壳（.vellum-unit-wrap）：展平一层照样认出 h1", () => {
+    const root = makeRoot(
+      '<h1 class="document-title">小窗幽记 · 卷一</h1>' +
+        '<div class="markdown-body">' +
+        '<div class="vellum-unit-wrap" data-vellum-unit="0"><h1>小窗幽记 · 卷一</h1></div>' +
+        "<p>正文</p></div>"
+    );
+    expect(buildExportDocument(root).ownTitle).toBe("小窗幽记 · 卷一");
+  });
+});
+
+describe("readOwnTitle / stripLeadingOwnTitle", () => {
+  it("归一比对抹平连字符 / 空白 / 大小写", () => {
+    expect(normalizeExportTitle("Kimi-K3 技术报告")).toBe(normalizeExportTitle("kimi k3技术报告"));
+  });
+
+  it("摘除首块 h1，其余正文逐字保留", () => {
+    const html = "<h1>题</h1><p>第一段</p><h2>第二节</h2>";
+    expect(stripLeadingOwnTitle(html)).toBe("<p>第一段</p><h2>第二节</h2>");
+  });
+
+  it("外壳只装这枚 h1：连同外壳一起摘；首块不是 h1 则原样返回", () => {
+    const wrapped =
+      '<div class="vellum-unit-wrap" data-vellum-unit="0"><h1>题</h1></div><p>正文</p>';
+    expect(stripLeadingOwnTitle(wrapped)).toBe("<p>正文</p>");
+    expect(stripLeadingOwnTitle("<p>先有一段</p><h1>题</h1>")).toBe("<p>先有一段</p><h1>题</h1>");
   });
 });
 

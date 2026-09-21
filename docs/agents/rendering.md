@@ -161,7 +161,8 @@
 - **入口**：`Ctrl+P` 或顶栏导出按钮（齿轮左侧，幽灵按钮 + 按下态与齿轮同款）。整页替换正文区（与设置视图同一动线：进入取下阅读位置、退出 `Esc` / 「‹ 返回阅读」按既有落位管线放回），与设置视图互斥。只能**从阅读视图**进入——底稿取自阅读 DOM，设置视图期间正文不在 DOM 里没有可取的（顶栏按钮此时禁用，`Ctrl+P` 同守但无条件吞键：不把按键让给 WebView 的浏览器加速键；`Ctrl+Shift+P` 不归它）。
 - **规格是模板常量，不是选项**：A4 纵向、边距 20mm/22mm、宣纸底色、首页页眉页脚留白、第 2 页起页码右上 + 页脚居中「文档题 · 素笺」——逐字对齐上游 kami 的 WeasyPrint 模板（tw93/kami `skills/kami/references/production.md`），界面上只有文件名输入框与导出按钮，规格以一行小字陈列。
 - **三处共用同一份底稿**：`buildExportDocument()`（`src/lib/exportDocument.ts`）从阅读 DOM 克隆消毒（摘掉 `.mdlog-live` / 复制按钮 / 复制回执，解包搜索高亮 `mark.search-match`），预览纸页、屏外测量容器、打印底稿（`.export-sheet`）都渲染这同一份 HTML——预览即所得的地基。
-- **预览分页按行摹 Chromium**（`src/lib/exportPagination.ts`）：块级装不下的段落按行盒拆开（`lineBoxes` 量行、`charOffsetAtLine` 二分断点、`trimCloneToChars` 裁克隆），孤行/寡行约束 = 2 与 Chromium 默认一致；段落整段移走时带走紧邻的前置标题（`break-after: avoid` 的预览语义）；页首块上边距截断、下半段克隆 `marginTop: 0`。测量容器必须含 `h1.document-title`——打印底稿首页是标题开篇，漏掉它预览分页与 PDF 会错开一块标题的高度（真机踩过：页界差一块，段落整段后移）。已知余差：页界可能差一行以内（行高亚像素累计），内容与顺序严格一致。
+- **题目样式是选项（原文 / 居中），同题不重复排印**（2026-09-21 修复）：正文首块 h1 与文件名派生题归一相同（连字符 / 空白抹平比对，`normalizeExportTitle`）即认出「正文自带头题」（`readOwnTitle` → `ownTitle`，外壳是 `.vellum-unit-wrap` 也展平认）。「原文」（默认）底稿不注入题目、正文那枚 h1 原样排印；「居中」注入 `h1.document-title.export-title--center`（文本用头题原文——排版更讲究的那份），并把正文同款 h1 摘除（`stripLeadingOwnTitle`，连同只装它的外壳）。预览纸页里的题目克隆必须与打印底稿**同构**：作 `.markdown-body` 的兄弟排在它之前——塞进 body 会吃两层 32px 横内边距（自身 + body），预览比正文右移一层、与 PDF 错位（用户实测「题目往中间偏」）。
+- **预览分页按行摹 Chromium**（`src/lib/exportPagination.ts`）：块级装不下的段落按行盒拆开（`lineBoxes` 量行、`charOffsetAtLine` 二分断点、`trimCloneToChars` 裁克隆），孤行/寡行约束 = 2 与 Chromium 默认一致；段落整段移走时带走紧邻的前置标题（`break-after: avoid` 的预览语义）；页首块上边距截断、下半段克隆 `marginTop: 0`。测量流与打印底稿必须**逐块同构**——注入题目存在时它是测量流第一块（漏掉它预览分页与 PDF 会错开一块标题的高度，真机踩过：页界差一块、段落整段后移），「原文」模式下不注入、头题随正文块一起量。已知余差：页界可能差一行以内（行高亚像素累计），内容与顺序严格一致。
 - **页眉页脚是 `@page` 边盒，不是 Chromium 的 headerTemplate**：`@top-right` 页码 / `@bottom-center` 页脚 / `@page:first` 留白，9pt 衬线石灰。文档题是运行时值，整段由导出视图挂载时注入 `<style data-vellum-export-page>`、卸载移除，不落 kami.css。Chromium 131+ 支持边盒（真机实测渲染正确）；更旧运行时静默降级为无页眉页脚，内容不受影响。
 - **纸面底色必须刷在 `@page` 上**（真机像素取证）：屏幕态宣纸色挂在 `body` 上，Chromium 分页时 body 背景不会传播满整页画布——页边区漏白（PPM 逐像素：四角 #ffffff、版心 #f5f4ed）。`@page { background: var(--parchment) }` 才是覆盖页边区的正路（与上游模板同一手法），修后四角与版心同为 #f5f4ed。`kami.css.test.ts` 钉住了 `@page` 的 `size` + `background`。
 - **落盘**：前端系统保存对话框（`dialog:allow-save` 已入 capabilities）拿路径 → `export_pdf` 命令（`src-tauri/src/main.rs`）→ 对主窗口 WebView2 直接调 CDP `Page.printToPDF`（`webview2-com` 的 `CallDevToolsProtocolMethod`，与 wry 嵌套依赖严格同版 0.38.2 / windows-core 0.61.2，与 katex 同版约束同理）——同一页面上演，不另起隐藏 webview。COM 调用必须在主线程（`with_webview` 派发），CDP 回执异步经消息泵回来，故命令在 `spawn_blocking` 里用 mpsc 等回执（30s 超时）。参数：`printBackground:true`（宣纸底色）、`preferCSSPageSize:true`（`@page` 尺寸与边盒生效）、边距按英寸换算（20mm≈0.7874in、22mm≈0.8661in，与前端 `exportLayout.ts` 常量同值）。路径闸门：只收 .pdf 绝对路径。
@@ -175,7 +176,7 @@
 | `src/components/MarkdownDocument.tsx` | Markdown 渲染（`React.lazy` 懒加载） |
 | `src/components/SettingsView.tsx` | 设置视图四节内容栏（`SETTINGS_SECTIONS` / `settingsSectionElementId` 分节清单唯一来源） |
 | `src/components/ExportPdfView.tsx` | 「导出为 PDF」纸张舞台（预览分页 / 缩放 / 浮动工具条 / @page 边盒注入 / 保存对话框） |
-| `src/lib/exportDocument.ts` | 导出底稿消毒（克隆阅读 DOM）与 @page 边盒规则文本 |
+| `src/lib/exportDocument.ts` | 导出底稿消毒（克隆阅读 DOM）、头题识别与摘除（`ownTitle` / `stripLeadingOwnTitle`）、@page 边盒规则文本 |
 | `src/lib/exportLayout.ts` | 导出页面几何常量（A4 / 20mm/22mm，96dpi 换算唯一来源） |
 | `src/lib/exportPagination.ts` | 预览分页：段落按行拆分 / 标题随块 / 页首边距截断（DOM 耦合） |
 | `src/components/SettingsNav.tsx` | 设置视图的侧栏内容（「設定」题头 + 分节导航，复用 `.outline-panel*` 语汇） |

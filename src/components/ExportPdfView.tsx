@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { buildExportPageStyle } from "../lib/exportDocument";
+import { buildExportPageStyle, stripLeadingOwnTitle } from "../lib/exportDocument";
 import {
   EXPORT_CONTENT_HEIGHT_PX,
   EXPORT_CONTENT_WIDTH_PX,
@@ -23,6 +23,8 @@ import { paginatePreview, trimCloneToChars } from "../lib/exportPagination";
 type ExportPdfViewProps = {
   /** 文档题（h1.document-title 文本）：页脚文案与默认文件名的来源 */
   title: string;
+  /** 正文自带的头题（首块 h1 与文档题归一相同）：「居中」模式顶替注入题目、并从正文摘除 */
+  ownTitle: string | null;
   /** 消毒后的正文 HTML（markdown-body 内部） */
   bodyHtml: string;
   onExit: () => void;
@@ -32,8 +34,18 @@ const SCALE_MIN = 0.35;
 const SCALE_MAX = 0.92;
 const STAGE_PADDING_X = 24;
 
-export function ExportPdfView({ title, bodyHtml, onExit }: ExportPdfViewProps) {
+export function ExportPdfView({ title, ownTitle, bodyHtml, onExit }: ExportPdfViewProps) {
   const [fileName, setFileName] = useState(title + ".pdf");
+  // 题目样式：默认随原文排印（左缘与正文逐像素对齐，同阅读视图）；「居中」是
+  // 工具条上的另一个选项。正文自带头题时「居中」用它顶替注入题目——
+  // 并从正文里摘掉同款 h1，同一题目不排两次
+  const [titleMode, setTitleMode] = useState<"original" | "center">("original");
+  const effectiveBodyHtml =
+    titleMode === "center" && ownTitle ? stripLeadingOwnTitle(bodyHtml) : bodyHtml;
+  const showTitle = titleMode === "center" || !ownTitle;
+  const displayTitle = ownTitle ?? title;
+  const titleClass =
+    titleMode === "center" ? "document-title export-title--center" : "document-title";
   const [exporting, setExporting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [scale, setScale] = useState(0.6);
@@ -121,6 +133,7 @@ export function ExportPdfView({ title, bodyHtml, onExit }: ExportPdfViewProps) {
           sheet.style.zoom = String(scaleRef.current);
           const body = document.createElement("div");
           body.className = "markdown-body";
+          sheet.appendChild(body);
           for (const segment of segments) {
             const clone = segment.el.cloneNode(true) as HTMLElement;
             // 段落拆片段：裁字符区间；下半段上边距归零（分页断点处的 margin 截断）
@@ -128,9 +141,14 @@ export function ExportPdfView({ title, bodyHtml, onExit }: ExportPdfViewProps) {
               trimCloneToChars(clone, segment.fromChar ?? 0, segment.toChar ?? Number.MAX_SAFE_INTEGER);
             }
             if (segment.fromChar) clone.style.marginTop = "0";
-            body.appendChild(clone);
+            // 文档题与打印底稿同构：作 markdown-body 的兄弟排在它之前。塞进 body
+            // 会吃两层 32px 横内边距（自身 + body），预览里比正文右移一层、与 PDF 错位
+            if (clone.classList.contains("document-title")) {
+              sheet.insertBefore(clone, body);
+            } else {
+              body.appendChild(clone);
+            }
           }
-          sheet.appendChild(body);
           // 页眉页脚自第二页起（首页留白，与注入的 @page:first 边盒同一规格）
           if (pageIndex > 0) {
             const header = document.createElement("div");
@@ -154,7 +172,7 @@ export function ExportPdfView({ title, bodyHtml, onExit }: ExportPdfViewProps) {
       if (!img.complete) img.addEventListener("load", rebuild, { once: true });
     }
     return () => cancelAnimationFrame(raf);
-  }, [bodyHtml, title]);
+  }, [effectiveBodyHtml, title, titleMode, ownTitle]);
 
   // 缩放变化只调 zoom，不重建分页（内容与页序不变）
   useEffect(() => {
@@ -199,6 +217,25 @@ export function ExportPdfView({ title, bodyHtml, onExit }: ExportPdfViewProps) {
         <div className="export-view__toolbar">
           <span className="export-view__spec">A4 · 边距 20/22mm · 宣纸</span>
           <span className="export-view__sep" aria-hidden="true" />
+          <span className="export-view__spec">题目</span>
+          <div className="segments" role="group" aria-label="题目样式">
+            <button
+              type="button"
+              className="seg"
+              aria-pressed={titleMode === "original"}
+              onClick={() => setTitleMode("original")}
+            >
+              原文
+            </button>
+            <button
+              type="button"
+              className="seg"
+              aria-pressed={titleMode === "center"}
+              onClick={() => setTitleMode("center")}
+            >
+              居中
+            </button>
+          </div>
           <input
             className="export-view__filename"
             value={fileName}
@@ -219,28 +256,28 @@ export function ExportPdfView({ title, bodyHtml, onExit }: ExportPdfViewProps) {
       {/* 打印底稿：屏幕态 display:none，@media print 下独占纸面（kami.css 主打印段）。
           与预览共用同一份消毒 HTML */}
       <div className="export-sheet" aria-hidden="true">
-        <h1 className="document-title">{title}</h1>
+        {showTitle ? <h1 className={titleClass}>{displayTitle}</h1> : null}
         <div
           className="markdown-body"
-          dangerouslySetInnerHTML={{ __html: bodyHtml }}
+          dangerouslySetInnerHTML={{ __html: effectiveBodyHtml }}
         />
       </div>
       {/* 测量容器：屏外布局（visibility 而非 display:none——后者量不到块高），
           宽度锁定为 A4 版心 166mm，与打印件同栏宽同字号。
-          文档题 h1 必须进测量流的第一块：打印底稿首页是它开篇（.export-sheet 的
-          h1.document-title），漏掉它预览分页就会与打印件错开一块的高度——
-          首页末尾的块在预览里看似放得下，在 PDF 里已被推到下一页 */}
+          注入题目存在时必须进测量流第一块：打印底稿首页以它开篇，漏掉它预览分页
+          就会与打印件错开一块的高度——首页末尾的块在预览里看似放得下，在 PDF 里
+          已被推到下一页（正文自带头题的「原文」模式不注入，头题随正文块一起量） */}
       <div
         className="export-measure"
         aria-hidden="true"
         ref={measureBodyRef}
         style={{ width: EXPORT_CONTENT_WIDTH_PX }}
       >
-        <h1 className="document-title">{title}</h1>
+        {showTitle ? <h1 className={titleClass}>{displayTitle}</h1> : null}
         <div
           className="markdown-body"
           style={{ maxWidth: "none" }}
-          dangerouslySetInnerHTML={{ __html: bodyHtml }}
+          dangerouslySetInnerHTML={{ __html: effectiveBodyHtml }}
         />
       </div>
     </div>

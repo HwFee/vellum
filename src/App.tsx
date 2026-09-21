@@ -1670,6 +1670,7 @@ export default function App() {
             ) : exportDoc ? (
               <ExportPdfView
                 title={exportDoc.title}
+                ownTitle={exportDoc.ownTitle}
                 bodyHtml={exportDoc.bodyHtml}
                 onExit={closeExport}
               />

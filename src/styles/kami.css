@@ -2265,6 +2265,12 @@ mark.search-match--current {
     0 0 0 2px color-mix(in srgb, var(--brand) 10%, transparent);
 }
 
+/* 题目样式选项：默认随原文排印（左缘与正文逐像素对齐，同阅读视图）；工具条
+   选「居中」时由本规则覆写。屏幕态规则，打印同效（打印段不动它） */
+.document-title.export-title--center {
+  text-align: center;
+}
+
 /* 打印底稿：屏幕态不渲染，主打印段里 display:block 独占纸面 */
 .export-sheet {
   display: none;
