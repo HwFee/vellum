@@ -82,3 +82,15 @@ export async function removeRecent(path: string): Promise<string[]> {
   await persist(next);
   return next;
 }
+
+/**
+ * 清空列表（设置页「关于与数据」节的手动出口：文件搬走后条目只剩打开失败才摘，
+ * 攒久了就是一堆死路径）。返回空列表。
+ *
+ * 必须**显式落盘 `[]`**：loadRecentFiles 把「键不存在」与「键存在但是空数组」分开看，
+ * 不落盘就会走旧 key 迁移分支，把 lastOpenedPath 那条死路径原地播种回来。
+ */
+export async function clearRecentFiles(): Promise<string[]> {
+  await persist([]);
+  return [];
+}

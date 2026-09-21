@@ -30,7 +30,13 @@ vi.mock("@tauri-apps/plugin-store", () => ({
   },
 }));
 
-import { addRecent, loadRecentFiles, RECENT_FILES_LIMIT, removeRecent } from "./recentFiles";
+import {
+  addRecent,
+  clearRecentFiles,
+  loadRecentFiles,
+  RECENT_FILES_LIMIT,
+  removeRecent,
+} from "./recentFiles";
 import { __resetSettingsStoreForTest } from "./settings";
 
 describe("recentFiles", () => {
@@ -138,6 +144,23 @@ describe("recentFiles", () => {
     setMock.mockClear();
     await expect(removeRecent("C:/notes/never-opened.md")).resolves.toEqual(["C:/notes/a.md"]);
     expect(setMock).not.toHaveBeenCalled();
+  });
+
+  it("clearRecentFiles 落盘空数组：列表清空，且旧 key 的死路径不会复活", async () => {
+    data.set("recentFiles", ["C:/notes/a.md", "C:/notes/b.md"]);
+    data.set("lastOpenedPath", "C:/notes/gone.md");
+
+    await expect(clearRecentFiles()).resolves.toEqual([]);
+    // 显式写 [] 而不是删 key：loadRecentFiles 把「键不存在」当迁移信号
+    expect(setMock).toHaveBeenLastCalledWith("recentFiles", []);
+    await expect(loadRecentFiles()).resolves.toEqual([]);
+    expect(deleteMock).not.toHaveBeenCalledWith("lastOpenedPath");
+  });
+
+  it("clearRecentFiles 在 Store 写失败时仍返回空列表（清空是内存事实）", async () => {
+    flags.failLoad = true;
+
+    await expect(clearRecentFiles()).resolves.toEqual([]);
   });
 
   it("Store 读失败时退化成空列表，不抛错", async () => {
