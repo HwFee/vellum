@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Vellum",
-  "version": "1.8.1",
+  "version": "1.9.0",
   "identifier": "local.vellum",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -49,7 +49,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "PLACEHOLDER_REPLACE_WITH_TAURI_SIGNER_GENERATE_PUBKEY",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNFOUVCREMzMjBBQTFBMkEKUldRcUdxb2d3NzJlUHF4NmNMZmcwa0ZlZlZpcFhFZzFIQUNkajVNaUtETFgzR01EcUVKTEU3c1oK",
       "endpoints": [
         "https://github.com/HwFee/vellum/releases/latest/download/latest.json"
       ]
