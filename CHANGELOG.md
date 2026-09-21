@@ -26,7 +26,8 @@
 
 ### 移除
 
-- **宣传片工程与全部视频产物**（用户明确不再维护，T11）：整个 `video/` Remotion 工程（七场分镜、中英两版时间线、`capture/` 的 CDP 抓图脚本、零依赖配乐合成器、演示文档与字体闸门）、`promo/build-assets.mjs`（从成片导出分发材料的脚本）、`promo/assets/vellum-promo*`（中英正片与 README 用的 8.5 秒循环 GIF）、`promo/announcement.md`（1.7.0 旧公告稿）。**保留**：落地页 `promo/index.html`（本就无视频引用，只剩截图与分享卡）、`promo/assets/` 里的真实窗口截图 / 海报帧 / 社交分享卡、`promo/README.md`。素材自此是**静态成品**——仓库里没有导出脚本，改一张图就是改一张图。原文与 1.8.0 条目里那段宣传片叙述属历史记录，别再照它跑命令（`docs/agents/tooling.md` 的「宣传品」一节已按现存内容重写）。
+- **宣传片工程与全部视频产物**（用户明确不再维护，T11）：整个 `video/` Remotion 工程（七场分镜、中英两版时间线、`capture/` 的 CDP 抓图脚本、零依赖配乐合成器、演示文档与字体闸门）、`promo/build-assets.mjs`（从成片导出分发材料的脚本）、`promo/assets/vellum-promo*`（中英正片与 README 用的 8.5 秒循环 GIF）、`promo/announcement.md`（1.7.0 旧公告稿）。
+- **`promo/` 余下部分整体删除**（用户明确不再维护）：落地页 `promo/index.html`、**静态素材** `promo/assets/`（真实窗口截图 / 海报帧 / 社交分享卡，中英各一套）、`promo/README.md`。README 顶部那三张窗口截图与「落地页」链接随之撤下（`assets/screenshots/` 那三张是更早的旧版界面，不回头用）。原文与 1.8.0 条目里那段宣传片叙述属历史记录，别再照它跑命令（`docs/agents/tooling.md` 的「宣传品」一节已改为已移除记录）。
 - **`OPTIMIZATION_HANDOFF.md`**（T1）：优化记录（含「评估后放弃的方向」表）——内容已沉淀进 `docs/agents/` 各分册与 `AGENTS.md` 的红线，原文可查 git 历史。
 - **`src/lib/lastOpened.ts`**（T4）：由 `src/lib/recentFiles.ts` 取代（Store key 从 `lastOpenedPath` 换成 `recentFiles`，保留旧 key 迁移；启动恢复改读列表首条）。
 - **`SettingsPopover` 弹层**（2026-09-20 第二批）：由替换正文区的设置页取代——236px 弹层装不下「界面行为 / 自动更新 / 数据自洁」三节，且它唯一的杀手锏「边调边看正文」由设置页的「样张」接住。组件与测试删除，`kami.css` 的 `.settings-popover*` / `.settings-anchor` 规则一并删；顶栏齿轮不再开弹层。

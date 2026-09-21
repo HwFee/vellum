@@ -1,6 +1,6 @@
 # 工程环境、技能、宣传品与发布
 
-`AGENTS.md` 的详情分册。收录三个执行入口的真实 shell、技能安装流程与 pi 扩展、宣传品（`promo/`）、性能优化技能表与死规则、入口 chunk 尺寸历史，以及打包与生产构建的注意事项、真机探针、`tauri/custom-protocol` feature。
+`AGENTS.md` 的详情分册。收录三个执行入口的真实 shell、技能安装流程与 pi 扩展、已删除的宣传品（`promo/`，1.9.0 整体移除）的来历、性能优化技能表与死规则、入口 chunk 尺寸历史，以及打包与生产构建的注意事项、真机探针、`tauri/custom-protocol` feature。
 
 ## 跑命令用哪个 shell（三个入口不是一个 shell）
 
@@ -95,18 +95,13 @@ node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/ex
 - **它的 TS 不属于前端构建面**：app 的 `tsconfig.json` 只 `include: ["src"]`，`vite.config.ts` 的 `test.exclude` 已排除 `extensions/**`（那边的测试跑 `node:test`，被 vitest 拾取会必挂）。
 - 常用命令（在 `extensions/mdlog/` 里）：`npm test`、`npm run typecheck`。
 
-## 宣传品（`promo/`）
+## 宣传品（`promo/`，已移除）
 
-对外材料集中在 `promo/`：单文件落地页 `promo/index.html` + 一组**静态**素材 `promo/assets/`（真实窗口截图 4+4、海报帧 4+4、社交分享卡 2；中英同名只差 `-zh` 后缀）。清单、用途与部署注意以 `promo/README.md` 为准（那一份是详版，本节的约束与它同源）。
+`promo/` 已于 1.9.0 **整体删除**（用户明确不再维护，不再重做）：`video/` Remotion 宣传片工程（七场分镜 / CDP 抓图脚本 / 配乐合成器 / 中英两套素材与文档）、`promo/build-assets.mjs`、`promo/assets/vellum-promo*`、`promo/announcement.md`（1.7.0 旧稿）、落地页 `promo/index.html`、静态素材 `promo/assets/`（真实窗口截图 / 海报帧 / 社交分享卡，中英各一套）、`promo/README.md`。README 顶部的窗口截图与「落地页」链接随之撤下（`assets/screenshots/` 那三张是更早的旧版界面——顶栏还带着文件名，不回头用）。
 
-- **素材是静态成品**：仓库里**没有导出脚本**——改一张图就是改一张图（旧的 `promo/build-assets.mjs` 随宣传片工程一并删除，见下）。
-- **落地页**：单文件、内联 CSS、零依赖，双击即开；字体与截图走相对路径（`../public/fonts/`、`promo/assets/`、`../assets/images/logo.svg`）。
-  - **单独部署必须把 `public/fonts/`、`promo/assets/` 与 `assets/images/logo.svg`（favicon，落地页走 `../assets/images/`）一并搬走**：字体是仓耳今楷 8.4MB×2，缺了会回退到系统宋体；漏搬 favicon 则页签图标 404。
-  - **不引第二个强调色、不加大圆角与厚度投影**（照 `DESIGN.md` 的 Do's/Don'ts）；动效只有「进场淡入」一种（260ms）且尊重 `prefers-reduced-motion`；页面顶部那条 2px 靛青进度条与应用大纲的激活指示条同一语汇。
-  - **等宽字体没有汉字**：中文小字一律用衬线，落到 JetBrains Mono 上会掉进系统 CJK 字体、行高与字重都对不上。
-  - 窗口截图抓的是 `~/Documents/Notes` 下那份演示文档的**暂存副本**——素材里的路径不是仓库路径。**2026-09-20 起顶栏是纯工具栏、不再显示路径**（路径只在正文标题 tooltip 与设置页「当前文档」出现），旧素材里顶栏还带着那行路径，重抓时不再有。
-- **界面像素必须来自真实运行的 Vellum**（CDP 抓取），不是重画的示意图。`scripts/cdp-*.mjs` 是**验收探针**、不做截图；要重抓素材得自备抓图脚本（原抓图脚本在已删除的 `video/capture/capture.mjs` 里，可从 git 历史取回）。
-- **宣传片工程已于 1.9.0 整体删除**（用户明确不再维护）：`video/`（Remotion 分镜 / CDP 抓取脚本 / 配乐合成器 / 中英两套素材与文档）、`promo/build-assets.mjs`、`promo/assets/vellum-promo*`（中英正片与 GIF）、`promo/announcement.md`（1.7.0 旧稿）。落地页与窗口截图保留。原文与历史说明可查 git（`e305a23` 及之前；1.8.0 条目里那段宣传片叙述属历史记录，不要照它去跑命令）。
+- 原文与历史说明可查 git（`e305a23` 及之前；1.8.0 条目里那段宣传片叙述属历史记录，不要照它去跑命令）。
+- **要重做落地页/素材，界面像素必须来自真实运行的 Vellum**（CDP 抓取），不是重画的示意图；`scripts/cdp-*.mjs` 是**验收探针**、不做截图，抓图脚本得重写（原脚本在 `video/capture/capture.mjs`，可从 git 历史取回）。
+- 落地页当年的硬约束一并进了历史，重做时按 `DESIGN.md` 的 Do's/Don'ts 重新定：单文件内联 CSS、零依赖双击即开；不引第二个强调色、不加大圆角与厚度投影；等宽字体没有汉字，中文小字一律用衬线。
 
 ## 性能优化
 
@@ -213,9 +208,6 @@ node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/ex
 
 | 文件 | 职责 |
 |------|------|
-| `promo/index.html` | 宣传落地页（单文件、内联 CSS、零依赖，双击即开） |
-| `promo/assets/` | 对外素材（真实窗口截图 / 海报帧 / 社交分享卡，中英各一套） |
-| `promo/README.md` | 宣传品清单与部署注意（本节约束的详版） |
 | `src/lib/updater.ts` | 更新检查（启动静默路径 + 设置页「立即检查」，提示条复用 `.editor-toast`） |
 | `src/lib/appPreferences.ts` | 界面行为偏好（`sidebarOpenOnLaunch` / `autoCheckUpdates`，与 `outlineWidth` 同一个 settings Store） |
 | `src/components/SettingsView.tsx` | 设置视图四节内容栏（`SETTINGS_SECTIONS` 分节清单唯一来源） |

@@ -19,7 +19,7 @@ Tauri 2 + React 19 桌面 Markdown 阅读器，Windows 10/11 x64。
 ```bash
 npm run dev          # Vite 开发服务器（端口 1420）
 npm run build        # tsc + vite build
-npm test             # vitest run（48 测试文件，969 用例）
+npm test             # vitest run（48 测试文件，971 用例）
 npm run tauri        # Tauri CLI
 node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wisdom 真实笔记库；库不存在则整体跳过）
 ```
@@ -68,7 +68,6 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 - 前端状态与持久化：`src/lib/recentFiles.ts`（最近 8 篇，Store key `recentFiles`，含 `lastOpenedPath` 迁移）、`src/lib/navHistory.ts`（wikilink 前进/后退两栈，条目自带三级位置记录）、`src/lib/taskList.ts`（任务标记定位与翻转，绝对偏移纯函数）、`src/hooks/useReaderSettings.ts`（字号/栏宽/行高，覆写根 CSS 变量，改值前须走 `beginWidthTransition()`）。
 - 设置页与界面偏好：`src/components/SettingsView.tsx`（四节内容栏；`SETTINGS_SECTIONS` / `settingsSectionElementId` 是分节清单的唯一来源，侧栏导航据此生成）、`src/components/SettingsNav.tsx`（设置视图的侧栏内容）、`src/lib/appPreferences.ts`（Store key `sidebarOpenOnLaunch` / `autoCheckUpdates`，读盘失败回退出厂值）、`src/lib/updater.ts`（`checkForUpdates(manual?)`：启动静默检查 + 设置页「立即检查」）。
 - pi 扩展实体：`extensions/mdlog/`（pi 的加载位 `~/.pi/agent/extensions/mdlog` 是指向它的目录联接）；技能联接：`.pi/skills/<skill-name>` → 全局库 `C:/Users/17445/Desktop/HwFee-skills/skills/`。
-- 宣传品：落地页 `promo/index.html`；对外素材 `promo/assets/`（真实窗口截图 / 海报帧 / 社交分享卡）。
 - 真机探针：`scripts/cdp-*.mjs`（`cdp-verify` / `cdp-perf-scroll` / `cdp-sidebar-jump` / `cdp-anchor-synthetic` / `cdp-obsidian-verify`）。
 - 设计语言：`DESIGN.md`；变更记录：`CHANGELOG.md`。
 
@@ -79,4 +78,4 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 | `docs/agents/rendering.md` | 渲染结构、搜索跳转、大纲跟随、侧栏布局与宽度（含设置视图的侧栏内容切换）、设置视图、阅读位置记忆、热重载恢复、布局过渡窗、`viewportPin`、数学公式、块级就地编辑不变量、任务勾选、打印样式、文件索引 | 改渲染管线 / 滚动 / 编辑器 / 大纲 / 设置页 / 打印时 |
 | `docs/agents/obsidian.md` | frontmatter 属性卡、callout、wikilink 端到端与片段跳转、文档标题与属性卡/提示块定稿形态、CJK 强调兜底、全库语料检查与真机验收 | 碰三族语法或 `rehypeObsidian` 时 |
 | `docs/agents/widgets.md` | `WidgetSandbox` 存活上限与懒挂载、沙箱根溢出保护、交互块授权台账、停帧降载与静态图指针防线、预载视距与高度夹取、mdlog 状态与吸底、sidecar 清理 | 改 mdlog 或 widget 沙箱时 |
-| `docs/agents/tooling.md` | shell 入口细节、技能安装与 pi 扩展、宣传品（`promo/`）、性能技能表与入口 chunk 尺寸、打包与生产构建坑、真机探针、`custom-protocol` | 配环境、打包发布、改宣传品时 |
+| `docs/agents/tooling.md` | shell 入口细节、技能安装与 pi 扩展、已删除的宣传品（`promo/`）、性能技能表与入口 chunk 尺寸、打包与生产构建坑、真机探针、`custom-protocol` | 配环境、打包发布时 |

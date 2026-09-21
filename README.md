@@ -6,14 +6,7 @@ _A warm, parchment-toned Markdown viewer for Windows._
 
 **给 Markdown 一张纸。** 暖纸底色、今楷正文、一笔靛青 —— 一个把长文档认真排出来的窗口。
 
-<p align="center">
-  <img src="./promo/assets/window-reading.png" width="32%" alt="Vellum · 素笺 阅读视图" />
-  <img src="./promo/assets/window-search.png" width="32%" alt="Vellum · 素笺 大纲与全文检索" />
-  <img src="./promo/assets/window-widget.png" width="32%" alt="Vellum · 素笺 沙箱交互块" />
-</p>
-
 [下载](https://github.com/HwFee/vellum/releases) ·
-[落地页](./promo/index.html) ·
 [设计语言](./DESIGN.md) ·
 [更新日志](./CHANGELOG.md)
 
@@ -96,13 +89,13 @@ Markdown files directly from File Explorer.
 - **自动更新。** 启动时静默检查新版本（可在设置页关掉，也可手动「立即检查」），有更新先提示再下载安装；失败一律不打扰。
 - **离线优先。** 除启动时的一次版本更新检查外不联网；没有云、没有账号。打开的是磁盘上的那个文件，写回的也是它。
 - **真机验收。** 数学 / 搜索 / 编辑 / 滚动这类热路径都有 CDP 真机探针与回归测试
-  （48 个测试文件 / 969 个用例）。
+  （48 个测试文件 / 971 个用例）。
 
 ## Usage
 
 1. Run the installer and finish setup.
 2. Double-click any `.md` or `.markdown` file in File Explorer.
-3. To open another file, click the folder icon in the top-right corner — or drag a `.md` file onto
+3. To open another file, click the folder icon in the top-left corner — or drag a `.md` file onto
    the window, or pick one from **最近打开** in the empty state.
 4. Press <kbd>Ctrl</kbd>+<kbd>E</kbd> to edit in place, <kbd>Ctrl</kbd>+<kbd>K</kbd> to search,
    <kbd>Ctrl</kbd>+<kbd>B</kbd> to toggle the outline.
