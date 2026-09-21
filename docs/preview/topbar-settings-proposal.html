@@ -1,0 +1,931 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>界面提案 · 顶栏 / 勾选 / 设置 — Vellum 素笺</title>
+<style>
+/* ============================================================
+   Vellum · 素笺 — 界面提案预览（2026-09-20）
+   .mock 作用域内的组件样式逐条抄自 src/styles/kami.css（像素级复刻），
+   定稿方案的改动在注释里标明「提案改动」（2026-09-20 拍板）。
+   ============================================================ */
+
+@font-face {
+  font-family: "TsangerJinKai02";
+  src: url("../../public/fonts/TsangerJinKai02-W04.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: block;
+}
+@font-face {
+  font-family: "TsangerJinKai02";
+  src: url("../../public/fonts/TsangerJinKai02-W05.woff2") format("woff2");
+  font-weight: 500; font-style: normal; font-display: block;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../../public/fonts/JetBrainsMono.woff2") format("woff2");
+  font-weight: 400 500; font-style: normal; font-display: block;
+}
+
+/* —— 与 kami.css :root 逐字一致 —— */
+:root {
+  --parchment: #f5f4ed;
+  --ivory: #faf9f5;
+  --inline-code-bg: #f0eee6;
+  --warm-sand: #e8e6dc;
+  --near-black: #141413;
+  --dark-warm: #3d3d3a;
+  --olive: #504e49;
+  --stone: #6b6a64;
+  --brand: #1B365D;
+  --tag-bg: #E4ECF5;
+  --brand-tint: #EEF2F7;
+  --border: #e8e6dc;
+  --border-soft: #e5e3d8;
+  --hairline: #dddacc;
+  --serif: "TsangerJinKai02", "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", Charter, Georgia, Palatino, serif;
+  --mono: "JetBrains Mono", "SF Mono", "Fira Code", Consolas, Monaco, "TsangerJinKai02", "Source Han Serif SC", monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; min-height: 100%; }
+
+body {
+  background: var(--parchment);
+  color: var(--near-black);
+  font-family: var(--serif);
+  font-size: 14px;
+  line-height: 1.55;
+  letter-spacing: 0.3pt;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button, input { font: inherit; }
+
+::selection { background: color-mix(in srgb, var(--brand) 14%, transparent); }
+
+.page { max-width: 920px; margin: 0 auto; padding: 70px 32px 90px; }
+
+/* ---------- 页面自身排版（按 DESIGN.md 法典） ---------- */
+
+.eyebrow {
+  color: var(--stone);
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 4px;
+  text-transform: uppercase;
+}
+
+.page-head h1 { font-size: 30px; font-weight: 500; line-height: 1.2; letter-spacing: 0.5px; margin: 12px 0 10px; }
+.page-head .lede { color: var(--olive); max-width: 640px; margin: 0; }
+.page-head .meta { font: 500 10px/1.5 var(--mono); letter-spacing: 0.4px; color: var(--stone); margin-top: 14px; }
+
+section.proposal { margin-top: 56px; padding-top: 30px; border-top: 1px solid var(--hairline); }
+section.proposal > h2 { font-size: 21px; font-weight: 500; line-height: 1.25; margin: 10px 0 8px; }
+section.proposal > .intro { color: var(--olive); max-width: 680px; margin: 0 0 22px; }
+section.proposal h3 { font-size: 17px; font-weight: 500; line-height: 1.3; color: var(--near-black); margin: 30px 0 10px; }
+
+.verdict { color: var(--olive); font-size: 13px; max-width: 640px; margin: 10px 0 0; }
+
+code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--inline-code-bg);
+  color: var(--dark-warm);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+/* 推荐小章：与 .top-bar__recording 同款（tag-bg 实色 + 靛青 mono 10px） */
+.seal {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--tag-bg);
+  color: var(--brand);
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 0.04em;
+  vertical-align: 2px;
+  margin-left: 8px;
+  user-select: none;
+}
+
+/* ---------- mock 窗口外壳 ---------- */
+
+.mock-window {
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--parchment);
+}
+
+/* ============================================================
+   顶栏像素级复刻（抄 kami.css :85–270；仅去掉 position:fixed，
+   其余值一字不改）
+   ============================================================ */
+
+.mock .top-bar {
+  height: 46px;
+  min-height: 46px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 0 0 16px;
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--parchment) 94%, var(--ivory));
+  user-select: none;
+}
+
+.mock .top-bar__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 0;
+}
+
+.mock .top-bar__path {
+  overflow: hidden;
+  color: var(--stone);
+  font-size: 11px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: opacity 0.18s ease;   /* 提案交互：预览显隐切换用 */
+}
+
+.mock .top-bar__path.is-hidden { opacity: 0; }
+
+.mock .top-bar__recording {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--tag-bg);
+  color: var(--brand);
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 0.04em;
+}
+
+.mock .top-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+}
+
+.mock .window-controls { display: flex; align-items: center; gap: 0; height: 46px; }
+
+.mock .window-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--stone);
+  box-shadow: inset 0 0 0 1px var(--border);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+}
+.mock .window-control:hover { background: var(--warm-sand); color: var(--dark-warm); }
+.mock .window-control:active { background: var(--border-soft); transform: translateY(1px); }
+.mock .window-control--close:hover { background: #c42b1c; color: #fff; box-shadow: inset 0 0 0 1px #c42b1c; }
+.mock .window-control:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+
+.mock .outline-toggle,
+.mock .open-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--stone);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease, opacity 0.18s ease;
+}
+.mock .outline-toggle:hover,
+.mock .open-button:hover { background: var(--warm-sand); color: var(--brand); }
+.mock .outline-toggle:active,
+.mock .open-button:active { background: var(--border-soft); }
+.mock .outline-toggle:focus-visible,
+.mock .open-button:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.mock .open-button:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
+
+.mock .top-bar__divider { width: 1px; height: 16px; background: var(--hairline); }
+
+/* mock 正文切片：抄 .document-title 与 markdown 行 */
+.mock .mock-body { padding: 26px 34px 30px; }
+.mock .document-title {
+  color: var(--near-black);
+  font-size: 30px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0.5px;
+  word-break: break-word;
+  margin-bottom: 10px;
+}
+.mock .doc-line { color: var(--olive); margin: 0; }
+<style>
+/* ---------- 显隐开关（沿用弹层分段选择器语汇） ---------- */
+
+.switch-row { display: flex; align-items: center; gap: 12px; margin: 4px 0 14px; }
+.switch-row .switch-label { font-size: 13px; color: var(--dark-warm); }
+.switch-row .switch-hint { font: 500 10px/1.5 var(--mono); letter-spacing: 0.4px; color: var(--stone); }
+
+/* 分段选择器：抄 .settings-popover__segment（字号、圆角、配色逐字一致） */
+.segments { display: flex; gap: 2px; }
+.segments .seg {
+  min-width: 34px;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--stone);
+  font-size: 12px;
+  font-family: var(--serif);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.segments .seg:hover { background: var(--warm-sand); color: var(--dark-warm); }
+.segments .seg[aria-pressed="true"] { background: var(--brand-tint); color: var(--brand); }
+.segments .seg:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+
+.switch-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 6px;
+  background: var(--ivory);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+/* ---------- 候选卡 ---------- */
+
+.candidates { display: grid; gap: 22px; margin-top: 6px; }
+.candidate .cap { display: flex; align-items: baseline; margin-bottom: 8px; }
+.candidate .cap .name { font-size: 15px; font-weight: 500; }
+.candidate .cap .sub { font: 500 10px/1.5 var(--mono); letter-spacing: 0.4px; color: var(--stone); margin-left: 8px; }
+
+/* ============================================================
+   任务勾选：定稿 = 钤印 + 划线（候选 2 与 3 的结合）
+   现状（kami.css :1295/:1439）：16×16 原生控件 + accent-color: brand，
+   hover/聚焦 outline 1px brand offset 1px。
+   ============================================================ */
+
+.task-demo {
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: var(--parchment);
+  padding: 4px 34px 22px;
+}
+
+.task-demo .md-h3 {
+  margin: 25px 0 8px;
+  color: var(--dark-warm);
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+/* 任务列表上下文：抄 .markdown-body ul/li（padding-left 27px、行高继承） */
+.task-demo ul { margin: 8px 0 14px; padding-left: 0; list-style: none; }
+.task-demo li { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; }
+.task-demo .task-text { flex: 1; min-width: 0; transition: color 0.15s ease; }
+.task-demo label { cursor: pointer; }
+
+/* 现状：原生控件，accent-color 靛青（一字未改） */
+.cb-native {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand);
+  cursor: pointer;
+  position: relative;
+  top: 2px;
+  flex: none;
+}
+.cb-native:hover, .cb-native:focus-visible { outline: 1px solid var(--brand); outline-offset: 1px; }
+
+/* 候选共用基座（提案）：appearance none 后自绘方框 */
+.cb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  flex: none;
+  position: relative;
+  top: 2px;
+  margin: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cb:hover { border-color: var(--brand); }
+.cb:focus-visible { outline: 1px solid var(--brand); outline-offset: 1px; }
+
+/* input 是 void 元素塞不进 SVG：勾用 data-URI 背景画（10×10 内的 1.5px 靛青描边） */
+.cb:checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 5.4 L4.2 7.6 L8 2.6' fill='none' stroke='%231B365D' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 9px;
+}
+
+/* 一 · 墨框：已勾 = 框转靛青 + 靛青勾，文字转石灰 */
+.cb--ink:checked { border-color: var(--brand); }
+.cb--ink:checked + .task-text { color: var(--stone); }
+
+/* 二 · 钤印：已勾 = tag-bg 实色填充 + 靛青勾（印章语汇） */
+.cb--seal:checked { background-color: var(--tag-bg); border-color: var(--brand); }
+.cb--seal:checked + .task-text { color: var(--stone); }
+
+/* 三 · 划线派：墨框 + 删除线 */
+.cb--strike:checked { border-color: var(--brand); }
+
+/* 定稿（2026-09-20 用户拍板）：钤印 + 划线——tag-bg 实色填框、靛青勾、文字灰化加删除线 */
+.cb--final:checked { background-color: var(--tag-bg); border-color: var(--brand); }
+.cb--final:checked + .task-text {
+  color: var(--stone);
+  text-decoration: line-through;
+  text-decoration-color: var(--stone);
+  text-decoration-thickness: 1px;
+}
+.cb--strike:checked + .task-text {
+  color: var(--stone);
+  text-decoration: line-through;
+  text-decoration-color: var(--stone);
+  text-decoration-thickness: 1px;
+}
+
+/* ============================================================
+   设置弹层像素级复刻（抄 kami.css :275–364）
+   ============================================================ */
+
+.mock .settings-popover {
+  width: 236px;
+  padding: 10px 14px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--ivory);
+  box-shadow: 0 4px 16px rgba(20, 20, 19, 0.08);
+}
+.mock .settings-popover__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+}
+.mock .settings-popover__label { color: var(--olive); font-size: 12px; }
+.mock .settings-popover__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+}
+.mock .settings-popover__reset {
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--brand);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.mock .settings-popover__reset:hover { text-decoration: underline; text-underline-offset: 3px; }
+.mock .settings-popover__autosave { color: var(--stone); font-family: var(--mono); font-size: 10px; }
+
+/* 弹层现状展示：齿轮 + 弹层的合影 */
+.popover-shot { position: relative; padding: 14px 0 0 16px; }
+.popover-shot .settings-popover { margin-top: 8px; }
+
+/* ============================================================
+   设置页（定稿——与阅读视图同轴的居中栏骨架，部件全部取自既有语汇）
+   ============================================================ */
+
+/* 定稿骨架：设置页复用文章页整副骨架——同一枚侧栏（240px、parchment、发丝右缘、
+   「目錄」同款 brand 题头与小方块、描边搜索框、2px 靛青激活轨），默认关、可开；
+   内容栏在余量里居中（阅读栏 800px，元界面收一档 640px） */
+.settings-body { display: flex; align-items: stretch; }
+.settings-frame--navclosed .snav { display: none; }
+
+/* 侧栏：逐字复刻 .outline-sidebar / .outline-panel__header */
+.snav { width: 240px; flex: none; border-right: 1px solid var(--hairline); padding: 0 12px 20px; }
+.snav-header { margin-bottom: 12px; padding: 20px 8px 9px; color: var(--brand); font-size: 16px; letter-spacing: 5px; border-bottom: 1px solid var(--hairline); position: relative; }
+.snav-header::after { content: ""; position: absolute; left: 9px; bottom: -3.5px; width: 6px; height: 6px; background: var(--brand); border-radius: 1px; }
+
+/* 搜索框：逐字复刻 .outline-search（样式 C 描边式） */
+.snav-search { display: flex; align-items: center; gap: 6px; padding: 7px 8px; margin-bottom: 14px; background: var(--ivory); border: 1px solid var(--border); border-radius: 6px; transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+.snav-search:focus-within { border-color: var(--brand); box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 10%, transparent); }
+.snav-search .snav-search__icon { display: flex; flex-shrink: 0; color: var(--stone); transition: color 0.15s ease; }
+.snav-search:focus-within .snav-search__icon { color: var(--brand); }
+.snav-search input { flex: 1; min-width: 0; border: 0; background: transparent; outline: none; font-family: var(--serif); font-size: 13px; line-height: 1; letter-spacing: 0.3px; color: var(--near-black); }
+.snav-search input::placeholder { color: var(--stone); }
+
+/* 条目：复刻 .outline-panel__link / --active（2px 靛青左轨） */
+.snav-item { display: block; width: 100%; padding: 5px 10px 5px 16px; border: 0; background: transparent; color: var(--dark-warm); font-family: var(--serif); font-size: 13.5px; line-height: 1.6; text-align: left; cursor: pointer; transition: color 150ms ease; position: relative; }
+.snav-item:hover { color: var(--brand); }
+.snav-item[aria-current="true"] { color: var(--brand); font-weight: 500; }
+.snav-item[aria-current="true"]::before { content: ""; position: absolute; left: 5px; top: 9px; bottom: 9px; width: 2px; background: var(--brand); border-radius: 1px; }
+
+.settings-main { flex: 1; min-width: 0; padding: 18px 34px 44px; }
+.settings-col { max-width: 640px; margin: 0 auto; }
+
+.settings-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+.settings-head .back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--stone);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  font-size: 13px;
+  letter-spacing: 0.3pt;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.settings-head .back:hover { background: var(--warm-sand); color: var(--brand); }
+.settings-head .head-note { font: 500 10px/1.5 var(--mono); letter-spacing: 0.4px; color: var(--stone); }
+
+/* 分节：eyebrow 拖一条发丝线收尾，代替整段通栏分隔线——窄栏里通栏线会把页面切成「表格」 */
+.settings-section { margin-top: 28px; }
+.settings-section > .eyebrow { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.settings-section > .eyebrow::after { content: ""; flex: 1; height: 1px; background: var(--hairline); }
+.settings-section > .hint { color: var(--stone); font-size: 12px; margin: 0 0 2px; }
+
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 10px 0;
+}
+.set-row + .set-row { border-top: 1px solid var(--border-soft); }
+.set-row .set-label { color: var(--near-black); flex: none; }
+.set-row .set-note { font: 500 10px/1.5 var(--mono); letter-spacing: 0.4px; color: var(--stone); }
+
+.mono-path {
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 0.4px;
+  color: var(--stone);
+  word-break: break-all;
+  text-align: right;
+}
+
+/* 实色按钮：抄 .button.button-primary */
+.btn-contained {
+  height: 32px;
+  padding: 7px 16px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--warm-sand);
+  color: var(--dark-warm);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: 0.3pt;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+.btn-contained:hover {
+  background: color-mix(in srgb, var(--warm-sand) 80%, var(--border));
+  box-shadow: inset 0 0 0 1px var(--hairline), 0 1px 2px rgba(20, 20, 19, 0.04);
+}
+.btn-contained:active { background: color-mix(in srgb, var(--warm-sand) 68%, var(--border)); }
+
+/* 幽灵文字按钮（小件，与 open-button 同语汇） */
+.btn-ghost {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--stone);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  font-size: 13px;
+  letter-spacing: 0.3pt;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.btn-ghost:hover { background: var(--warm-sand); color: var(--brand); }
+
+/* kbd：抄 .outline-search__kbd */
+.kbd {
+  font: 500 9px/1 var(--mono);
+  color: var(--stone);
+  background: var(--parchment);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 4px;
+  white-space: nowrap;
+}
+
+.shortcut-rows { display: grid; grid-template-columns: 1fr 1fr; gap: 0 26px; }
+.shortcut-rows .set-row { padding: 7px 0; }
+
+/* 样张（试笔区）：ivory 浮面 + 发丝外框 */
+.proof {
+  margin: 10px 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--ivory);
+  padding: 20px 24px;
+}
+.proof .proof-tag { font: 500 10px/1.5 var(--mono); letter-spacing: 4px; color: var(--stone); margin-bottom: 12px; text-transform: uppercase; }
+.proof .proof-sheet {
+  margin: 0 auto;
+  max-width: var(--proof-cw, 800px);
+  font-size: var(--proof-fs, 14px);
+  line-height: var(--proof-lh, 1.55);
+  transition: font-size 0.18s ease, max-width 0.18s ease;
+}
+.proof-sheet h5 { font-size: 1.3em; font-weight: 500; line-height: 1.3; color: var(--dark-warm); margin: 0 0 0.5em; }
+.proof-sheet p { margin: 0; }
+.proof-sheet p + p { margin-top: 0.9em; }
+
+/* ---------- 建议清单 / 待决策 ---------- */
+
+.advice { list-style: none; margin: 4px 0 0; padding: 0; }
+.advice li { padding: 10px 0; border-top: 1px solid var(--border-soft); }
+.advice li:first-child { border-top: 0; }
+.advice .a-title { font-weight: 500; }
+.advice .a-why { color: var(--olive); font-size: 13px; margin: 2px 0 0; }
+
+.decisions { list-style: none; margin: 6px 0 0; padding: 0; }
+.decisions li { display: flex; align-items: baseline; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border-soft); }
+.decisions li:first-child { border-top: 0; }
+.decisions .cb { top: 3px; }
+
+.page-foot {
+  margin-top: 56px;
+  padding-top: 20px;
+  border-top: 1px solid var(--hairline);
+  display: flex;
+  justify-content: space-between;
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 0.4px;
+  color: var(--stone);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="page-head">
+    <span class="eyebrow">界面提案 · UI PROPOSAL</span>
+    <h1>顶栏 / 勾选 / 设置</h1>
+    <p class="lede">三处界面的<strong>定稿</strong>：顶栏纯工具栏、勾选「钤印 + 划线」、设置单页化。「现状」部件一律像素级复刻自 <code>kami.css</code> 现行规则，新部件只取既有语汇。取舍过程收在 §5 拍板记录。</p>
+    <p class="meta">2026-09-20 · VELLUM 素笺 · 设计文档（非实现）</p>
+  </header>
+
+  <!-- ============================== §1 顶栏 ============================== -->
+  <section class="proposal" id="topbar">
+    <span class="eyebrow">§1 · TOP BAR</span>
+    <h2>顶栏布局</h2>
+    <p class="intro">顶栏 46px 是无框窗口唯一的 chrome。定稿：<strong>纯工具栏</strong>——常驻路径退出中列（去正文标题的 hover tooltip 与设置页「当前文档」），按钮顺序大纲居首。下面这条就是最终形态。</p>
+
+    <!-- 定稿顶栏：大纲 ‹ › 编辑 打开 │ ⚙ 记录中 · （中列留白） · 窗控 -->
+    <div class="mock mock-window">
+      <div class="top-bar">
+        <div class="top-bar__actions">
+          <button class="outline-toggle" type="button" title="切换大纲（Ctrl+B）" aria-label="切换大纲"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="15" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="12" y2="18"/><circle cx="19" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="18" r="1" fill="currentColor" stroke="none"/></svg></button>
+          <button class="open-button" type="button" disabled title="后退（Alt+←）" aria-label="后退"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+          <button class="open-button" type="button" disabled title="前进（Alt+→）" aria-label="前进"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+          <button class="open-button" type="button" title="就地编辑（Ctrl+E）" aria-label="切换编辑视图"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>
+          <button class="open-button" type="button" title="打开文件" aria-label="打开文件"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M8 14h5" opacity="0.5"/></svg></button>
+          <span class="top-bar__divider"></span>
+          <button class="open-button" type="button" title="阅读设置" aria-label="阅读设置"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82.33l.06.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0 .33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+          <span class="top-bar__recording">记录中</span>
+        </div>
+        <div></div>
+        <div class="window-controls">
+          <button class="window-control" type="button" aria-label="最小化"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="15" x2="18" y2="15"/><path d="M9 9h6" opacity="0.35"/></svg></button>
+          <button class="window-control" type="button" aria-label="最大化"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M5 9h14" opacity="0.35"/></svg></button>
+          <button class="window-control window-control--close" type="button" aria-label="关闭"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6.5" y1="6.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="6.5" x2="6.5" y2="17.5"/></svg></button>
+        </div>
+      </div>
+      <div class="mock-body">
+        <div class="document-title" title="C:/Users/17445/Desktop/Wisdom/wiki/projects/inference-engineer-checkin.md">inference-engineer-checkin</div>
+        <p class="doc-line">路径的两个归宿：正文标题的 hover tooltip（把鼠标放上去试试），与设置页的「当前文档」（§3）。「记录中」小章挂齿轮右侧。</p>
+      </div>
+    </div>
+    <p class="verdict">按钮顺序定稿：<strong>大纲开关最左</strong>（窗口骨架的开关居首），‹ › 历史导航紧随成对，其后编辑与打开，分隔线后是设置与「记录中」小章；中列留白。原顺序里 ‹ › 在最前、路径常驻中列。</p>
+
+  </section>
+
+  <!-- ============================== §2 勾选 ============================== -->
+  <section class="proposal" id="checkbox">
+    <span class="eyebrow">§2 · TASK CHECKBOX</span>
+    <h2>任务列表勾选</h2>
+    <p class="intro">定稿：自绘方框取代「原生控件 + accent-color」的系统框。骨架与现行可点提示同源（15px、1px 发丝描边、2px 圆角、hover 框线转靛青、焦点 1px 靛青 outline），「完成」的说法 = 钤印 + 划线。<strong>点一点体验。</strong></p>
+
+      <div class="candidate">
+        <div class="cap"><span class="name">定稿 · 钤印 + 划线</span><span class="sub">二与三的结合（2026-09-20 拍板）</span><span class="seal">定稿</span></div>
+        <div class="task-demo">
+          <div class="md-h3">今天任务 · 2026-09-20（周日）· Day 45</div>
+          <ul>
+            <li>
+              <input class="cb cb--final" type="checkbox" id="t41" />
+              <label class="task-text" for="t41">LC 23. 合并 K 个升序链表（hard）→ <code>leetcode/0023-merge-k-sorted-lists.cpp</code></label>
+            </li>
+            <li>
+              <input class="cb cb--final" type="checkbox" id="t42" checked />
+              <label class="task-text" for="t42">LC 31. 下一个排列（medium）→ <code>leetcode/0031-next-permutation.cpp</code></label>
+            </li>
+          </ul>
+        </div>
+        <p class="verdict">已勾 = tag-bg 实色填框 + 靛青勾（钤印），文字灰化并加删除线。实现侧：<code>appearance: none</code> 自绘 15px 框（1px hairline、2px 圆角），勾用背景 SVG；灰化与划线只作用阅读视图，编辑视图里源码就是源码。</p>
+      </div>
+
+    <p class="verdict">写回侧不变：点勾依旧只改源码那一个字符（<code>- [ ]</code> ↔ <code>- [x]</code>），这里定的只是长相。灰化与划线只作用阅读视图——编辑视图里源码就是源码。</p>
+  </section>
+
+  <!-- ============================== §3 设置 ============================== -->
+  <section class="proposal" id="settings">
+    <span class="eyebrow">§3 · SETTINGS</span>
+    <h2>设置 · 单独设置页</h2>
+    <p class="intro">定稿：236px 弹层退役（三行刚刚好是它的上限，装不下界面行为、自动更新与数据自洁），换成替换正文区的设置视图。弹层唯一的杀手锏「边调边看正文」由「样张」接住。</p>
+
+    <h3>定稿 · 设置页<span class="seal">定稿</span></h3>
+    <p class="intro" style="margin-bottom: 14px;">齿轮入口不变，点击进入替换正文区的设置视图（<code>Esc</code> 或「‹ 返回阅读」退出）。整副骨架直接复用阅读视图：<strong>同一枚侧栏换成「設定」导航</strong>（默认关，顶栏最左同一枚按钮开合，带同款搜索框），内容栏居中收 640px。阅读三件套的调节实时落在「样张」上——<strong>下面的分段选择器、侧栏开关、搜索过滤都是真的，点一点</strong>。</p>
+
+    <div class="mock mock-window settings-frame">
+      <div class="top-bar">
+        <div class="top-bar__actions">
+          <button class="outline-toggle" type="button" data-snav-toggle title="切换设置导航" aria-label="切换设置导航"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="15" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="12" y2="18"/><circle cx="19" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="18" r="1" fill="currentColor" stroke="none"/></svg></button>
+          <button class="open-button" type="button" disabled aria-label="后退"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+          <button class="open-button" type="button" disabled aria-label="前进"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+          <button class="open-button" type="button" aria-label="编辑"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>
+          <button class="open-button" type="button" aria-label="打开文件"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M8 14h5" opacity="0.5"/></svg></button>
+          <span class="top-bar__divider"></span>
+          <button class="open-button" type="button" aria-label="阅读设置" style="background: var(--warm-sand); color: var(--brand);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82.33l.06.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+          <span class="top-bar__recording">记录中</span>
+        </div>
+        <div></div>
+        <div class="window-controls">
+          <button class="window-control" type="button" aria-label="最小化"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="15" x2="18" y2="15"/><path d="M9 9h6" opacity="0.35"/></svg></button>
+          <button class="window-control" type="button" aria-label="最大化"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M5 9h14" opacity="0.35"/></svg></button>
+          <button class="window-control window-control--close" type="button" aria-label="关闭"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6.5" y1="6.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="6.5" x2="6.5" y2="17.5"/></svg></button>
+        </div>
+      </div>
+      <div class="settings-body">
+        <aside class="snav" aria-label="设置分节">
+          <div class="snav-header">設定</div>
+          <div class="snav-search">
+            <span class="snav-search__icon" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg></span>
+            <input type="text" id="snavSearch" placeholder="寻项…" aria-label="搜索设置项" />
+            <kbd class="kbd">Ctrl K</kbd>
+          </div>
+          <button type="button" class="snav-item" aria-current="true">阅读</button>
+          <button type="button" class="snav-item">界面</button>
+          <button type="button" class="snav-item">更新</button>
+          <button type="button" class="snav-item">关于与数据</button>
+        </aside>
+        <div class="settings-main">
+        <div class="settings-col">
+
+        <div class="settings-head">
+          <button class="back" type="button">‹ 返回阅读</button>
+          <span class="head-note">ESC · 改动即存</span>
+        </div>
+
+        <div class="settings-section">
+          <span class="eyebrow">阅读</span>
+          <div class="set-row">
+            <span class="set-label">正文字号</span>
+            <div class="segments" id="segFont">
+              <button type="button" class="seg" data-v="13px">13</button>
+              <button type="button" class="seg" data-v="14px" aria-pressed="true">14</button>
+              <button type="button" class="seg" data-v="16px">16</button>
+              <button type="button" class="seg" data-v="18px">18</button>
+            </div>
+          </div>
+          <div class="set-row">
+            <span class="set-label">栏宽</span>
+            <div class="segments" id="segWidth">
+              <button type="button" class="seg" data-v="720px">720</button>
+              <button type="button" class="seg" data-v="800px" aria-pressed="true">800</button>
+              <button type="button" class="seg" data-v="960px">960</button>
+            </div>
+          </div>
+          <div class="set-row">
+            <span class="set-label">行高</span>
+            <div class="segments" id="segLheight">
+              <button type="button" class="seg" data-v="1.5">1.5</button>
+              <button type="button" class="seg" data-v="1.55" aria-pressed="true">1.55</button>
+              <button type="button" class="seg" data-v="1.7">1.7</button>
+            </div>
+          </div>
+          <div class="proof">
+            <div class="proof-tag">样张</div>
+            <div class="proof-sheet" id="proofSheet">
+              <h5>纸的界面</h5>
+              <p>一张未施重彩的信纸：暖纸为底，墨色为文，一笔靛青只点在交互指向之处。字距比字号更要紧——中文排印的舒展感，来自呼吸，不来自体积。</p>
+              <p>界面是「读」的容器，而非「操作」的舞台。</p>
+            </div>
+          </div>
+          <div class="set-row" style="border-top: 0;">
+            <button type="button" class="settings-popover__reset" id="proofReset" style="font-size: 12px;">恢复默认</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <span class="eyebrow">界面</span>
+          <div class="set-row">
+            <span class="set-label">启动时展开侧栏</span>
+            <div class="segments" id="segSidebar">
+              <button type="button" class="seg">开</button>
+              <button type="button" class="seg" aria-pressed="true">关</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <span class="eyebrow">更新</span>
+          <div class="set-row">
+            <span class="set-label">启动时自动检查更新</span>
+            <div class="segments" id="segUpdate">
+              <button type="button" class="seg" aria-pressed="true">开</button>
+              <button type="button" class="seg">关</button>
+            </div>
+          </div>
+          <div class="set-row">
+            <span class="set-label">当前版本</span>
+            <span class="set-note">v1.8.1</span>
+          </div>
+          <div class="set-row">
+            <span class="set-label">手动检查</span>
+            <button type="button" class="btn-contained">立即检查</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <span class="eyebrow">关于与数据</span>
+          <div class="set-row">
+            <span class="set-label">当前文档</span>
+            <span class="mono-path">C:/Users/17445/Desktop/Wisdom/wiki/projects/inference-engineer-checkin.md</span>
+          </div>
+          <div class="set-row">
+            <span class="set-label">最近打开列表</span>
+            <button type="button" class="btn-ghost">清除（8 条）</button>
+          </div>
+          <div class="set-row" style="align-items: flex-start;">
+            <span class="set-label" style="padding-top: 3px;">快捷键</span>
+            <div class="shortcut-rows" style="flex: 1;">
+              <div class="set-row"><span class="set-note">切换大纲</span><span><span class="kbd">CTRL</span> <span class="kbd">B</span></span></div>
+              <div class="set-row"><span class="set-note">聚焦搜索</span><span><span class="kbd">CTRL</span> <span class="kbd">K</span></span></div>
+              <div class="set-row"><span class="set-note">就地编辑</span><span><span class="kbd">CTRL</span> <span class="kbd">E</span></span></div>
+              <div class="set-row"><span class="set-note">提交保存</span><span><span class="kbd">CTRL</span> <span class="kbd">S</span></span></div>
+              <div class="set-row"><span class="set-note">打印</span><span><span class="kbd">CTRL</span> <span class="kbd">P</span></span></div>
+              <div class="set-row"><span class="set-note">后退 / 前进</span><span><span class="kbd">ALT</span> <span class="kbd">←</span> <span class="kbd">→</span></span></div>
+            </div>
+          </div>
+        </div>
+
+        </div>
+        </div>
+      </div>
+    </div>
+    <p class="verdict">侧栏就是文章页那枚：240px、「目錄」同款题头换「設定」、描边搜索框、2px 靛青激活轨——默认关，顶栏最左同一枚按钮开合（点一下试试）。内容栏在余量里居中收 640px；顶栏齿轮在此视图呈按下态（warm-sand 底），路径在「当前文档」一行安家。侧栏搜索是真的，输入即过滤分节。</p>
+
+    <h3>以后还要加东西怎么办 · 扩展规则</h3>
+    <p class="intro" style="margin-bottom: 14px;">侧栏第一天就在，扩展零新结构：新增一个设置域 = 侧栏多一条目 + 栏内多一个 <code>eyebrow</code> 分节，搜索自动能搜到它，既有行一行不动。侧栏本身与文章大纲是同一个组件换内容——样式、开合、拖宽、默认关，全部跟着走。</p>
+  </section>
+
+  <!-- ============================== §4 其他建议 ============================== -->
+  <section class="proposal" id="advice">
+    <span class="eyebrow">§4 · FURTHER NOTES</span>
+    <h2>顺手提的五条</h2>
+    <ul class="advice">
+      <li>
+        <p class="a-title">路径移到 h1 tooltip + 设置页</p>
+        <p class="a-why">配合 §1-B：正文 <code>.document-title</code> 加 <code>title</code> 属性（零成本），设置页「当前文档」给完整路径。顶栏从此没有只读文字。</p>
+      </li>
+      <li>
+        <p class="a-title">样张试笔区</p>
+        <p class="a-why">设置单页化后唯一的损失是「边调边看正文」，样张把它补回来——上面已经演示，体感比弹层遮着正文更从容。</p>
+      </li>
+      <li>
+        <p class="a-title">「立即检查」给自动更新一个人工入口</p>
+        <p class="a-why">现在更新检查只在启动时静默跑。设置页加一枚按钮，也让「我的版本是不是最新」有处可问。</p>
+      </li>
+      <li>
+        <p class="a-title">快捷键一览进设置页</p>
+        <p class="a-why">七组快捷键目前只散落在 title tooltip 里。只读陈列，零交互成本，发现率会高得多。</p>
+      </li>
+      <li>
+        <p class="a-title">「清除最近打开列表」</p>
+        <p class="a-why">列表会攒死路径（文件搬走只剩打开失败才摘）。给一个手动清出口，数据自洁。</p>
+      </li>
+    </ul>
+  </section>
+
+  <!-- ============================== 待决策 ============================== -->
+  <section class="proposal" id="decisions">
+    <span class="eyebrow">§5 · DECISIONS</span>
+    <h2>拍板记录（2026-09-20）</h2>
+    <p class="intro">全部定稿，勾选为凭。</p>
+    <ul class="decisions">
+      <li><input class="cb cb--final" type="checkbox" id="d1" checked /><label class="task-text" for="d1">顶栏：<strong>B 纯工具栏</strong>——路径退出顶栏，去 h1 tooltip 与设置页「当前文档」</label></li>
+      <li><input class="cb cb--final" type="checkbox" id="d2" checked /><label class="task-text" for="d2">勾选：<strong>钤印 + 划线</strong>（二与三结合，见 §2 定稿）</label></li>
+      <li><input class="cb cb--final" type="checkbox" id="d3" checked /><label class="task-text" for="d3">设置：<strong>单独设置页</strong>，弹层退役</label></li>
+      <li><input class="cb cb--final" type="checkbox" id="d4" checked /><label class="task-text" for="d4">侧栏「启动时默认展开」出厂值 = <strong>关</strong>（维持 1.8.1 现状，变为可调）</label></li>
+      <li><input class="cb cb--final" type="checkbox" id="d5" checked /><label class="task-text" for="d5">「记录中」小章：<strong>挂齿轮右侧</strong>（不丢一眼可见的记录状态）</label></li>
+      <li><input class="cb cb--final" type="checkbox" id="d6" checked /><label class="task-text" for="d6">按钮顺序：<strong>大纲最左</strong>，‹ › 紧随，编辑 / 打开，分隔线后设置</label></li>
+      <li><input class="cb cb--final" type="checkbox" id="d7" checked /><label class="task-text" for="d7">设置页骨架：<strong>复用文章页整副骨架</strong>——同一枚侧栏换「設定」题头 + 搜索 + 分节导航（默认关、同一枚按钮开合），内容栏居中 640px；仅题头两字用繁体，与「目錄」同例</label></li>
+    </ul>
+  </section>
+
+  <footer class="page-foot">
+    <span>VELLUM · 素笺 — 界面提案</span>
+    <span>2026-09-20 · KAMI / DESIGN.MD</span>
+  </footer>
+
+</div>
+
+<script>
+/* 全部交互：原生 JS，无框架 */
+
+/* 分段选择器通用：同组单选 */
+function wireSegments(id, onPick) {
+  var group = document.getElementById(id);
+  if (!group) return;
+  group.addEventListener("click", function (event) {
+    var btn = event.target.closest(".seg");
+    if (!btn) return;
+    group.querySelectorAll(".seg").forEach(function (s) { s.setAttribute("aria-pressed", "false"); });
+    btn.setAttribute("aria-pressed", "true");
+    if (onPick) onPick(btn.dataset.v);
+  });
+}
+
+/* §3 样张实时联动 */
+(function () {
+  var sheet = document.getElementById("proofSheet");
+  wireSegments("segFont", function (v) { sheet.style.setProperty("--proof-fs", v); });
+  wireSegments("segWidth", function (v) { sheet.style.setProperty("--proof-cw", v); });
+  wireSegments("segLheight", function (v) { sheet.style.setProperty("--proof-lh", v); });
+  document.getElementById("proofReset").addEventListener("click", function () {
+    sheet.style.removeProperty("--proof-fs");
+    sheet.style.removeProperty("--proof-cw");
+    sheet.style.removeProperty("--proof-lh");
+    [["segFont", "14px"], ["segWidth", "800px"], ["segLheight", "1.55"]].forEach(function (pair) {
+      var group = document.getElementById(pair[0]);
+      group.querySelectorAll(".seg").forEach(function (s) {
+        s.setAttribute("aria-pressed", String(s.dataset.v === pair[1]));
+      });
+    });
+  });
+})();
+
+/* 界面 / 更新两态开关（纯视觉演示） */
+wireSegments("segSidebar");
+wireSegments("segUpdate");
+
+/* §3 侧栏：顶栏开关开合 / 条目激活 / 搜索过滤 */
+(function () {
+  var frame = document.querySelector(".settings-frame");
+  var toggle = frame.querySelector("[data-snav-toggle]");
+  toggle.addEventListener("click", function () {
+    frame.classList.toggle("settings-frame--navclosed");
+  });
+  var items = Array.prototype.slice.call(frame.querySelectorAll(".snav-item"));
+  items.forEach(function (item) {
+    item.addEventListener("click", function () {
+      items.forEach(function (i) { i.setAttribute("aria-current", "false"); });
+      item.setAttribute("aria-current", "true");
+    });
+  });
+  var search = document.getElementById("snavSearch");
+  search.addEventListener("input", function () {
+    var q = search.value.trim();
+    items.forEach(function (i) { i.hidden = q !== "" && i.textContent.indexOf(q) === -1; });
+  });
+})();
+</script>
+</body>
+</html>
