@@ -168,7 +168,7 @@ node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/ex
   - 手动路径（`manual = true`）无论开关都查，结果一律回执：有新版本同一句「发现新版本，重启后更新」（不可安装时只报告、不替换当前进程）、已最新「已是最新版本」、失败「检查失败，稍后再试」；回执 4 秒自动消失（自动路径那条不设时限）。
 - **发布前必须先有签名密钥对**：`npm run tauri signer generate -- -w "%USERPROFILE%\.tauri\vellum.key"`（等价于 `tauri signer generate`，会一并打印公钥），把**公钥**填进 `tauri.conf.json` 的 `plugins.updater.pubkey`。
   - **`-w` 要给 Windows 绝对路径**：cmd 不展开 `~`，写 `~/.tauri/vellum.key` 会在当前目录建出一个名字真叫 `~` 的目录（Git Bash 里 `~` 才有意义，别照抄 Unix 文档）。
-  - 当前 `pubkey` 是占位串 `PLACEHOLDER_REPLACE_WITH_TAURI_SIGNER_GENERATE_PUBKEY`：占位状态下 `download()` 的签名校验必然失败 ⇒ **install 步 inert**（不会误装任何包，这也是「自动更新不会在开发机上乱动」的第二层保险），但 **download 步不 inert**：`check()` 不验签，endpoint 上只要有 `latest.json`，安装包会被真的下完（~21MB，见下条时序红线）。
+  - `pubkey` 自 v1.9.0（2026-09-21）起是**真公钥**：密钥对由 `tauri signer generate -- -w "%USERPROFILE%\.tauri\vellum.key" --ci` 生成（无密码），私钥在本机 `~/.tauri/vellum.key`，**不入库**；换机器发版需把私钥串设进 `TAURI_SIGNING_PRIVATE_KEY` 才能出 `.sig`。占位串时期的性质仍适用于 1.8.x 旧实例：`check()` 不验签、install inert 但 download 不 inert——latest.json 上架后每个 1.8.x 实例每次启动都会把 ~21MB 安装包白下完再静默验签失败（已知代价，release notes 已注明 1.8.x 需手动覆盖安装一次）。
   - 私钥与其密码只进 CI secret（`TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`），**不入库**。
 - **时序红线：先换真公钥，再让 CI 产出并上传 `latest.json`**（反过来做会伤到每个用户）：`check()` 只看 endpoint 上的 `version`，**不验签**——只要 `latest.json` 在，占位 pubkey 期间的每个实例都会把 ~21MB 安装包整个下完，然后卡在 `download()` 的签名校验上失败。用户看到的是提示条闪一下又消失（失败静默），代价是白下载一次；每次启动都来一遍。正确顺序：① `signer generate` ② 公钥进 `tauri.conf.json` 并发版 ③ 才开始产 `latest.json`。
 - `bundle.createUpdaterArtifacts: true` 已开：打包额外产出安装包的 `.sig`（2026-09-20 实测 NSIS 只产出**一份** `bundle/nsis/*-setup.exe.sig`，没有 `.nsis.zip`——`.exe` 本体就是更新包，插件侧走 `extract_exe`）。
