@@ -1328,18 +1328,62 @@ mark.search-match--current {
   accent-color: var(--brand);
 }
 
-/* 任务列表勾选（reader-polish task-8）：阅读视图里的复选框可点，hover / 键盘聚焦
-   给 1px 靛青描边提示（单一强调色、无底色、无圆角变化——与设计语言一致）。
-   只作用在 GFM 任务项上：:not(:disabled) 同时把编辑视图（复选框保持 disabled）
-   与原始 HTML 里作者写死的 disabled 排除在外，它们不该有「可点」的观感。 */
+/* 任务列表勾选（reader-polish task-8 可点提示 → task-3 定稿「钤印 + 划线」，2026-09-20）：
+   自绘方框取代「原生控件 + accent-color」的系统框。骨架沿用 T8 的可点提示——15px、1px
+   发丝描边、2px 圆角、透明底、光标 pointer；焦点表达不变（1px 靛青 outline + 1px offset）。
+   只作用在 GFM 任务项里**可点**的复选框上：:not(:disabled) 把编辑视图（复选框恒 disabled）
+   与原始 HTML 里作者写死的 disabled 排除在外——编辑视图里源码就是源码，长相不动。 */
 .markdown-body .task-list-item input[type="checkbox"]:not(:disabled) {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  /* appearance: none 不重置 UA 给复选框的 3px 外边距，显式归零；top 对齐照抄定稿 demo */
+  margin: 0;
+  position: relative;
+  top: 2px;
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  background-color: transparent;
   cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
-.markdown-body .task-list-item input[type="checkbox"]:not(:disabled):hover,
+.markdown-body .task-list-item input[type="checkbox"]:not(:disabled):hover {
+  border-color: var(--brand);
+}
+
 .markdown-body .task-list-item input[type="checkbox"]:not(:disabled):focus-visible {
   outline: 1px solid var(--brand);
   outline-offset: 1px;
+}
+
+/* 已勾（钤印）：tag-bg 实色填框 + 靛青对勾。input 是 void 元素塞不进 SVG 子节点，勾用
+   background 的 data-URI 画——viewBox 10×10、2px 圆头描边，色值直接写靛青 #1B365D
+   （data-URI 里用不了 CSS 变量；# 必须写成 %23，否则会被当成片段标识符截断）。 */
+.markdown-body .task-list-item input[type="checkbox"]:not(:disabled):checked {
+  border-color: var(--brand);
+  background-color: var(--tag-bg);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 5.4 L4.2 7.6 L8 2.6' fill='none' stroke='%231B365D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 10px;
+}
+
+/* 已勾同行的任务文字（划线）：灰化 + 1px 删除线。GFM 任务项里文字是复选框的兄弟**文本
+   节点**（没有可命中的元素），定位只能落在 <li> 上，用 :has() 认「本级自己的复选框已勾」。
+   紧列表（`- [x] 甲`）的复选框是 <li> 的直接子级；松散列表（条目间有空行）多包一层 <p>，
+   而 <p> 自带 color 会盖掉继承来的灰——两种形状都要命中，松散列表的 <p> 单独再写一次色。 */
+.markdown-body .task-list-item:has(> input[type="checkbox"]:not(:disabled):checked),
+.markdown-body .task-list-item:has(> p > input[type="checkbox"]:not(:disabled):checked) {
+  color: var(--stone);
+  text-decoration: line-through;
+  text-decoration-color: var(--stone);
+  text-decoration-thickness: 1px;
+}
+
+.markdown-body .task-list-item:has(> p > input[type="checkbox"]:not(:disabled):checked) > p {
+  color: var(--stone);
 }
 
 .broken-asset {
@@ -2146,6 +2190,18 @@ mark.search-match--current {
   .markdown-body h5,
   .markdown-body h6 {
     break-after: avoid;
+  }
+
+  /* 任务勾选（钤印 + 划线）：删除线是「完成」的说法，打印件里照旧保留；灰化归零——
+     纸上不靠浅灰表意，反而丢对比度（松散列表的 <p> 本来就是正文色，无需覆写）。 */
+  .markdown-body .task-list-item:has(input[type="checkbox"]:not(:disabled):checked) {
+    color: var(--near-black);
+  }
+
+  /* 勾是 background 的 SVG 画的：不强制保留背景，关掉「打印背景图形」的框会空成未勾 */
+  .markdown-body .task-list-item input[type="checkbox"]:not(:disabled):checked {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }
 

@@ -819,26 +819,101 @@ describe("kami.css reader-polish task-7 大纲深层级（2026-09-20）", () => 
   });
 });
 
-describe("kami.css reader-polish task-8 任务列表勾选（2026-09-20）", () => {
-  it("可点复选框：hover / 键盘聚焦给 1px 靛青描边，光标 pointer", () => {
-    const base = css.match(
-      /\.markdown-body \.task-list-item input\[type="checkbox"\]:not\(:disabled\)\s*\{[^}]*\}/s
-    )?.[0] ?? "";
-    expect(base).not.toBe("");
-    expect(base).toMatch(/cursor:\s*pointer/);
+/// reader-polish task-8（可点提示）→ task-3（定稿「钤印 + 划线」，2026-09-20）。
+/// 这里钉的是长相与作用域：自绘方框取代「原生控件 + accent-color」，勾选态 = tag-bg 填框 +
+/// 靛青对勾 + 同项文字灰化划线；作用域靠 :not(:disabled) 把编辑视图（复选框恒 disabled）与
+/// 原始 HTML 里作者写死的 disabled 排除在外——编辑视图里源码就是源码。
+describe("kami.css 任务列表勾选定稿：钤印 + 划线（2026-09-20）", () => {
+  const baseRule = () =>
+    css.match(/\.markdown-body \.task-list-item input\[type="checkbox"\]:not\(:disabled\)\s*\{[^}]*\}/s)?.[0] ?? "";
+  const checkedRule = () =>
+    css.match(/\.markdown-body \.task-list-item input\[type="checkbox"\]:not\(:disabled\):checked\s*\{[^}]*\}/s)?.[0] ?? "";
+  const TIGHT = '.markdown-body .task-list-item:has(> input[type="checkbox"]:not(:disabled):checked)';
+  const LOOSE = '.markdown-body .task-list-item:has(> p > input[type="checkbox"]:not(:disabled):checked)';
 
+  it("自绘方框：appearance none、15px、1px 发丝描边、2px 圆角、透明底、光标 pointer", () => {
+    const rule = baseRule();
+    expect(rule).not.toBe("");
+    expect(rule).toMatch(/appearance:\s*none/);
+    expect(rule).toMatch(/width:\s*15px/);
+    expect(rule).toMatch(/height:\s*15px/);
+    expect(rule).toMatch(/border:\s*1px solid var\(--hairline\)/);
+    expect(rule).toMatch(/border-radius:\s*2px/);
+    expect(rule).toMatch(/background-color:\s*transparent/);
+    expect(rule).toMatch(/cursor:\s*pointer/);
+  });
+
+  it("hover 框线转靛青；键盘聚焦沿用 1px 靛青 outline + 1px offset", () => {
     const hover = css.match(
-      /\.markdown-body \.task-list-item input\[type="checkbox"\]:not\(:disabled\):hover,\s*\.markdown-body \.task-list-item input\[type="checkbox"\]:not\(:disabled\):focus-visible\s*\{[^}]*\}/s
+      /\.markdown-body \.task-list-item input\[type="checkbox"\]:not\(:disabled\):hover\s*\{[^}]*\}/s
     )?.[0] ?? "";
     expect(hover).not.toBe("");
-    expect(hover).toMatch(/outline:\s*1px solid var\(--brand\)/);
-    expect(hover).toMatch(/outline-offset:\s*1px/);
+    expect(hover).toMatch(/border-color:\s*var\(--brand\)/);
+
+    const focus = css.match(
+      /\.markdown-body \.task-list-item input\[type="checkbox"\]:not\(:disabled\):focus-visible\s*\{[^}]*\}/s
+    )?.[0] ?? "";
+    expect(focus).not.toBe("");
+    expect(focus).toMatch(/outline:\s*1px solid var\(--brand\)/);
+    expect(focus).toMatch(/outline-offset:\s*1px/);
 
     // 新规则都在首个 .mdlog-widget 之前（不进 mdlog 区段的设计约束扫描）
     expect(css.indexOf(".task-list-item input")).toBeLessThan(css.indexOf(".mdlog-widget"));
   });
 
-  it("真选择器判定：只有 GFM 任务项里**可点**的复选框才拿到可点提示", () => {
+  it("已勾（钤印）：tag-bg 实色填框 + 靛青对勾（data-URI 背景，2px 圆头描边）", () => {
+    const rule = checkedRule();
+    expect(rule).not.toBe("");
+    expect(rule).toMatch(/border-color:\s*var\(--brand\)/);
+    expect(rule).toMatch(/background-color:\s*var\(--tag-bg\)/);
+    expect(rule).toMatch(/background-position:\s*center/);
+
+    // 对勾只能画在背景上（input 是 void 元素，塞不进 SVG 子节点）；靛青写死色值——
+    // data-URI 里用不了 CSS 变量，# 不编码会被当片段标识符截断
+    const svg = rule.match(/url\("data:image\/svg\+xml,[^"]*"\)/)?.[0] ?? "";
+    expect(svg).not.toBe("");
+    expect(svg).toContain("stroke='%231B365D'");
+    expect(svg).toMatch(/stroke-width='2'/);
+    expect(svg).toMatch(/stroke-linecap='round'/);
+    expect(svg).toMatch(/stroke-linejoin='round'/);
+    expect(svg).not.toContain("#");
+  });
+
+  it("已勾同项的文字：灰化 + 1px 删除线，紧列表与松散列表两种形状都命中", () => {
+    const rule = css.match(
+      /\.markdown-body \.task-list-item:has\(> input\[type="checkbox"\]:not\(:disabled\):checked\),\s*\.markdown-body \.task-list-item:has\(> p > input\[type="checkbox"\]:not\(:disabled\):checked\)\s*\{[^}]*\}/s
+    )?.[0] ?? "";
+    expect(rule).not.toBe("");
+    expect(rule).toMatch(/color:\s*var\(--stone\)/);
+    expect(rule).toMatch(/text-decoration:\s*line-through/);
+    expect(rule).toMatch(/text-decoration-color:\s*var\(--stone\)/);
+    expect(rule).toMatch(/text-decoration-thickness:\s*1px/);
+
+    // 松散列表的文字被 <p> 自己的 color 盖掉继承，单独再写一次
+    const looseP = css.match(
+      /\.markdown-body \.task-list-item:has\(> p > input\[type="checkbox"\]:not\(:disabled\):checked\) > p\s*\{[^}]*\}/s
+    )?.[0] ?? "";
+    expect(looseP).toMatch(/color:\s*var\(--stone\)/);
+  });
+
+  it("打印：灰化归零、删除线保留、勾的背景强制打印，且覆写排在屏幕态规则之后", () => {
+    const printStart = css.indexOf("/* ===== 打印");
+    const printBlock = css.slice(printStart, css.indexOf(".mdlog-widget"));
+    expect(printStart).toBeGreaterThan(css.indexOf(".task-list-item:has("));
+
+    const colorRule =
+      printBlock.match(
+        /\.markdown-body \.task-list-item:has\(input\[type="checkbox"\]:not\(:disabled\):checked\)\s*\{[^}]*\}/s
+      )?.[0] ?? "";
+    expect(colorRule).toMatch(/color:\s*var\(--near-black\)/);
+
+    const exactRule = printBlock.match(
+      /\.markdown-body \.task-list-item input\[type="checkbox"\]:not\(:disabled\):checked\s*\{[^}]*\}/s
+    )?.[0] ?? "";
+    expect(exactRule).toMatch(/print-color-adjust:\s*exact/);
+  });
+
+  it("真选择器判定：只有 GFM 任务项里**可点**的复选框才拿到自绘方框", () => {
     const styleEl = document.createElement("style");
     styleEl.textContent = css;
     document.head.appendChild(styleEl);
@@ -867,6 +942,59 @@ describe("kami.css reader-polish task-8 任务列表勾选（2026-09-20）", () 
     expect(editView.matches(selector)).toBe(false);
     expect(rawHtml.matches(selector)).toBe(false);
     expect(window.getComputedStyle(clickable).cursor).toBe("pointer");
+    expect(window.getComputedStyle(clickable).appearance).toBe("none");
+    expect(window.getComputedStyle(editView).appearance).not.toBe("none");
+
+    document.body.removeChild(body);
+    document.head.removeChild(styleEl);
+  });
+
+  it("真选择器判定：灰化 + 划线只落在阅读视图里已勾的任务项上", () => {
+    const styleEl = document.createElement("style");
+    styleEl.textContent = css;
+    document.head.appendChild(styleEl);
+
+    const body = document.createElement("div");
+    body.className = "markdown-body";
+    document.body.appendChild(body);
+
+    // 阅读视图的 DOM 形状：紧列表的文字是复选框的兄弟文本节点；松散列表多包一层 <p>
+    const makeItem = (checked: boolean, disabled: boolean, loose = false) => {
+      const li = document.createElement("li");
+      li.className = "task-list-item";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = checked;
+      input.disabled = disabled;
+      if (loose) {
+        const p = document.createElement("p");
+        p.append(input, document.createTextNode(" 甲"));
+        li.appendChild(p);
+      } else {
+        li.append(input, document.createTextNode(" 甲"));
+      }
+      body.appendChild(li);
+      return li;
+    };
+
+    const done = makeItem(true, false);             // 阅读视图 · 已勾
+    const todo = makeItem(false, false);            // 阅读视图 · 未勾
+    const editView = makeItem(true, true);          // 编辑视图（复选框恒 disabled）
+    const looseDone = makeItem(true, false, true);  // 松散列表 · 已勾
+
+    expect(done.matches(TIGHT)).toBe(true);
+    expect(todo.matches(TIGHT)).toBe(false);
+    expect(editView.matches(TIGHT)).toBe(false);
+    expect(looseDone.matches(TIGHT)).toBe(false);
+    expect(looseDone.matches(LOOSE)).toBe(true);
+
+    // jsdom 不回解 var()，色值断言只能钉住「引用了哪个变量」
+    const style = (el: Element) => window.getComputedStyle(el);
+    expect(style(done).color).toBe("var(--stone)");
+    expect(style(done).textDecoration).toContain("line-through");
+    expect(style(editView).color).not.toBe("var(--stone)");
+    expect(style(editView).textDecoration).not.toContain("line-through");
+    expect(style(looseDone.querySelector("p")!).color).toBe("var(--stone)");
 
     document.body.removeChild(body);
     document.head.removeChild(styleEl);
