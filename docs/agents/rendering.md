@@ -39,7 +39,7 @@
 - **不要**把搜索框改回 sticky 或放回滚动容器内——会重新引入「搜索框遮挡激活项」和「连点导航按钮时搜索框上浮误点」。
 - **设置视图打开时侧栏只换内容**（`SettingsNav`，2026-09-20 第二批）：`App.tsx` 里仍是同一枚 `<aside className="outline-sidebar">`，`isSettingsOpen ? <SettingsNav/> : <OutlinePanel/>`——宽度变量、开合（`--open` + `beginWidthTransition()`）、拖宽手柄、窄屏浮层与纱罩、默认关全部自动跟随，**别为设置页另写一套侧栏**。题头复用 `.outline-panel__header`（「設定」，唯一繁体，与「目錄」同例），搜索框与条目复用 `.outline-search*` / `.outline-panel__link*`；`Ctrl+K` 聚焦的是同一枚 `searchInputRef`（两枚面板不会同时在 DOM 里）。
 - 侧边栏宽度可调：`useOutlineWidth`（200–320px，默认 240，双击手柄复位）覆写根 `--outline-width` 变量，`--outline-shift` 由 calc 派生自动跟随。
-- 启动时侧边栏**恒为关闭**：`App.tsx` 必须传 `useOutlineOpen(false)`，该 hook 启动时不读取持久化状态（用户交互后的状态仍照写，只是不回读）。改回 `true` 会让侧栏每次启动都自行展开——这是产品决定，不是待修项。
+- 启动时侧边栏**出厂恒为关闭**：`App.tsx` 必须传 `useOutlineOpen(false)`，该 hook 启动时不读取持久化状态（用户交互后的状态仍照写，只是不回读）。改回 `true` 会让侧栏每次启动都自行展开——这是产品决定，不是待修项。**唯一的例外是「界面 · 启动时展开侧栏」偏好**（2026-09-20 第二批）：`App.tsx` 挂载时单独读一次 `loadAppPreferences()`，为开则经 `setOutlineOpenPinned(true)` 展开（与其它入口同一条宽度过渡路径，仍走 `beginWidthTransition()`）——偏好是「启动时读一次」，不是让 hook 去回读持久化状态，两者别混为一谈。
 - 手柄 `.outline-resize-handle` 必须作 aside 的**兄弟节点**外置（aside 有 `overflow:hidden`）。
 - `JumpToBottom`：距底 >300px 浮现的右下角跳底按钮，z 序须低于窄屏遮罩（750）；点击走 `animateScrollTo` 缓动，用户输入可被全局监听打断。
 
@@ -52,6 +52,7 @@
 - 视图边界：设置视图里 `Ctrl+E` 不切编辑视图（正文不在 DOM，静默改状态会让「返回阅读」后与预期不符）、`JumpToBottom` 不渲染、`.document-scroll__content--editing` 与覆盖层只在正文分支出现。窄屏 `Escape` 只退设置视图、不连带关侧栏——`App.tsx` 那条关侧栏监听的**依赖表必须含 `isSettingsOpen`**（只写在守卫里的话 effect 不随视图开合重跑，陈旧闭包会把侧栏一起关掉；2026-09-21 审阅修复，有用例钉住）。`SettingsNav` 搜索框里的 `Escape` 就地清词并 `stopPropagation`（栈式语义，不冒到 window）。
 - 大纲观察器重挂：`useOutlineSync(scrollRef, headings, navTargetRef, revision)` 的第 4 参数取 `revision = isSettingsOpen ? "settings" : "document"`——正文重新进 DOM 的是**新元素**，不重挂观察器就再也不会回调（大纲高亮停在空白态）。
 - 分节清单单一来源：`SETTINGS_SECTIONS` / `settingsSectionElementId()` 从 `SettingsView.tsx` 导出，侧栏导航据此生成；点条目 → `handleSelectSettingsSection` 切激活态并用与大纲同一条 `animateContainerTo` 缓动滚到 `#settings-section-*`（设置页与正文**共用同一个滚动容器**，不另开滚动区）。
+- 「界面」与「更新」两节的开关是**启动偏好**，不是当场动作：两者都落 `src/lib/appPreferences.ts`（与 `outlineWidth` / `readerSettings` 同一个 settings Store，读盘失败一律回退出厂值），且只在启动时被读一次——`sidebarOpenOnLaunch`（出厂关）为开则 `App.tsx` 挂载后经 `setOutlineOpenPinned(true)` 展开侧栏（同一条 `beginWidthTransition()` 路径），在设置页里拨它**不会当场开合侧栏**（开合只由顶栏按钮 / `Ctrl+B` 决定），只影响下一次启动；`autoCheckUpdates`（出厂开）同理，只在 `main.tsx` 的启动静默检查那一步被读（设置页「立即检查」不看它）。
 - 打印：设置视图**不在**主打印段的隐藏清单里——它打开时正文整块不在 DOM，藏掉只会印出一张白纸（弹层时代 `.settings-popover` 浮在正文上，藏掉才印得着正文）。`kami.css.test.ts` 显式断言主段清单**不含** `.settings-view`。
 
 ## 阅读位置记忆与恢复
