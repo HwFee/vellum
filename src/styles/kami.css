@@ -1340,6 +1340,10 @@ mark.search-match--current {
   height: 15px;
   /* appearance: none 不重置 UA 给复选框的 3px 外边距，显式归零；top 对齐照抄定稿 demo */
   margin: 0;
+  /* padding 必须显式归零：上面 `.markdown-body input` 那条通用控件规则给了 6px 10px，
+     自绘后没人再压住它——border-box 下 width: 15px 会被 padding+border 顶到 ~22px
+     （原生 appearance: auto 时 Blink 强制复选框 padding: 0，所以以前不显形）。 */
+  padding: 0;
   position: relative;
   top: 2px;
   border: 1px solid var(--hairline);
@@ -1373,8 +1377,18 @@ mark.search-match--current {
 /* 已勾同行的任务文字（划线）：灰化 + 1px 删除线。GFM 任务项里文字是复选框的兄弟**文本
    节点**（没有可命中的元素），定位只能落在 <li> 上，用 :has() 认「本级自己的复选框已勾」。
    紧列表（`- [x] 甲`）的复选框是 <li> 的直接子级；松散列表（条目间有空行）多包一层 <p>，
-   而 <p> 自带 color 会盖掉继承来的灰——两种形状都要命中，松散列表的 <p> 单独再写一次色。 */
-.markdown-body .task-list-item:has(> input[type="checkbox"]:not(:disabled):checked),
+   而 <p> 自带 color 会盖掉继承来的灰——两种形状各写一条，松散列表的 <p> 再补一次色。
+   **两种形状必须是两条单选择器规则，不能合成一条逗号列表**：构建期 minifier 会把逗号
+   列表整条包进 :is()（实测产物里就是 `:is(A, B)`），而 :is() 取参数里最高的特异度——
+   (0,5,1) 的紧列表选择器会被抬到 (0,5,2)，打印段里同写法的 (0,5,1) 就再也压不住它
+   （打印段注释里有实测记录）。单选择器规则即使被包进 :is()，特异度也逐字不变。 */
+.markdown-body .task-list-item:has(> input[type="checkbox"]:not(:disabled):checked) {
+  color: var(--stone);
+  text-decoration: line-through;
+  text-decoration-color: var(--stone);
+  text-decoration-thickness: 1px;
+}
+
 .markdown-body .task-list-item:has(> p > input[type="checkbox"]:not(:disabled):checked) {
   color: var(--stone);
   text-decoration: line-through;
@@ -2193,8 +2207,22 @@ mark.search-match--current {
   }
 
   /* 任务勾选（钤印 + 划线）：删除线是「完成」的说法，打印件里照旧保留；灰化归零——
-     纸上不靠浅灰表意，反而丢对比度（松散列表的 <p> 本来就是正文色，无需覆写）。 */
-  .markdown-body .task-list-item:has(input[type="checkbox"]:not(:disabled):checked) {
+     纸上不靠浅灰表意，反而丢对比度。
+     特异度必须**逐条对齐**屏幕态规则（媒体查询不参与特异度，同特异度靠后写的胜出），
+     所以下面三条的选择器与屏幕态那三条**逐字相同**：(0,5,1) 紧列表 / (0,5,2) 松散列表
+     li / (0,5,3) 松散列表 <p>。三条也都是单选择器——合成逗号列表会被构建期 minifier
+     包成 :is()，:is() 取参数里最高的特异度，低的那条会被抬起来压不住（实测记录：
+     屏幕态两条合成一条时，产物里是 `:is(A, B)`，紧列表这条 (0,5,1) 压不过被抬到
+     (0,5,2) 的屏幕态规则，打印件里紧列表的字仍是灰的）。 */
+  .markdown-body .task-list-item:has(> input[type="checkbox"]:not(:disabled):checked) {
+    color: var(--near-black);
+  }
+
+  .markdown-body .task-list-item:has(> p > input[type="checkbox"]:not(:disabled):checked) {
+    color: var(--near-black);
+  }
+
+  .markdown-body .task-list-item:has(> p > input[type="checkbox"]:not(:disabled):checked) > p {
     color: var(--near-black);
   }
 

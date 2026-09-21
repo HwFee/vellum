@@ -824,12 +824,35 @@ describe("kami.css reader-polish task-7 大纲深层级（2026-09-20）", () => 
 /// 靛青对勾 + 同项文字灰化划线；作用域靠 :not(:disabled) 把编辑视图（复选框恒 disabled）与
 /// 原始 HTML 里作者写死的 disabled 排除在外——编辑视图里源码就是源码。
 describe("kami.css 任务列表勾选定稿：钤印 + 划线（2026-09-20）", () => {
+  /// 注释里会出现 `padding: 0`、`:is(A, B)` 这类「长得像声明/选择器」的字样（都是解释
+  /// 用），断言前一律先剥掉注释，免得代理断言被自己的注释喂饱
+  const stripComments = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, "");
   const baseRule = () =>
-    css.match(/\.markdown-body \.task-list-item input\[type="checkbox"\]:not\(:disabled\)\s*\{[^}]*\}/s)?.[0] ?? "";
+    stripComments(
+      css.match(/\.markdown-body \.task-list-item input\[type="checkbox"\]:not\(:disabled\)\s*\{[^}]*\}/s)?.[0] ?? ""
+    );
   const checkedRule = () =>
-    css.match(/\.markdown-body \.task-list-item input\[type="checkbox"\]:not\(:disabled\):checked\s*\{[^}]*\}/s)?.[0] ?? "";
+    stripComments(
+      css.match(/\.markdown-body \.task-list-item input\[type="checkbox"\]:not\(:disabled\):checked\s*\{[^}]*\}/s)?.[0] ?? ""
+    );
   const TIGHT = '.markdown-body .task-list-item:has(> input[type="checkbox"]:not(:disabled):checked)';
   const LOOSE = '.markdown-body .task-list-item:has(> p > input[type="checkbox"]:not(:disabled):checked)';
+  const LOOSE_P = `${LOOSE} > p`;
+  const printStart = css.indexOf("/* ===== 打印");
+
+  /// 取某条规则的选择器列表（去注释、去空白）：钉「这条规则只有这一个选择器」。
+  /// 逗号列表会被构建期 minifier 整条包进 :is()，而 :is() 取参数里最高的特异度——
+  /// 屏幕态两条合成一条时紧列表选择器会被抬到 (0,5,2)，打印段里同写法的 (0,5,1) 就压不住了。
+  const selectorListOf = (selector: string, from = 0): string => {
+    const at = css.indexOf(`${selector} {`, from);
+    if (at === -1) return "";
+    return stripComments(css.slice(css.lastIndexOf("}", at) + 1, css.indexOf("{", at))).trim();
+  };
+
+  const ruleOf = (selector: string, from = 0): string => {
+    const at = css.indexOf(`${selector} {`, from);
+    return at === -1 ? "" : stripComments(css.slice(at, css.indexOf("}", at) + 1));
+  };
 
   it("自绘方框：appearance none、15px、1px 发丝描边、2px 圆角、透明底、光标 pointer", () => {
     const rule = baseRule();
@@ -841,6 +864,11 @@ describe("kami.css 任务列表勾选定稿：钤印 + 划线（2026-09-20）", 
     expect(rule).toMatch(/border-radius:\s*2px/);
     expect(rule).toMatch(/background-color:\s*transparent/);
     expect(rule).toMatch(/cursor:\s*pointer/);
+
+    // padding 必须显式归零：上面 `.markdown-body input` 那条通用控件规则给了 6px 10px，
+    // 自绘后没人再压住它——border-box 下 15px 会被 padding+border 顶到 ~22px
+    //（原生 appearance: auto 时 Blink 强制复选框 padding: 0，所以以前不显形）
+    expect(rule).toMatch(/padding:\s*0/);
   });
 
   it("hover 框线转靛青；键盘聚焦沿用 1px 靛青 outline + 1px offset", () => {
@@ -879,37 +907,39 @@ describe("kami.css 任务列表勾选定稿：钤印 + 划线（2026-09-20）", 
     expect(svg).not.toContain("#");
   });
 
-  it("已勾同项的文字：灰化 + 1px 删除线，紧列表与松散列表两种形状都命中", () => {
-    const rule = css.match(
-      /\.markdown-body \.task-list-item:has\(> input\[type="checkbox"\]:not\(:disabled\):checked\),\s*\.markdown-body \.task-list-item:has\(> p > input\[type="checkbox"\]:not\(:disabled\):checked\)\s*\{[^}]*\}/s
-    )?.[0] ?? "";
-    expect(rule).not.toBe("");
-    expect(rule).toMatch(/color:\s*var\(--stone\)/);
-    expect(rule).toMatch(/text-decoration:\s*line-through/);
-    expect(rule).toMatch(/text-decoration-color:\s*var\(--stone\)/);
-    expect(rule).toMatch(/text-decoration-thickness:\s*1px/);
+  it("已勾同项的文字：灰化 + 1px 删除线，三种形状各一条**单选择器**规则", () => {
+    for (const selector of [TIGHT, LOOSE]) {
+      const rule = ruleOf(selector);
+      expect(rule).not.toBe("");
+      expect(rule).toMatch(/color:\s*var\(--stone\)/);
+      expect(rule).toMatch(/text-decoration:\s*line-through/);
+      expect(rule).toMatch(/text-decoration-color:\s*var\(--stone\)/);
+      expect(rule).toMatch(/text-decoration-thickness:\s*1px/);
+      // 逐字单选择器：合成逗号列表会被 minifier 包成 :is() 抬特异度，打印覆写就压不住
+      expect(selectorListOf(selector)).toBe(selector);
+    }
 
-    // 松散列表的文字被 <p> 自己的 color 盖掉继承，单独再写一次
-    const looseP = css.match(
-      /\.markdown-body \.task-list-item:has\(> p > input\[type="checkbox"\]:not\(:disabled\):checked\) > p\s*\{[^}]*\}/s
-    )?.[0] ?? "";
+    // 松散列表的文字被 <p> 自己的 color 盖掉继承来的灰，只补色（删除线仍从 <li> 传播下来）
+    const looseP = ruleOf(LOOSE_P);
     expect(looseP).toMatch(/color:\s*var\(--stone\)/);
+    expect(selectorListOf(LOOSE_P)).toBe(LOOSE_P);
   });
 
-  it("打印：灰化归零、删除线保留、勾的背景强制打印，且覆写排在屏幕态规则之后", () => {
-    const printStart = css.indexOf("/* ===== 打印");
+  it("打印：三条覆写与屏幕态逐字同选择器（特异度对齐），且排在屏幕态规则之后", () => {
+    expect(printStart).toBeGreaterThan(css.indexOf(TIGHT));
     const printBlock = css.slice(printStart, css.indexOf(".mdlog-widget"));
-    expect(printStart).toBeGreaterThan(css.indexOf(".task-list-item:has("));
+    expect(printBlock).not.toContain(".mdlog-widget");
 
-    const colorRule =
+    for (const selector of [TIGHT, LOOSE, LOOSE_P]) {
+      // 打印覆写靠来源序取胜（媒体查询不参与特异度），选择器必须与屏幕态那条一模一样
+      expect(selectorListOf(selector, printStart)).toBe(selector);
+      expect(ruleOf(selector, printStart)).toMatch(/color:\s*var\(--near-black\)/);
+    }
+
+    const exactRule =
       printBlock.match(
-        /\.markdown-body \.task-list-item:has\(input\[type="checkbox"\]:not\(:disabled\):checked\)\s*\{[^}]*\}/s
+        /\.markdown-body \.task-list-item input\[type="checkbox"\]:not\(:disabled\):checked\s*\{[^}]*\}/s
       )?.[0] ?? "";
-    expect(colorRule).toMatch(/color:\s*var\(--near-black\)/);
-
-    const exactRule = printBlock.match(
-      /\.markdown-body \.task-list-item input\[type="checkbox"\]:not\(:disabled\):checked\s*\{[^}]*\}/s
-    )?.[0] ?? "";
     expect(exactRule).toMatch(/print-color-adjust:\s*exact/);
   });
 
@@ -944,6 +974,9 @@ describe("kami.css 任务列表勾选定稿：钤印 + 划线（2026-09-20）", 
     expect(window.getComputedStyle(clickable).cursor).toBe("pointer");
     expect(window.getComputedStyle(clickable).appearance).toBe("none");
     expect(window.getComputedStyle(editView).appearance).not.toBe("none");
+    // 通用控件规则（`.markdown-body input`）给的 6px 10px 必须被自绘基座压掉，
+    // 否则 border-box 下 15px 会被 padding+border 顶宽（实测真机 21.33px）
+    expect(window.getComputedStyle(clickable).padding).toBe("0px");
 
     document.body.removeChild(body);
     document.head.removeChild(styleEl);
