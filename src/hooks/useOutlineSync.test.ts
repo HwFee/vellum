@@ -109,6 +109,45 @@ describe("useOutlineSync", () => {
     document.body.removeChild(container);
   });
 
+  it("正文容器内容换代（设置视图替换正文后换回来）时重挂观察器", () => {
+    // 设置视图打开时正文整块退出 DOM：回来的是**新元素**。观察器不按 revision 重挂，
+    // 就再也不会收到回调（大纲高亮会停在空白态直到用户滚动）
+    const headings: OutlineHeading[] = [{ id: "title", level: 1, text: "Title" }];
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+
+    const first = document.createElement("h1");
+    first.id = "title";
+    first.textContent = "Title";
+    container.appendChild(first);
+
+    const { rerender } = renderHook(
+      ({ revision }: { revision: string }) => {
+        const contentRef = useRef<HTMLDivElement | null>(container as unknown as HTMLDivElement);
+        return useOutlineSync(contentRef, headings, undefined, revision);
+      },
+      { initialProps: { revision: "document" } }
+    );
+    expect(observers).toHaveLength(1);
+    expect(observers[0].observedElements).toEqual([first]);
+
+    // 正文退出 DOM（设置视图）再换回来：容器里是新元素
+    container.removeChild(first);
+    const second = document.createElement("h1");
+    second.id = "title";
+    second.textContent = "Title";
+    container.appendChild(second);
+
+    rerender({ revision: "settings" });
+    rerender({ revision: "document" });
+
+    expect(observers).toHaveLength(3);
+    expect(observers[2].observedElements).toEqual([second]);
+
+    document.body.removeChild(container);
+  });
+
   it("returns undefined when no headings are provided", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);

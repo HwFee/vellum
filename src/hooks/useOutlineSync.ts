@@ -6,7 +6,10 @@ export function useOutlineSync(
   headings: OutlineHeading[],
   // 大纲点击跳转期间锁定的目标标题 id：正文缓动滚动会途经中间标题，
   // 锁定期间 activeHeadingId 固定为目标，避免大纲跟随动画先跑去中间位置再折返
-  navTargetRef?: React.RefObject<string | null>
+  navTargetRef?: React.RefObject<string | null>,
+  // 正文容器内容换代（设置视图替换正文后又换回来）：正文元素退出过 DOM，回来时是**新元素**
+  // ——观察器不按这一项重挂，就再也不会收到回调（大纲高亮会停在空白态直到用户滚动）
+  revision: string = "document"
 ): string | undefined {
   const [activeHeadingId, setActiveHeadingId] = useState<string | undefined>(undefined);
   const headingIdsKey = useMemo(() => headings.map((h) => h.id).join(","), [headings]);
@@ -102,7 +105,7 @@ export function useOutlineSync(
     return () => {
       container.removeEventListener("scroll", handleScroll);
     };
-  }, [scrollContainerRef, headingIdsKey]);
+  }, [scrollContainerRef, headingIdsKey, revision]);
 
   return activeHeadingId;
 }

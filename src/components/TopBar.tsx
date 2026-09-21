@@ -1,8 +1,5 @@
-import { useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { ReaderSettings } from "../hooks/useReaderSettings";
 import { OutlineToggle } from "./OutlineToggle";
-import { SettingsPopover } from "./SettingsPopover";
 
 function MinimizeIcon() {
   return (
@@ -103,9 +100,10 @@ type TopBarProps = {
   /// mdlog 记录中为 false：按钮禁用并提示断开连接后才能修改
   canEdit?: boolean;
   onToggleEdit?: () => void;
-  /// 阅读设置（字号 / 栏宽 / 行高）：两者齐备时才渲染齿轮入口
-  readerSettings?: ReaderSettings;
-  onReaderSettingsChange?: (patch: Partial<ReaderSettings>) => void;
+  /// 设置视图是否打开（齿轮呈按下态：warm-sand 底 + brand 字色）
+  isSettingsOpen?: boolean;
+  /// 齿轮点击：进入/退出设置视图（视图本身在正文区，弹层已于 2026-09-20 退役）
+  onToggleSettings?: () => void;
 };
 
 export function TopBar({
@@ -120,12 +118,10 @@ export function TopBar({
   isEditing = false,
   canEdit = true,
   onToggleEdit,
-  readerSettings,
-  onReaderSettingsChange,
+  isSettingsOpen = false,
+  onToggleSettings,
 }: TopBarProps) {
   const window = getCurrentWindow();
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const settingsButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
     <header className="top-bar" data-tauri-drag-region>
@@ -177,32 +173,21 @@ export function TopBar({
         <button className="open-button" type="button" aria-label="打开文件" title="打开文件" onClick={onOpen}>
           <OpenIcon />
         </button>
-        {readerSettings && onReaderSettingsChange && (
+        {onToggleSettings && (
           <>
             <span className="top-bar__divider" aria-hidden="true" />
-            {/* 弹层的定位上下文：absolute 于齿轮下方、左缘对齐（齿轮在窗口左侧，右对齐会
-                把弹层左缘推出窗口），点外部 / Escape 由 SettingsPopover 自理 */}
-            <div className="settings-anchor">
-              <button
-                ref={settingsButtonRef}
-                className="open-button settings-toggle"
-                type="button"
-                aria-label="阅读设置"
-                aria-expanded={settingsOpen}
-                title="阅读设置"
-                onClick={() => setSettingsOpen((open) => !open)}
-              >
-                <GearIcon />
-              </button>
-              {settingsOpen && (
-                <SettingsPopover
-                  settings={readerSettings}
-                  onChange={onReaderSettingsChange}
-                  onClose={() => setSettingsOpen(false)}
-                  anchorRef={settingsButtonRef}
-                />
-              )}
-            </div>
+            {/* 齿轮：进入/退出设置视图（2026-09-20 起设置是替换正文区的整页视图，弹层退役）。
+                按下态 = 设置视图打开期间（warm-sand 底 + brand 字色），label 与 title 不变 */}
+            <button
+              className="open-button settings-toggle"
+              type="button"
+              aria-label="阅读设置"
+              aria-pressed={isSettingsOpen}
+              title="阅读设置"
+              onClick={onToggleSettings}
+            >
+              <GearIcon />
+            </button>
           </>
         )}
         {isRecording && <span className="top-bar__recording">记录中</span>}

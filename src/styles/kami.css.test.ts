@@ -559,23 +559,71 @@ describe("kami.css 阅读设置变量消费", () => {
     expect(css).toMatch(/\.markdown-body h3\s*\{[^}]*font-size:\s*17px/s);
   });
 
-  it("设置弹层样式位于首个 .mdlog-widget 之前（避开 mdlog 区段的设计约束扫描）", () => {
-    const popoverIndex = css.indexOf(".settings-popover {");
+  it("设置视图样式位于首个 .mdlog-widget 之前，且排在末尾那段 @media print 之前", () => {
+    const settingsIndex = css.indexOf(".settings-view {");
     const mdlogIndex = css.indexOf(".mdlog-widget");
-    expect(popoverIndex).toBeGreaterThan(-1);
-    expect(popoverIndex).toBeLessThan(mdlogIndex);
+    expect(settingsIndex).toBeGreaterThan(-1);
+    expect(settingsIndex).toBeLessThan(mdlogIndex);
+    // 屏幕态规则必须先于打印覆写：末尾那段 @media print 里的规则靠来源序压过同特异度的屏幕态
+    expect(settingsIndex).toBeLessThan(css.lastIndexOf("@media print"));
   });
 
-  it("设置弹层左缘对齐齿轮（右对齐会把弹层推出窗口左缘）", () => {
-    // 齿轮在顶栏左侧按钮簇末尾（x≈193），弹层宽 236px：`right: 0` 实测 left = −15px，
-    // 14px 内边距整个被窗口左缘切掉、行标签与「恢复默认」贴死边缘（2026-09-20 真机截图）。
-    const anchor = css.match(/\.settings-anchor\s*\{[^}]*\}/s)?.[0] ?? "";
-    expect(anchor).toMatch(/position:\s*relative/);
+  it("设置视图内容栏 640px 居中、顶行右说明与行右值都是 mono 10px stone", () => {
+    const col = css.match(/^\.settings-view\s*\{[^}]*\}/m)?.[0] ?? "";
+    expect(col).toMatch(/max-width:\s*640px/);
+    expect(col).toMatch(/margin:\s*0 auto/);
 
-    const popover = css.match(/^\.settings-popover\s*\{[^}]*\}/m)?.[0] ?? "";
-    expect(popover).not.toBe("");
-    expect(popover).toMatch(/left:\s*0/);
-    expect(popover).not.toMatch(/right:\s*0/);
+    const note = css.match(/\.settings-view__note,\s*\.settings-view__value\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(note).toMatch(/font:\s*500 10px\/1\.5 var\(--mono\)/);
+    expect(note).toMatch(/color:\s*var\(--stone\)/);
+
+    // 分节 eyebrow 拖一条发丝线收尾（代替通栏分隔线）
+    const eyebrow = css.match(/\.settings-view__eyebrow\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(eyebrow).toMatch(/display:\s*flex/);
+    const eyebrowLine = css.match(/\.settings-view__eyebrow::after\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(eyebrowLine).toMatch(/flex:\s*1/);
+    expect(eyebrowLine).toMatch(/background:\s*var\(--hairline\)/);
+  });
+
+  it("样张消费正文那三个 CSS 变量（弹层退役后「边调边看」由它接住）", () => {
+    const sheet = css.match(/\.settings-view__proof-sheet\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(sheet).toMatch(/max-width:\s*var\(--reader-column-width,\s*800px\)/);
+    expect(sheet).toMatch(/font-size:\s*var\(--reader-font-size,\s*14px\)/);
+    expect(sheet).toMatch(/line-height:\s*var\(--reader-line-height,\s*1\.55\)/);
+  });
+
+  it("齿轮按下态排在 .open-button 基础规则之后（同特异度靠来源序取胜）", () => {
+    const base = css.search(/^\.outline-toggle,\s*$/m);
+    const pressed = css.indexOf('.settings-toggle[aria-pressed="true"] {');
+    expect(base).toBeGreaterThan(-1);
+    expect(pressed).toBeGreaterThan(base);
+    const rule = css.match(/\.settings-toggle\[aria-pressed="true"\]\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(rule).toMatch(/background:\s*var\(--warm-sand\)/);
+    expect(rule).toMatch(/color:\s*var\(--brand\)/);
+  });
+
+  it("设置页部件（分段选择器 / 文字按钮 / 幽灵按钮）沿用既有语汇与数值", () => {
+    const seg = css.match(/^\.seg\s*\{[^}]*\}/m)?.[0] ?? "";
+    expect(seg).toMatch(/min-width:\s*34px/);
+    expect(seg).toMatch(/border-radius:\s*4px/);
+    expect(seg).toMatch(/font-size:\s*12px/);
+
+    const selected = css.match(/\.seg\[aria-pressed="true"\]\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(selected).toMatch(/background:\s*var\(--brand-tint\)/);
+    expect(selected).toMatch(/color:\s*var\(--brand\)/);
+
+    const ghost = css.match(/\.button\.button-ghost\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(ghost).toMatch(/box-shadow:\s*inset 0 0 0 1px var\(--hairline\)/);
+    expect(ghost).toMatch(/border-radius:\s*6px/);
+    // 禁用只用透明度表达（与 .nav-button:disabled 同款），不引新颜色
+    const ghostDisabled = css.match(/\.button\.button-ghost:disabled\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(ghostDisabled).toMatch(/opacity:\s*0\.35/);
+  });
+
+  it("弹层时代的规则已随组件退役（.settings-popover* / .settings-anchor 的规则全清）", () => {
+    // 只查规则定义本身：注释里保留「为什么退役」的说明是刻意的
+    expect(css).not.toMatch(/^\.settings-popover/m);
+    expect(css).not.toMatch(/^\.settings-anchor/m);
   });
 });
 
@@ -841,7 +889,7 @@ describe("kami.css reader-polish task-9 打印样式（2026-09-20）", () => {
     expect(printBlock).toMatch(/@media\s*print\s*\{/);
   });
 
-  it("打印隐藏清单：顶栏 / 侧栏 / 拖宽手柄 / 纱罩 / 滚动条 / 跳底 / 印章 / 提示条 / 设置弹层", () => {
+  it("打印隐藏清单：顶栏 / 侧栏 / 拖宽手柄 / 纱罩 / 滚动条 / 跳底 / 印章 / 提示条", () => {
     const hiddenRule = printBlock.match(/\.top-bar,\s*[\s\S]*?display:\s*none;/)?.[0] ?? "";
     expect(hiddenRule).not.toBe("");
     for (const selector of [
@@ -854,10 +902,12 @@ describe("kami.css reader-polish task-9 打印样式（2026-09-20）", () => {
       ".reload-note",
       ".editor-toast",
       ".editor-hint",
-      ".settings-popover",
     ]) {
       expect(hiddenRule, `打印隐藏清单缺 ${selector}`).toContain(selector);
     }
+    // 设置视图不在此列：它打开时正文整块不在 DOM 里，藏掉只会印出一张白纸
+    //（弹层时代 `.settings-popover` 浮在正文之上，藏掉才印得着正文）
+    expect(hiddenRule).not.toContain(".settings-view");
     // 清单的前提是这些选择器的屏幕态规则都排在本段之前（同特异度靠顺序取胜）。
     // `.mdlog-live` 的屏幕态规则在 mdlog 区段里、排在本段之后 ⇒ 放这里等于没写，
     // 它的覆写在文件末尾那段（见下一条用例）。

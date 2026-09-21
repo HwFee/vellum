@@ -10,17 +10,25 @@ import { EmptyState } from "./components/EmptyState";
 import { ErrorState } from "./components/ErrorState";
 import { JumpToBottom } from "./components/JumpToBottom";
 import { OutlinePanel } from "./components/OutlinePanel";
+import { SettingsNav } from "./components/SettingsNav";
+import {
+  SettingsView,
+  settingsSectionElementId,
+  type SettingsSectionId,
+} from "./components/SettingsView";
 import { TopBar } from "./components/TopBar";
+import { useAppPreferences } from "./hooks/useAppPreferences";
 import { useDocumentEditor } from "./hooks/useDocumentEditor";
 import { useIsNarrow } from "./hooks/useIsNarrow";
 import { useOutlineOpen } from "./hooks/useOutlineOpen";
 import { useOutlineSync } from "./hooks/useOutlineSync";
 import { OUTLINE_WIDTH_DEFAULT, useOutlineWidth } from "./hooks/useOutlineWidth";
 import { useReaderSettings, type ReaderSettings } from "./hooks/useReaderSettings";
+import { loadAppPreferences } from "./lib/appPreferences";
 import { extractOutline, matchHeadingByFragment } from "./lib/outline";
 import { fileNameToTitle, isMarkdownPath, isSamePath } from "./lib/path";
 import { extractWikilinkTargets } from "./lib/wikilink";
-import { addRecent, loadRecentFiles, removeRecent } from "./lib/recentFiles";
+import { addRecent, clearRecentFiles, loadRecentFiles, removeRecent } from "./lib/recentFiles";
 import { loadScrollPosition, saveScrollPosition, type ScrollPositionRecord } from "./lib/scrollMemory";
 import { captureScrollPosition, restoreScrollPosition } from "./lib/scrollRestore";
 import {
@@ -140,6 +148,18 @@ export default function App() {
   outlineWidthRef.current = outlineWidth;
   // 阅读设置（字号 / 栏宽 / 行高）：变量覆写挂在 documentElement，与文档无关
   const [readerSettings, setReaderSettings] = useReaderSettings();
+  // 界面行为偏好（启动时展开侧栏 / 启动时自动检查更新）：与阅读设置同一个 settings.json Store
+  const [preferences, setPreferences] = useAppPreferences();
+  // 设置视图（2026-09-20：弹层退役，正文区整块换成设置页）。顶栏与侧栏容器都不变——
+  // 同一枚侧栏内容随视图换，开合状态与阅读视图共享同一份
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const isSettingsOpenRef = useRef(false);
+  isSettingsOpenRef.current = isSettingsOpen;
+  // 侧栏设置导航的激活分节（点条目即切激活态并缓动滚过去）
+  const [settingsSectionId, setSettingsSectionId] = useState<SettingsSectionId>("reading");
+  // 进入设置视图时取下的阅读位置：正文退出 DOM 期间它就是「当前阅读位置」——
+  // 容器里滚的是设置内容，此刻再测容器量到的是设置页的偏移
+  const settingsScrollRecordRef = useRef<{ path: string; record: ScrollPositionRecord } | null>(null);
   // 布局过渡窗：侧边栏开关动画 / 拖宽期间，所有 widget iframe 随容器宽度集体重排，
   // 若恰逢 mdlog 追加触发的热重载（整篇重解析），主线程被「过渡重排 + 解析提交」
   // 双重工作饱和——页面完全卡死、过一会儿自愈（mdlog 连接中开关侧边栏卡死的根因）。
@@ -263,6 +283,57 @@ export default function App() {
     [beginWidthTransition, setReaderSettings]
   );
 
+  // 「启动时展开侧栏」（设置页「界面」节，出厂关）：偏好是异步读盘的，故启动时单独读一次
+  // ——读到开就展开。这是一次性的**启动**行为：此后用户在设置页里改这个开关不该当场开合
+  // 侧栏（开合只由顶栏按钮 / Ctrl+B 决定）。走 setOutlineOpenPinned 与其它入口同一条
+  // 宽度过渡路径（红线：侧栏开关的任何入口都要经 beginWidthTransition）。
+  useEffect(() => {
+    let cancelled = false;
+    void loadAppPreferences().then((loaded) => {
+      if (!cancelled && loaded.sidebarOpenOnLaunch) setOutlineOpenPinned(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [setOutlineOpenPinned]);
+
+  // ===== 设置视图（正文区整块替换） =====
+  // 进入：正文（含 widget iframe）整块退出 DOM，先把阅读位置取下来——退出时按既有落位
+  // 管线放回去。currentScrollRecord 只读 ref，故这里空依赖捕获的首帧闭包与最新一份等价
+  const openSettings = useCallback(() => {
+    const path = currentPathRef.current;
+    const record = currentScrollRecord();
+    if (path && record) {
+      settingsScrollRecordRef.current = { path, record };
+      // 与「后退/前进」同一条落位管线：正文回来时由 handleContentRendered 消费这份记录
+      pendingRestoreRef.current = { path, record };
+      // 位置即刻落盘：进入设置视图后容器里滚的是设置内容，正文位置不会再被保存
+      void saveScrollPosition(path, record);
+    }
+    // 正文即将退出 DOM：复位「已恢复」标记，回来时 handleContentRendered 才会走恢复
+    lastRestoredPathRef.current = null;
+    setSettingsSectionId("reading");
+    setIsSettingsOpen(true);
+  }, []);
+
+  const closeSettings = useCallback(() => {
+    settingsScrollRecordRef.current = null;
+    setIsSettingsOpen(false);
+  }, []);
+
+  const handleToggleSettings = useCallback(() => {
+    if (isSettingsOpenRef.current) {
+      closeSettings();
+      return;
+    }
+    openSettings();
+  }, [closeSettings, openSettings]);
+
+  /// 清空最近打开列表（设置页「关于与数据」）：显式落盘空数组，旧 key 迁移不会再播种
+  const handleClearRecent = useCallback(() => {
+    void clearRecentFiles().then(setRecentFiles);
+  }, []);
+
   // ===== wikilink 前进/后退历史 =====
   // 只有 wikilink 换文档入栈（判据与两栈方向见 lib/navHistory.ts 的模块注释）；
   // 条目自带离开时的三级位置记录，落位复用 scrollRestore.ts 的既有管线。
@@ -350,6 +421,9 @@ export default function App() {
 
       if (key === "e") {
         event.preventDefault();
+        // 设置视图里不切视图：正文不在 DOM 里，切了也看不见（编辑视图是正文区的语义，
+        // 静默改掉它只会让「返回阅读」时状态与预期不符）
+        if (isSettingsOpenRef.current) return;
         void editorRef.current?.toggleView();
         return;
       }
@@ -417,8 +491,15 @@ export default function App() {
     }, delay);
   }, []);
 
-  /** 当前阅读位置的三级记录（无滚动容器时返回 null——此时没有位置可言） */
+  /** 当前阅读位置的三级记录（无滚动容器时返回 null——此时没有位置可言）。
+      设置视图期间正文不在 DOM 里、容器里滚的是设置内容，此刻量到的是设置页的偏移，
+      故一律返回进入设置视图时取下的那一份（滚动保存 / 换文档 / 后退前进都用它）。 */
   function currentScrollRecord(): ScrollPositionRecord | null {
+    const stashed = settingsScrollRecordRef.current;
+    const currentPath = currentPathRef.current;
+    if (stashed && currentPath !== null && isSamePath(stashed.path, currentPath)) {
+      return stashed.record;
+    }
     const container = scrollRef.current;
     if (!container) return null;
     return captureScrollPosition(container, headingsRef.current, contentRef.current ?? undefined);
@@ -428,6 +509,9 @@ export default function App() {
   function persistCurrentScroll() {
     const path = currentPathRef.current;
     if (!path) return;
+    // 设置视图期间正文不在 DOM 里、位置没有变化（进入时已落过一次盘）：
+    // 容器里滚的是设置内容，此刻再写只是同一份记录反复落盘
+    if (isSettingsOpenRef.current) return;
     const record = currentScrollRecord();
     if (!record) return;
     void saveScrollPosition(path, record);
@@ -488,6 +572,9 @@ export default function App() {
     if (outgoingPath && outgoingRecord) {
       void saveScrollPosition(outgoingPath, outgoingRecord);
     }
+    // 换文档时退出设置视图（顺序不能提前：上面那次测量读的正是设置视图期间留下的
+    // 位置记录——先清掉再测就会量到设置内容的偏移）。读者要的是新文档，不是设置页
+    closeSettings();
     // 切换文档时重置 mdlog 活跃路径与前置标志，避免切换过渡时误触发断开补写
     prevIsMdlogActiveRef.current = false;
     activeMdlogPathRef.current = null;
@@ -986,6 +1073,23 @@ export default function App() {
     [animateContainerTo]
   );
 
+  /// 侧栏设置导航点条目：切激活态并缓动滚到对应分节（与大纲跳转共用同一条缓动路径；
+  /// 分节就在同一个滚动容器里，故不必另开滚动容器）
+  const handleSelectSettingsSection = useCallback(
+    (id: SettingsSectionId) => {
+      setSettingsSectionId(id);
+      const container = scrollRef.current;
+      const target = document.getElementById(settingsSectionElementId(id));
+      if (!container || !target) return;
+      animateContainerTo(
+        container.scrollTop +
+          target.getBoundingClientRect().top -
+          container.getBoundingClientRect().top
+      );
+    },
+    [animateContainerTo]
+  );
+
   // 切换文档时恢复上次阅读位置（无记录则回到顶部）。
   // 恢复时机放在 MarkdownDocument 内容渲染进 DOM 之后（onRendered），而非 state 变 ready 时：
   // 因为 MarkdownDocument 是懒加载，state ready 时正文 chunk 可能尚未加载、未进 DOM，
@@ -1269,9 +1373,10 @@ export default function App() {
     }
   }, [isMdlogActive]);
 
-  // 窄屏下按 Escape 关闭大纲面板
+  // 窄屏下按 Escape 关闭大纲面板。设置视图打开时 Escape 归设置视图（退出设置），
+  // 不在这里连带关侧栏——一次按键关两层是弹层时代就刻意避免的观感
   useEffect(() => {
-    if (!isNarrow || !isOutlineOpen) return;
+    if (!isNarrow || !isOutlineOpen || isSettingsOpen) return;
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -1288,7 +1393,14 @@ export default function App() {
     [activeDocument?.markdown]
   );
   headingsRef.current = headings;
-  const activeHeadingId = useOutlineSync(scrollRef, headings, outlineNavTargetRef);
+  // revision 传视图标识：设置视图期间正文整块退出 DOM，回来时标题是新元素——
+  // 观察器不按它重挂就再也不会回调（大纲高亮会停在设置视图里的空白态）
+  const activeHeadingId = useOutlineSync(
+    scrollRef,
+    headings,
+    outlineNavTargetRef,
+    isSettingsOpen ? "settings" : "document"
+  );
 
   // 侧边栏拖宽：右缘手柄按下后全局跟踪指针，即时覆写宽度并持续续布局过渡窗；
   // 拖拽期间正文 margin 与 widget 高度过渡均关闭（app-shell--sidebar-resizing），
@@ -1404,8 +1516,8 @@ export default function App() {
         isEditing={editor.viewMode === "editing"}
         canEdit={!isMdlogActive}
         onToggleEdit={handleToggleEdit}
-        readerSettings={readerSettings}
-        onReaderSettingsChange={handleReaderSettingsChange}
+        isSettingsOpen={isSettingsOpen}
+        onToggleSettings={handleToggleSettings}
       />
       <div className={`app-shell__body ${isOutlineOpen ? "app-shell__body--outline-open" : ""}`}>
         {/* 热重载提示（二）：印章，悬浮于窗口中下方、不随文档滚动；key 变化即重播。
@@ -1430,19 +1542,29 @@ export default function App() {
           </div>
         ) : null}
         <aside className={`outline-sidebar ${isOutlineOpen ? "outline-sidebar--open" : ""}`}>
-          <OutlinePanel
-            headings={headings}
-            activeHeadingId={activeHeadingId}
-            onSelectHeading={handleSelectHeading}
-            searchQuery={searchQuery}
-            onSearchChange={handleSearchChange}
-            matchCount={matchCount}
-            activeMatchIndex={activeMatchIndex}
-            searchQueryPending={searchQueryPending}
-            onNextMatch={handleNextMatch}
-            onPrevMatch={handlePrevMatch}
-            searchInputRef={searchInputRef}
-          />
+          {/* 同一枚侧栏换内容：设置视图里是「設定」导航（样式、开合、拖宽、默认关全部跟着
+              文章大纲那枚走），阅读视图里是文档大纲 */}
+          {isSettingsOpen ? (
+            <SettingsNav
+              activeSectionId={settingsSectionId}
+              onSelectSection={handleSelectSettingsSection}
+              searchInputRef={searchInputRef}
+            />
+          ) : (
+            <OutlinePanel
+              headings={headings}
+              activeHeadingId={activeHeadingId}
+              onSelectHeading={handleSelectHeading}
+              searchQuery={searchQuery}
+              onSearchChange={handleSearchChange}
+              matchCount={matchCount}
+              activeMatchIndex={activeMatchIndex}
+              searchQueryPending={searchQueryPending}
+              onNextMatch={handleNextMatch}
+              onPrevMatch={handlePrevMatch}
+              searchInputRef={searchInputRef}
+            />
+          )}
         </aside>
         {/* 侧边栏宽度手柄：骑跨侧栏右缘边线（aside overflow:hidden，须作兄弟节点外置），
             拖拽调宽 200–320px，双击复位默认宽度；窄屏下正文不位移（浮层模式），拖了无意义，不渲染 */}
@@ -1466,83 +1588,106 @@ export default function App() {
             ref={contentRef}
             className={
               "document-scroll__content" +
-              (editor.viewMode === "editing" ? " document-scroll__content--editing" : "")
+              (isSettingsOpen ? " document-scroll__content--settings" : "") +
+              (!isSettingsOpen && editor.viewMode === "editing"
+                ? " document-scroll__content--editing"
+                : "")
             }
           >
-            <div ref={documentContentRef} className="document-content">
-              {state.status === "empty" ? (
-                <EmptyState
-                  onOpen={handleOpen}
-                  recentFiles={recentFiles}
-                  onOpenRecent={(path) => void loadPathRef.current(path)}
-                />
-              ) : null}
-              {state.status === "loading" ? (
-                <section className="empty-state" role="status">
-                  加载中...
-                </section>
-              ) : null}
-              {state.status === "error" ? (
-                <ErrorState
-                  message={state.message}
-                  path={state.path}
-                  onRetry={handleOpen}
-                  recentFiles={recentFiles}
-                  onOpenRecent={(path) => void loadPathRef.current(path)}
-                />
-              ) : null}
-              {state.status === "ready" ? (
-                <>
-                  {/* 文档标题（Obsidian 的 inline title）：取自文件名，落在正文首行。
-                      刻意放在 .markdown-body 之外——它不属于文档内容，也就不进 markdown
-                      解析、搜索高亮、块单元与大纲。
-                      title 是完整绝对路径：2026-09-20 顶栏纯工具栏化后，路径的归宿只有
-                      这里（hover）与设置页「当前文档」 */}
-                  <h1 className="document-title" title={state.document.path}>
-                    {fileNameToTitle(state.document.fileName)}
-                  </h1>
-                  <Suspense fallback={null}>
-                    <MarkdownDocument
-                      markdown={state.document.markdown}
-                      headings={headings}
-                      onRendered={handleContentRendered}
-                      searchQuery={deferredSearchQuery}
-                      searchQueryPending={searchQueryPending}
-                      activeMatchIndex={activeMatchIndex}
-                      onMatchCountChange={handleMatchCountChange}
-                      editable={editor.viewMode === "editing"}
-                      onActivateUnit={handleActivateUnit}
-                      onToggleTask={handleToggleTask}
-                      wikilinks={state.wikilinks}
-                      onOpenWikilink={handleOpenWikilink}
-                    />
-                  </Suspense>
-                  {mdlogState !== null && (
-                    <div className="mdlog-live">记录中 · PI</div>
-                  )}
-                </>
-              ) : null}
-            </div>
-            {/* 就地编辑覆盖层：必须是 .document-scroll__content 的直接子元素（T3 的定位基准），
-                且与正文同级并列 —— 不放进 .markdown-body，避开其 textarea 规则的样式覆盖（裁定 F23）。
-                覆盖层与编辑态类名同一门槛（视图标志 + 活动块）：落盘失败后 toggleView 仍会退回阅读
-                视图（T4 未修 I3），但活动块已重新激活且草稿保留 —— 此时不能留下无标记可依的孤悬
-                覆盖层（units 为空、定位基准缺失），草稿由再按 Ctrl+E 原样带回 */}
-            {editor.viewMode === "editing" && editor.activeUnit ? (
-              <BlockEditor
-                unitIndex={editor.activeUnit.index}
-                value={editor.draft}
-                initialCaret={editor.initialCaret}
-                onChange={editor.updateDraft}
-                onCommit={() => void editor.commitActive()}
-                onCancel={() => void editor.commitActive()}
+            {/* 正文区整块替换：设置视图打开时正文（含 widget iframe 与就地编辑覆盖层）
+                整体退出 DOM —— 阅读位置已在进入时取下、退出时按既有落位管线放回
+                （见 openSettings / handleContentRendered） */}
+            {isSettingsOpen ? (
+              <SettingsView
+                settings={readerSettings}
+                onSettingsChange={handleReaderSettingsChange}
+                preferences={preferences}
+                onPreferencesChange={setPreferences}
+                currentDocumentPath={activeDocument?.path ?? null}
+                recentCount={recentFiles.length}
+                onClearRecent={handleClearRecent}
+                onExit={closeSettings}
               />
-            ) : null}
+            ) : (
+              <>
+                <div ref={documentContentRef} className="document-content">
+                  {state.status === "empty" ? (
+                    <EmptyState
+                      onOpen={handleOpen}
+                      recentFiles={recentFiles}
+                      onOpenRecent={(path) => void loadPathRef.current(path)}
+                    />
+                  ) : null}
+                  {state.status === "loading" ? (
+                    <section className="empty-state" role="status">
+                      加载中...
+                    </section>
+                  ) : null}
+                  {state.status === "error" ? (
+                    <ErrorState
+                      message={state.message}
+                      path={state.path}
+                      onRetry={handleOpen}
+                      recentFiles={recentFiles}
+                      onOpenRecent={(path) => void loadPathRef.current(path)}
+                    />
+                  ) : null}
+                  {state.status === "ready" ? (
+                    <>
+                      {/* 文档标题（Obsidian 的 inline title）：取自文件名，落在正文首行。
+                          刻意放在 .markdown-body 之外——它不属于文档内容，也就不进 markdown
+                          解析、搜索高亮、块单元与大纲。
+                          title 是完整绝对路径：2026-09-20 顶栏纯工具栏化后，路径的归宿只有
+                          这里（hover）与设置页「当前文档」 */}
+                      <h1 className="document-title" title={state.document.path}>
+                        {fileNameToTitle(state.document.fileName)}
+                      </h1>
+                      <Suspense fallback={null}>
+                        <MarkdownDocument
+                          markdown={state.document.markdown}
+                          headings={headings}
+                          onRendered={handleContentRendered}
+                          searchQuery={deferredSearchQuery}
+                          searchQueryPending={searchQueryPending}
+                          activeMatchIndex={activeMatchIndex}
+                          onMatchCountChange={handleMatchCountChange}
+                          editable={editor.viewMode === "editing"}
+                          onActivateUnit={handleActivateUnit}
+                          onToggleTask={handleToggleTask}
+                          wikilinks={state.wikilinks}
+                          onOpenWikilink={handleOpenWikilink}
+                        />
+                      </Suspense>
+                      {mdlogState !== null && (
+                        <div className="mdlog-live">记录中 · PI</div>
+                      )}
+                    </>
+                  ) : null}
+                </div>
+                {/* 就地编辑覆盖层：必须是 .document-scroll__content 的直接子元素（T3 的定位基准），
+                    且与正文同级并列 —— 不放进 .markdown-body，避开其 textarea 规则的样式覆盖（裁定 F23）。
+                    覆盖层与编辑态类名同一门槛（视图标志 + 活动块）：落盘失败后 toggleView 仍会退回阅读
+                    视图（T4 未修 I3），但活动块已重新激活且草稿保留 —— 此时不能留下无标记可依的孤悬
+                    覆盖层（units 为空、定位基准缺失），草稿由再按 Ctrl+E 原样带回。
+                    设置视图期间它与正文一起退出 DOM：那时没有可标记可依的正文元素 */}
+                {editor.viewMode === "editing" && editor.activeUnit ? (
+                  <BlockEditor
+                    unitIndex={editor.activeUnit.index}
+                    value={editor.draft}
+                    initialCaret={editor.initialCaret}
+                    onChange={editor.updateDraft}
+                    onCommit={() => void editor.commitActive()}
+                    onCancel={() => void editor.commitActive()}
+                  />
+                ) : null}
+              </>
+            )}
           </div>
         </div>
       </div>
       <CustomScrollbar containerRef={scrollRef} contentRef={contentRef} />
-      {state.status === "ready" && <JumpToBottom containerRef={scrollRef} />}
+      {/* 跳底按钮是正文的装置：设置视图里没有「文档底部」可言 */}
+      {state.status === "ready" && !isSettingsOpen && <JumpToBottom containerRef={scrollRef} />}
       {isOutlineOpen && isNarrow && (
         <div className="outline-scrim" role="presentation" onClick={() => setOutlineOpenPinned(false)} />
       )}

@@ -39,20 +39,10 @@ describe("TopBar", () => {
   });
 
   it("mdlog 记录中时在齿轮右侧显示「记录中」小章", () => {
-    const settings = { fontSize: 14, columnWidth: 800, lineHeight: 1.55 };
-    const { rerender } = render(
-      <TopBar onOpen={vi.fn()} readerSettings={settings} onReaderSettingsChange={vi.fn()} />
-    );
+    const { rerender } = render(<TopBar onOpen={vi.fn()} onToggleSettings={vi.fn()} />);
     expect(screen.queryByText("记录中")).toBeNull();
 
-    rerender(
-      <TopBar
-        onOpen={vi.fn()}
-        readerSettings={settings}
-        onReaderSettingsChange={vi.fn()}
-        isRecording
-      />
-    );
+    rerender(<TopBar onOpen={vi.fn()} onToggleSettings={vi.fn()} isRecording />);
     const chip = screen.getByText("记录中");
     expect(chip).toBeInTheDocument();
 
@@ -134,14 +124,14 @@ describe("TopBar", () => {
     expect(order).toEqual(["切换大纲", "后退", "前进", "切换编辑视图", "打开文件"]);
   });
 
-  it("有设置入口时：分隔线落在打开按钮之后、齿轮之前，齿轮在簇内", () => {
+  it("有设置入口时：分隔线落在打开按钮之后、齿轮之前，齿轮在簇内且点它开设置视图", () => {
+    const handleToggleSettings = vi.fn();
     render(
       <TopBar
         onOpen={vi.fn()}
         isOutlineOpen={false}
         onToggleOutline={vi.fn()}
-        readerSettings={{ fontSize: 14, columnWidth: 800, lineHeight: 1.55 }}
-        onReaderSettingsChange={vi.fn()}
+        onToggleSettings={handleToggleSettings}
       />
     );
 
@@ -149,12 +139,12 @@ describe("TopBar", () => {
     const children = Array.from(cluster.children);
     const divider = cluster.querySelector(".top-bar__divider")!;
     const open = screen.getByRole("button", { name: "打开文件" });
-    // 齿轮包在 .settings-anchor 里（弹层的定位上下文），故按该锚点比位置
-    const anchor = cluster.querySelector(".settings-anchor")!;
+    const gear = screen.getByRole("button", { name: "阅读设置" });
 
     expect(children.indexOf(divider)).toBeGreaterThan(children.indexOf(open));
-    expect(children.indexOf(divider)).toBeLessThan(children.indexOf(anchor));
-    expect(anchor.contains(screen.getByRole("button", { name: "阅读设置" }))).toBe(true);
+    expect(children.indexOf(divider)).toBeLessThan(children.indexOf(gear));
+    // 弹层退役（2026-09-20）：齿轮不再带定位上下文包裹层
+    expect(cluster.querySelector(".settings-anchor")).toBeNull();
 
     const order = Array.from(cluster.querySelectorAll("button")).map((button) =>
       button.getAttribute("aria-label")
@@ -167,6 +157,23 @@ describe("TopBar", () => {
       "打开文件",
       "阅读设置",
     ]);
+
+    fireEvent.click(gear);
+    expect(handleToggleSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("设置视图打开时齿轮呈按下态（aria-pressed，文案不变）", () => {
+    const { rerender } = render(<TopBar onOpen={vi.fn()} onToggleSettings={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "阅读设置" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+
+    rerender(<TopBar onOpen={vi.fn()} onToggleSettings={vi.fn()} isSettingsOpen />);
+    const gear = screen.getByRole("button", { name: "阅读设置" });
+    expect(gear).toHaveAttribute("aria-pressed", "true");
+    // 约束 20：既有 aria-label / title 文案逐字不动
+    expect(gear).toHaveAttribute("title", "阅读设置");
   });
 
   it("有历史时可点并触发回调，禁用的一侧不触发", () => {

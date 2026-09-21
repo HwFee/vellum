@@ -3604,3 +3604,210 @@ describe("任务列表勾选写回", () => {
     expect(screen.queryByText("甲")).toBeNull();
   });
 });
+
+// ===== 设置视图（reader-polish task-2：弹层退役，正文区整块替换） =====
+
+describe("设置视图", () => {
+  const gear = () => screen.getByRole("button", { name: "阅读设置" });
+
+  it("齿轮进入设置视图：正文区整块换成设置页、齿轮呈按下态，侧栏换成「設定」导航；再点一次退回", async () => {
+    render(<App />);
+    expect(document.querySelector(".settings-view")).toBeNull();
+    expect(screen.getByText("目錄")).toBeInTheDocument();
+
+    fireEvent.click(gear());
+
+    expect(document.querySelector(".settings-view")).toBeInTheDocument();
+    expect(document.querySelector(".document-scroll__content--settings")).toBeInTheDocument();
+    // 正文（此处是空态）整块退出 DOM
+    expect(document.querySelector(".document-content")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "素笺" })).toBeNull();
+    expect(gear()).toHaveAttribute("aria-pressed", "true");
+    // 顶栏不变：最左仍是同一枚按钮，label 不变（约束 20）
+    expect(screen.getByRole("button", { name: "切换大纲" })).toBeInTheDocument();
+    // 同一枚侧栏换内容：题头「設定」（繁体，与「目錄」同例）
+    expect(screen.getByText("設定")).toBeInTheDocument();
+    expect(screen.queryByText("目錄")).toBeNull();
+
+    fireEvent.click(gear());
+
+    expect(document.querySelector(".settings-view")).toBeNull();
+    expect(gear()).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText("目錄")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "素笺" })).toBeInTheDocument();
+    // 等版本号那次异步取回落定，免得用例结束后才 setState（React 会告警）
+    await act(async () => {});
+  });
+
+  it("Esc 与「‹ 返回阅读」都能退出设置视图", async () => {
+    render(<App />);
+    fireEvent.click(gear());
+    expect(document.querySelector(".settings-view")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(document.querySelector(".settings-view")).toBeNull();
+
+    fireEvent.click(gear());
+    fireEvent.click(screen.getByRole("button", { name: "‹ 返回阅读" }));
+    expect(document.querySelector(".settings-view")).toBeNull();
+    await act(async () => {});
+  });
+
+  it("有文档时「当前文档」给完整路径；退出后正文回到 DOM（正文标题与内容都在）", async () => {
+    await loadDocument();
+
+    fireEvent.click(gear());
+    expect(screen.getByText("C:/notes/readme.md")).toBeInTheDocument();
+    expect(document.querySelector(".document-content")).toBeNull();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Intro" })).toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "readme" })).toHaveAttribute(
+      "title",
+      "C:/notes/readme.md"
+    );
+  });
+
+  it("阅读设置仍走既有 useReaderSettings：分段改动落盘 readerSettings（机制不动只换入口）", async () => {
+    await loadDocument();
+    fireEvent.click(gear());
+
+    fireEvent.click(screen.getByRole("button", { name: "16" }));
+
+    await waitFor(() =>
+      expect(storeSet).toHaveBeenCalledWith("readerSettings", {
+        fontSize: 16,
+        columnWidth: 800,
+        lineHeight: 1.55,
+      })
+    );
+  });
+
+  it("「清除（N 条）」清空最近打开列表（显式落盘空数组），清空后按钮禁用", async () => {
+    await loadDocument();
+    await waitFor(() =>
+      expect(storeSet).toHaveBeenCalledWith("recentFiles", ["C:/notes/readme.md"])
+    );
+
+    fireEvent.click(gear());
+    fireEvent.click(screen.getByRole("button", { name: "清除（1 条）" }));
+
+    await waitFor(() => expect(storeSet).toHaveBeenCalledWith("recentFiles", []));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "清除（0 条）" })).toBeDisabled()
+    );
+  });
+
+  it("设置视图里 Ctrl+E 不切编辑视图（正文不在 DOM 里），退出后照常可编辑", async () => {
+    await loadDocument();
+    fireEvent.click(gear());
+
+    fireEvent.keyDown(window, { key: "e", ctrlKey: true });
+    expect(document.querySelector(".document-scroll__content--editing")).toBeNull();
+    expect(screen.getByRole("button", { name: "切换编辑视图" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Intro" })).toBeInTheDocument());
+    await enterEditingView();
+  });
+
+  it("侧栏设置导航：点条目切激活态（滚动交给与大纲同一条缓动路径）", async () => {
+    render(<App />);
+    fireEvent.click(gear());
+
+    const item = screen.getByRole("button", { name: "关于与数据" });
+    expect(screen.getByRole("button", { name: "阅读" })).toHaveClass("outline-panel__link--active");
+
+    fireEvent.click(item);
+
+    expect(item).toHaveClass("outline-panel__link--active");
+    expect(item).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("button", { name: "阅读" })).not.toHaveClass(
+      "outline-panel__link--active"
+    );
+    await act(async () => {});
+  });
+
+  it("退出设置视图把阅读位置放回原处（正文退出 DOM 期间位置不丢）", async () => {
+    // 无标题文档：位置记录只剩比例兜底（jsdom 没有布局，锚点路径量不出位移）
+    backendInvoke.mockImplementation(async (command: string) =>
+      command === "load_document" ? { ...loadedDoc, markdown: "只有一段正文。" } : undefined
+    );
+    vi.mocked(open).mockResolvedValueOnce(loadedDoc.path);
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+    await waitFor(() => expect(screen.getByText("只有一段正文。")).toBeInTheDocument());
+
+    const container = document.querySelector(".document-scroll") as HTMLElement;
+    mockScrollable(container, 4800);
+
+    // 缓动由 rAF 驱动：接管帧循环，传入远超动画时长的帧时间戳，一帧即落到目标值
+    // （与后退/前进用例同款）
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      frames.push(cb);
+      return frames.length;
+    });
+    const flushFrames = () => {
+      while (frames.length > 0) {
+        frames.shift()!(performance.now() + 5000);
+      }
+    };
+
+    fireEvent.click(gear());
+    expect(document.querySelector(".document-content")).toBeNull();
+    // 进入时把位置即刻落盘（正文退出 DOM 后容器里滚的是设置内容，不会再保存它）
+    await waitFor(() => expect(storeSet).toHaveBeenCalledWith(loadedDoc.path, { ratio: 0.25 }));
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.getByText("只有一段正文。")).toBeInTheDocument());
+    await waitFor(() => {
+      flushFrames();
+      expect(container.scrollTop).toBe(4800);
+    });
+  });
+
+  it("设置视图期间滚的是设置内容：不把它的偏移写进阅读位置", async () => {
+    await loadDocument();
+
+    const container = document.querySelector(".document-scroll") as HTMLElement;
+    mockScrollable(container, 4800);
+
+    fireEvent.click(gear());
+    // 进入时先把当前阅读位置写一份（异步落盘）：等它落地后再清记录，下面只看设置页里的滚动
+    await waitFor(() => expect(storeSet).toHaveBeenCalledWith(loadedDoc.path, expect.anything()));
+    storeSet.mockClear();
+
+    // 模拟在设置页里滚动（同一枚滚动容器）：位置没有变化，不该再落盘
+    container.scrollTop = 9000;
+    fireEvent.scroll(container);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    expect(storeSet).not.toHaveBeenCalledWith(loadedDoc.path, expect.anything());
+  });
+
+  it("启动时展开侧栏：偏好为开时启动即展开（走同一枚侧栏与宽度过渡入口）", async () => {
+    storeGet.mockImplementation((key: string) =>
+      Promise.resolve(key === "sidebarOpenOnLaunch" ? true : undefined)
+    );
+
+    render(<App />);
+
+    await waitFor(() =>
+      expect(document.querySelector(".outline-sidebar--open")).toBeInTheDocument()
+    );
+  });
+
+  it("启动时展开侧栏出厂关：无偏好时侧栏保持关闭（1.8.1 现状不变）", async () => {
+    render(<App />);
+    await act(async () => {});
+
+    expect(document.querySelector(".outline-sidebar--open")).toBeNull();
+  });
+});

@@ -234,12 +234,19 @@ textarea {
   }
 }
 
-/* ===== 阅读设置弹层（顶栏齿轮） ===== */
+/* ===== 顶栏：分隔线 / 设置齿轮 / 记录中小章 ===== */
 /* 左侧按钮簇里、设置齿轮之前的 1px 分隔竖线 */
 .top-bar__divider {
   width: 1px;
   height: 16px;
   background: var(--hairline);
+}
+
+/* 齿轮的按下态：设置视图打开期间 warm-sand 底 + brand 字色（与悬停同色，故不另设 hover）。
+   必须排在上面 .open-button 基础规则之后：同特异度（0,2,0）靠来源序压过透明底 + 石色 */
+.settings-toggle[aria-pressed="true"] {
+  background: var(--warm-sand);
+  color: var(--brand);
 }
 
 /* mdlog 记录中小章：与 .editor-toast 同族（tag-bg 实色底 + mono 10px），字色用靛青。
@@ -253,115 +260,6 @@ textarea {
   color: var(--brand);
   font: 500 10px/1.5 var(--mono);
   letter-spacing: 0.04em;
-}
-
-/* 齿轮与弹层的定位上下文：弹层绝对定位于齿轮下方，**左缘**与齿轮对齐。
-   齿轮在顶栏左侧按钮簇内（分隔线之后，实测 x≈193；2026-09-20 顶栏重排后齿轮之前的
-   按钮数量与宽度未变，故 x 不变），弹层宽 236px——右对齐（`right: 0`）会把弹层
-   左缘推到窗口外（实测 left = −15px：14px 内边距整个被切掉，行标签与「恢复默认」贴死在
-   窗口左缘），故只能左对齐、让弹层向右伸进窗口内部。
-   右缘保护刻意不加：窗口最小宽 520px（`tauri.conf.json` 的 minWidth），左对齐后弹层右缘
-   约 431px，留 ~89px 余量（headless Chrome 实测 520/980 两档都不裁）。 */
-.settings-anchor {
-  position: relative;
-  display: inline-flex;
-}
-
-.settings-popover {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  z-index: 850;
-  width: 236px;
-  padding: 10px 14px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--ivory);
-  box-shadow: 0 4px 16px rgba(20, 20, 19, 0.08);
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
-}
-
-.settings-popover__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 6px 0;
-}
-
-.settings-popover__label {
-  color: var(--olive);
-  font-size: 12px;
-}
-
-.settings-popover__segments {
-  display: flex;
-  gap: 2px;
-}
-
-.settings-popover__segment {
-  min-width: 34px;
-  padding: 3px 7px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--stone);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.settings-popover__segment:hover {
-  background: var(--warm-sand);
-  color: var(--dark-warm);
-}
-
-.settings-popover__segment[aria-pressed="true"] {
-  background: var(--brand-tint);
-  color: var(--brand);
-}
-
-.settings-popover__segment:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: -2px;
-}
-
-.settings-popover__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 8px;
-  padding-top: 10px;
-  border-top: 1px solid var(--hairline);
-}
-
-.settings-popover__reset {
-  padding: 2px 0;
-  border: 0;
-  background: transparent;
-  color: var(--brand);
-  font-size: 12px;
-  cursor: pointer;
-  transition: color 0.15s ease;
-}
-
-.settings-popover__reset:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.settings-popover__autosave {
-  color: var(--stone);
-  font-family: var(--mono);
-  font-size: 10px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .settings-popover__segment,
-  .settings-popover__reset {
-    transition: none;
-  }
 }
 
 .app-shell__body {
@@ -1937,6 +1835,235 @@ mark.search-match--current {
   letter-spacing: 0.08em;
 }
 
+/* ===== 设置视图（2026-09-20：弹层退役，正文区整块替换） =====
+   骨架复用文章页：同一枚侧栏（`.outline-panel*` / `.outline-search*` 语汇）换成「設定」
+   导航，内容栏在余量里居中收 640px。本段只新增内容栏与它的部件——侧栏的样式、开合、
+   拖宽、默认关全部沿用既有规则，这里一行都不重复。
+   位置：排在本文件末尾那段 @media print 之前（屏幕态规则必须先于打印覆写），
+   也在首个 mdlog widget 选择器之前。 */
+
+/* 正文区容器在设置视图里的内边距：正文那 70px 顶部留白是给没有标题的页面（空态/错误页）
+   准备的呼吸感，设置页顶行就是「返回阅读」，收一档（0,1,0 且排在上面的基础规则之后，
+   窄屏那段 `padding: 0` 在更前面，故两档宽度下都以此为准） */
+.document-scroll__content--settings {
+  padding: 18px 34px 44px;
+}
+
+.settings-view {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.settings-view__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+
+/* 行右值 / 顶行右侧说明：mono 10px stone（路径那一行另有换行与右对齐） */
+.settings-view__note,
+.settings-view__value {
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 0.4px;
+  color: var(--stone);
+}
+
+/* 分节：eyebrow 拖一条发丝线收尾，代替整段通栏分隔线——窄栏里通栏线会把页面切成「表格」 */
+.settings-view__section {
+  margin-top: 28px;
+}
+
+/* eyebrow 的字体（mono 10px / 500 / 4px 字距 / stone / 大写感）来自 .empty-eyebrow
+   ——与空态、错态同一款眉题，这里只补「拖线」那一半 */
+.settings-view__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.settings-view__eyebrow::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--hairline);
+}
+
+.settings-view__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 10px 0;
+}
+
+.settings-view__row + .settings-view__row {
+  border-top: 1px solid var(--border-soft);
+}
+
+.settings-view__label {
+  flex: none;
+  color: var(--near-black);
+}
+
+/* 当前文档：完整路径一行，长路径允许折行（右侧对齐） */
+.settings-view__path {
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 0.4px;
+  color: var(--stone);
+  word-break: break-all;
+  text-align: right;
+}
+
+/* 样张（试笔区）：ivory 浮面 + 发丝外框。里面消费的正是正文那三个 CSS 变量
+   ——弹层退役后「边调边看正文」由它接住 */
+.settings-view__proof {
+  margin: 10px 0 4px;
+  padding: 20px 24px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--ivory);
+}
+
+.settings-view__proof-tag {
+  margin-bottom: 12px;
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 4px;
+  color: var(--stone);
+  text-transform: uppercase;
+}
+
+.settings-view__proof-sheet {
+  margin: 0 auto;
+  max-width: var(--reader-column-width, 800px);
+  font-size: var(--reader-font-size, 14px);
+  line-height: var(--reader-line-height, 1.55);
+  transition: font-size 0.18s ease, max-width 0.18s ease;
+}
+
+/* 快捷键那一行：左标签贴顶，右列是双列网格（网格里每一格自己又是一个 set 行） */
+.settings-view__row--keys {
+  align-items: flex-start;
+}
+
+.settings-view__row--keys > .settings-view__label {
+  padding-top: 3px;
+}
+
+.settings-view__shortcuts {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 26px;
+}
+
+.settings-view__shortcuts .settings-view__row {
+  padding: 7px 0;
+  border-top: 0;
+}
+
+.settings-view__keys {
+  display: inline-flex;
+  gap: 3px;
+}
+
+/* ===== 设置页部件（弹层退役后从 .settings-popover__* 迁出的通用类） ===== */
+/* 分段选择器：与弹层时代逐字同规格（min-width 34 / 4px 圆角 / brand-tint 选中） */
+.segments {
+  display: flex;
+  gap: 2px;
+}
+
+.seg {
+  min-width: 34px;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--stone);
+  font-family: var(--serif);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.seg:hover {
+  background: var(--warm-sand);
+  color: var(--dark-warm);
+}
+
+.seg[aria-pressed="true"] {
+  background: var(--brand-tint);
+  color: var(--brand);
+}
+
+.seg:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
+/* 文字按钮（恢复默认）：无框线、靛青字，悬停加下划线 */
+.text-button {
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--brand);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.text-button:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* 幽灵小按钮：与顶栏幽灵按钮同语汇（发丝内描边、28px 高、hover warm-sand + brand），
+   用于「‹ 返回阅读」与「清除（N 条）」；禁用态只用透明度表达（与 .nav-button:disabled 同款） */
+.button.button-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--stone);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  font-size: 13px;
+  letter-spacing: 0.3pt;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.button.button-ghost:hover {
+  background: var(--warm-sand);
+  color: var(--brand);
+}
+
+.button.button-ghost:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.button.button-ghost:disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seg,
+  .text-button,
+  .button.button-ghost,
+  .settings-toggle,
+  .settings-view__proof-sheet {
+    transition: none;
+  }
+}
+
 /* ===== 打印（@media print） ===== */
 /* 打印只做三件事：隐藏界面件、放开版心、保护分页；屏幕态规则一律不动（本段只在打印
    媒体下生效）。位置约束：本段不含 mdlog widget 选择器字样，排在首个该选择器出现处
@@ -1945,10 +2072,12 @@ mark.search-match--current {
    正文字号不另设：`.markdown-body` 消费 --reader-font-size，打印沿用用户的阅读设置。 */
 @media print {
   /* 界面件：顶栏 / 侧栏 / 拖宽手柄 / 纱罩 / 自定义滚动条 / 跳底按钮 / 印章 /
-     编辑提示条 / 设置弹层——打印件里全是噪点。
+     编辑提示条——打印件里全是噪点。
      本清单的前提是这些选择器的**屏幕态规则都排在主打印段之前**（同特异度靠顺序取胜）。
      屏幕态规则落在主段之后的（mdlog 区段里的记录小章就是），覆写必须放文件末尾那段——
-     放这里等于没写：媒体查询不参与特异度与来源序，靠后的屏幕态规则照样胜出。 */
+     放这里等于没写：媒体查询不参与特异度与来源序，靠后的屏幕态规则照样胜出。
+     设置视图**不在此列**：它打开时正文整块不在 DOM 里，把它藏掉只会印出一张白纸
+     （弹层时代的 `.settings-popover` 是浮在正文上的，藏掉才印得着正文）。 */
   .top-bar,
   .outline-sidebar,
   .outline-resize-handle,
@@ -1957,8 +2086,7 @@ mark.search-match--current {
   .jump-bottom,
   .reload-note,
   .editor-toast,
-  .editor-hint,
-  .settings-popover {
+  .editor-hint {
     display: none;
   }
 
