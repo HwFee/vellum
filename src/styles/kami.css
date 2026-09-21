@@ -1412,10 +1412,11 @@ mark.search-match--current {
 }
 
 @media (max-width: 720px) {
-  .top-bar {
-    padding: 12px 18px;
-  }
-
+  /* 顶栏不进窄屏覆写：.top-bar 是 border-box 定高 46px，竖向 padding 会把内容盒压矮，
+     而 auto 网格行仍按内容（46px 窗口控件）撑高、从内容盒顶端起排，整行溢出顶栏底边
+     （2026-09-21 实测：≤720px 时按钮下沿越过 border-bottom 横线 3px、网格行溢出 12px）。
+     此处曾有 padding: 12px 18px（初始提交遗留），已删除；kami.css.test.ts 钉住
+     「媒体查询内不得再出现 .top-bar 规则」。 */
   .document-scroll__content {
     padding: 0;
   }

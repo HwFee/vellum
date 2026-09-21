@@ -10,6 +10,7 @@
 - 文档无原始 HTML 时会自动跳过 `rehype-raw`。
 - `CodeBlock.tsx` 与 `MarkdownDocument.tsx` 语言提取正则必须支持连字符（`/language-([\w-]+)/`），确保 `vellum-widget` 与 `objective-c` 等语言标识完整提取，未注册语言平滑降级为普通代码块。
 - 窗口初始隐藏（`visible: false`），由前端控制显示。
+- 顶栏 `.top-bar` 是 border-box 定高 46px、三列网格（`auto 1fr auto`），全宽度共用基准 `padding: 0 0 0 16px`——**任何媒体查询都不得再给它加竖向 padding**（定高下内容盒被压矮、auto 网格行仍按内容撑高，整行会溢出底边横线；2026-09-21 修掉初始提交遗留的 720px 窄屏覆写，`kami.css.test.ts` 有结构断言钉住）。
 - `CustomScrollbar` 非常轻量，不需要优化。
 - 字体文件在 `public/fonts/`（~17MB），是应用资源。
 - 阅读器 + 块级就地编辑（`Ctrl+E` / 顶栏按钮进编辑视图；mdlog 记录中禁止编辑）。

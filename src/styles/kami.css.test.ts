@@ -155,6 +155,18 @@ describe("kami.css top bar", () => {
     expect(spacer).toMatch(/app-region:\s*drag/);
   });
 
+  it("窄屏媒体查询不再覆写 .top-bar：定高 46px 下竖向 padding 会把网格行顶出底边横线", () => {
+    // 2026-09-21 修复：@media (max-width: 720px) 里曾有初始提交遗留的
+    // .top-bar { padding: 12px 18px }——border-box 定高下内容盒被压到 22px，
+    // auto 网格行仍按内容（46px 窗口控件）撑高、从内容盒顶端起排，整行溢出底边 12px。
+    // 顶栏全宽度共用基准规则，任何媒体查询（含打印段）内不得再出现 .top-bar 规则
+    const mediaBlocks = css.match(/@media[^{]+\{(?:[^{}]|\{[^}]*\})*\}/g) ?? [];
+    expect(mediaBlocks.length).toBeGreaterThan(0);
+    for (const block of mediaBlocks) {
+      expect(block, `媒体查询内不得覆写 .top-bar：${block.slice(0, 80)}`).not.toMatch(/\.top-bar\s*\{/);
+    }
+  });
+
   it("shares one ghost style between outline toggle and open button", () => {
     const rule = css.match(/\.outline-toggle,\s*\.open-button\s*\{[^}]*\}/s)?.[0] ?? "";
     expect(rule).toMatch(/width:\s*28px/);
