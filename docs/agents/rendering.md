@@ -168,6 +168,15 @@
 - **落盘**：前端系统保存对话框（`dialog:allow-save` 已入 capabilities）拿路径 → `export_pdf` 命令（`src-tauri/src/main.rs`）→ 对主窗口 WebView2 直接调 CDP `Page.printToPDF`（`webview2-com` 的 `CallDevToolsProtocolMethod`，与 wry 嵌套依赖严格同版 0.38.2 / windows-core 0.61.2，与 katex 同版约束同理）——同一页面上演，不另起隐藏 webview。COM 调用必须在主线程（`with_webview` 派发），CDP 回执异步经消息泵回来，故命令在 `spawn_blocking` 里用 mpsc 等回执（30s 超时）。参数：`printBackground:true`（宣纸底色）、`preferCSSPageSize:true`（`@page` 尺寸与边盒生效）、边距按英寸换算（20mm≈0.7874in、22mm≈0.8661in，与前端 `exportLayout.ts` 常量同值）。路径闸门：只收 .pdf 绝对路径。
 - **真机验收手法**：`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` 起 dev 实例（可带样章路径作首个参数），CDP 直接发同参数的 `Page.printToPDF`（与后端同一条管线），pdftoppm 出 PPM 逐像素量四角/页眉区/版心。注意先读 `docs/agents/tooling.md` 的「嵌入资源缓存」坑——dev 实例可能跑的是二进制里内嵌的旧 dist。
 
+## 图标动效（2026-09-23，原型页 `docs/design/icon-motion.html`）
+
+- **描边入场**：图标 svg 挂 `.icon-draw`，叶子形（`path|line|circle|rect|polyline`）一律带 `pathLength="1"`——归一化后 `dasharray:1 + dashoffset 1→0` 就是描绘进度，免逐条量长度；笔顺靠组件里 `iconStagger(n)` 写入的内联 `--i`（`calc(var(--i)*.07s)` 延迟）。实色点（`stroke="none"`，如大纲开关的两枚圆点）描不了边，走 `icon-fade` 淡入。
+- **换章是双 svg 叠放，不是条件渲染**：`.edit-swap`（笔↔书，`aria-hidden` 罩在按钮里）与 `.copy-swap`（复制 / 对勾 / 叹号三章）都把全部候选章常驻 DOM，靠 `opacity+rotate+scale` 淡出旧章、描边动画绘入新章——**描入重播的原理是选择器只在激活态开始匹配**（如 `.edit-swap.is-book .icon-book :is(...)`），换回条件渲染会丢掉淡出那一半。
+- **叶子形位变要 `transform-box: fill-box`**（大纲开关的 `scaleX` 收齐、最大化框体缩放），否则 transform-origin 落到整个 viewBox 上。
+- **状态钩子复用既有属性**：大纲开合走 `[aria-pressed]`、导出点按走按钮自管的 `.is-firing`（`onAnimationEnd` 摘除）、复制结果走 `.copy-swap.is-done.is-check/.is-error`——不新增状态源。
+- **常动只两枚**：跳底箭头 `icon-jump-bob`（悬停催急）、齿轮按下态 `icon-gear-spin` 9s/圈。`prefers-reduced-motion` 由动效段末尾一条媒体查询整体关停（动画 `none !important` + 过渡 `none !important`）。
+- **加新动效图标**：svg 挂 `.icon-draw` + 叶子补 `pathLength="1"` + `style={iconStagger(n)}`；要位变就先确认 `transform-box` 基准。
+
 ## 文件索引
 
 | 文件 | 职责 |
