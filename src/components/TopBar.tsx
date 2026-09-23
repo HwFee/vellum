@@ -1,38 +1,42 @@
+import { useState, type CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { OutlineToggle } from "./OutlineToggle";
 
+/// 描边入场的笔顺（kami.css `.icon-draw` 按 --i 依次描出）
+const iconStagger = (n: number) => ({ "--i": n }) as CSSProperties;
+
 function MinimizeIcon() {
   return (
-    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-      <line x1="6" y1="15" x2="18" y2="15" />
-      <path d="M9 9h6" opacity="0.35" />
+    <svg className="icon-draw" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <line style={iconStagger(0)} pathLength="1" x1="6" y1="15" x2="18" y2="15" />
+      <path className="icon-min__inner" style={iconStagger(1)} pathLength="1" d="M9 9h6" opacity="0.35" />
     </svg>
   );
 }
 
 function MaximizeIcon() {
   return (
-    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="5" y="5" width="14" height="14" rx="2" />
-      <path d="M5 9h14" opacity="0.35" />
+    <svg className="icon-draw" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect className="icon-max__frame" style={iconStagger(0)} pathLength="1" x="5" y="5" width="14" height="14" rx="2" />
+      <path className="icon-max__inner" style={iconStagger(1)} pathLength="1" d="M5 9h14" opacity="0.35" />
     </svg>
   );
 }
 
 function CloseIcon() {
   return (
-    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="6.5" y1="6.5" x2="17.5" y2="17.5" />
-      <line x1="17.5" y1="6.5" x2="6.5" y2="17.5" />
+    <svg className="icon-draw" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line style={iconStagger(0)} pathLength="1" x1="6.5" y1="6.5" x2="17.5" y2="17.5" />
+      <line style={iconStagger(1)} pathLength="1" x1="17.5" y1="6.5" x2="6.5" y2="17.5" />
     </svg>
   );
 }
 
 function OpenIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-      <path d="M8 14h5" opacity="0.5" />
+    <svg className="icon-draw icon-open" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path style={iconStagger(0)} pathLength="1" d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+      <path className="icon-open__dash" style={iconStagger(1)} pathLength="1" d="M8 14h5" opacity="0.5" />
     </svg>
   );
 }
@@ -40,9 +44,11 @@ function OpenIcon() {
 /// 阅读视图：笔（点击进就地编辑）—— 线性风格与其它顶栏图标一致，无 emoji
 function PenIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
+    <svg className="icon-pen" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path className="icon-pen__line" style={iconStagger(0)} pathLength="1" d="M12 20h9" />
+      <g className="icon-pen__body">
+        <path style={iconStagger(1)} pathLength="1" d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
+      </g>
     </svg>
   );
 }
@@ -50,9 +56,9 @@ function PenIcon() {
 /// 编辑视图：书（点击回阅读视图）—— 与 Obsidian 的视图切换语义一致
 function BookIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+    <svg className="icon-book" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path style={iconStagger(0)} pathLength="1" d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path style={iconStagger(1)} pathLength="1" d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
     </svg>
   );
 }
@@ -60,16 +66,16 @@ function BookIcon() {
 /// 后退 / 前进：尖括号（‹ ›）—— 历史导航的通用符号，线性风格与其它顶栏图标一致
 function ChevronLeftIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M15 5l-7 7 7 7" />
+    <svg className="icon-draw icon-chev icon-chev--left" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path style={iconStagger(0)} pathLength="1" d="M15 5l-7 7 7 7" />
     </svg>
   );
 }
 
 function ChevronRightIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 5l7 7-7 7" />
+    <svg className="icon-draw icon-chev icon-chev--right" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path style={iconStagger(0)} pathLength="1" d="M9 5l7 7-7 7" />
     </svg>
   );
 }
@@ -77,11 +83,13 @@ function ChevronRightIcon() {
 /// 导出为 PDF：笺纸 + 落款箭头 —— 线性风格与其它顶栏图标一致
 function ExportIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <path d="M14 2v6h6" opacity="0.35" />
-      <path d="M12 11v7" />
-      <path d="M9 15l3 3 3-3" />
+    <svg className="icon-draw" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path style={iconStagger(0)} pathLength="1" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path style={iconStagger(1)} pathLength="1" d="M14 2v6h6" opacity="0.35" />
+      <g className="icon-export__arrow">
+        <path style={iconStagger(2)} pathLength="1" d="M12 11v7" />
+        <path style={iconStagger(3)} pathLength="1" d="M9 15l3 3 3-3" />
+      </g>
     </svg>
   );
 }
@@ -89,9 +97,9 @@ function ExportIcon() {
 /// 阅读设置：齿轮 —— 线性风格与其它顶栏图标一致
 function GearIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    <svg className="icon-draw" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle style={iconStagger(0)} pathLength="1" cx="12" cy="12" r="3" />
+      <path style={iconStagger(1)} pathLength="1" d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
     </svg>
   );
 }
@@ -143,6 +151,8 @@ export function TopBar({
   onToggleExport,
 }: TopBarProps) {
   const window = getCurrentWindow();
+  /// 导出按钮点按反馈：箭头落穿纸底一回合（is-firing 挂上，动画毕摘除）
+  const [exportFiring, setExportFiring] = useState(false);
 
   return (
     <header className="top-bar" data-tauri-drag-region>
@@ -189,20 +199,30 @@ export function TopBar({
           }
           onClick={onToggleEdit}
         >
-          {isEditing ? <BookIcon /> : <PenIcon />}
+          {/* 双章叠放换章：旧章旋缩淡出、新章就地描入（kami.css .edit-swap） */}
+          <span className={`edit-swap${isEditing ? " is-book" : ""}`} aria-hidden="true">
+            <PenIcon />
+            <BookIcon />
+          </span>
         </button>
         <button className="open-button" type="button" aria-label="打开文件" title="打开文件" onClick={onOpen}>
           <OpenIcon />
         </button>
         {onToggleExport && (
           <button
-            className="open-button export-toggle"
+            className={`open-button export-toggle${exportFiring ? " is-firing" : ""}`}
             type="button"
             aria-label="导出为 PDF"
             aria-pressed={isExportOpen}
             disabled={!canExport && !isExportOpen}
             title="导出为 PDF（Ctrl+P）"
-            onClick={onToggleExport}
+            onClick={() => {
+              setExportFiring(true);
+              onToggleExport();
+            }}
+            onAnimationEnd={(event) => {
+              if (event.animationName === "icon-export-drop") setExportFiring(false);
+            }}
           >
             <ExportIcon />
           </button>

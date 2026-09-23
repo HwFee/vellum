@@ -234,6 +234,226 @@ textarea {
   }
 }
 
+/* ===== 图标动效（2026-09-23） =====
+   描边入场：每个图形 pathLength="1" 归一化，dasharray:1 + dashoffset 1→0 即描绘进度，
+   --i 定笔顺（组件侧 iconStagger），实色点（stroke="none"）不描、改淡入。
+   叶子形的位变一律 transform-box: fill-box（各归各的包围盒）。 */
+@keyframes icon-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes icon-fade {
+  from { opacity: 0; }
+}
+@keyframes icon-gear-spin {
+  to { transform: rotate(360deg); }
+}
+/* 点按导出：箭头落穿纸底、自顶归还——一回合「出纸」 */
+@keyframes icon-export-drop {
+  0%   { transform: translateY(0);    opacity: 1; }
+  45%  { transform: translateY(6px);  opacity: 1; }
+  65%  { transform: translateY(8px);  opacity: 0; }
+  66%  { transform: translateY(-3px); opacity: 0; }
+  100% { transform: translateY(0);    opacity: 1; }
+}
+
+.icon-draw :is(path, line, circle, rect, polyline) {
+  stroke-dasharray: 1;
+  animation: icon-draw 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 0.07s);
+}
+.icon-draw [stroke="none"] {
+  animation-name: icon-fade;
+}
+
+/* 大纲开关：开态线收齐、双点隐去（aria-pressed 即侧栏开） */
+.outline-toggle .icon-line {
+  transform-box: fill-box;
+  transform-origin: left center;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.outline-toggle circle {
+  transition: opacity 0.18s ease, transform 0.3s ease;
+}
+.outline-toggle[aria-pressed="true"] .icon-l1 {
+  transform: scaleX(1.4545); /* 11 → 16 */
+}
+.outline-toggle[aria-pressed="true"] .icon-l3 {
+  transform: scaleX(2); /* 8 → 16 */
+}
+.outline-toggle[aria-pressed="true"] circle {
+  opacity: 0;
+  transform: translateX(-6px);
+}
+
+/* 尖括号一族（历史导航 ‹ › 与侧栏上/下匹配）：悬停顺向挪移 */
+.icon-chev {
+  transition: transform 0.15s ease;
+}
+.nav-button:not(:disabled):hover .icon-chev--left {
+  transform: translateX(-2px);
+}
+.nav-button:not(:disabled):hover .icon-chev--right {
+  transform: translateX(2px);
+}
+.outline-search__nav:hover .icon-chev--up {
+  transform: translateY(-2px);
+}
+.outline-search__nav:hover .icon-chev--down {
+  transform: translateY(2px);
+}
+
+/* 笔 ↔ 书换章：双章叠放，旧章旋缩淡出、新章就地描入；
+   激活侧的选择器只在对应态开始匹配，动画因此每次换章都重播 */
+.edit-swap {
+  position: relative;
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+}
+.edit-swap svg {
+  position: absolute;
+  inset: 0;
+  transition: opacity 0.16s ease, transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.edit-swap .icon-book {
+  opacity: 0;
+  transform: rotate(24deg) scale(0.7);
+}
+.edit-swap.is-book .icon-book {
+  opacity: 1;
+  transform: none;
+}
+.edit-swap.is-book .icon-pen {
+  opacity: 0;
+  transform: rotate(-24deg) scale(0.7);
+}
+.edit-swap.is-book .icon-book :is(path, line, circle, rect, polyline),
+.edit-swap:not(.is-book) .icon-pen :is(path, line, circle, rect, polyline) {
+  stroke-dasharray: 1;
+  animation: icon-draw 0.45s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 0.07s);
+}
+/* 笔态悬停：笔尖下压、基线重描一划（落笔的姿势） */
+.icon-pen__body {
+  transform-box: fill-box;
+  transform-origin: 0% 100%;
+  transition: transform 0.2s ease;
+}
+.icon-pen__line {
+  stroke-dasharray: 1;
+}
+.edit-toggle[aria-pressed="false"]:hover .icon-pen__body {
+  transform: rotate(-11deg);
+}
+.edit-toggle[aria-pressed="false"]:hover .icon-pen__line {
+  animation: icon-draw 0.3s ease;
+}
+
+/* 打开文件：档内短划自左滑入、夹体轻抬 */
+.icon-open {
+  transition: transform 0.18s ease;
+}
+.icon-open__dash {
+  transform: translateX(-3px);
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.open-button:hover .icon-open {
+  transform: translateY(-1px);
+}
+.open-button:hover .icon-open__dash {
+  transform: translateX(0);
+  opacity: 0.9;
+}
+
+/* 导出：悬停箭头下探蓄势；is-firing 由按钮点按挂上、动画毕摘除 */
+.icon-export__arrow {
+  transition: transform 0.18s ease;
+}
+.export-toggle:hover .icon-export__arrow {
+  transform: translateY(2px);
+}
+.export-toggle.is-firing .icon-export__arrow {
+  animation: icon-export-drop 0.55s ease-in-out;
+}
+
+/* 齿轮：悬停咬合一齿；按下态（设置视图打开中）持续慢转 */
+.settings-toggle svg {
+  transition: transform 0.35s cubic-bezier(0.34, 1.3, 0.4, 1);
+}
+.settings-toggle:hover svg {
+  transform: rotate(45deg);
+}
+.settings-toggle[aria-pressed="true"] svg {
+  animation: icon-gear-spin 9s linear infinite;
+}
+
+/* 窗口控制：沉 / 胀 / 旋 */
+.window-control .icon-min__inner {
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.window-control:hover .icon-min__inner {
+  transform: translateY(6px);
+  opacity: 0;
+}
+.icon-max__frame {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.22s ease;
+}
+.icon-max__inner {
+  transition: transform 0.22s ease;
+}
+.window-control:hover .icon-max__frame {
+  transform: scale(1.1);
+}
+.window-control:hover .icon-max__inner {
+  transform: translateY(-1.5px);
+}
+.window-control--close svg,
+.outline-search__clear svg {
+  transition: transform 0.18s ease;
+}
+.window-control--close:hover svg,
+.outline-search__clear:hover svg {
+  transform: rotate(90deg);
+}
+
+/* 搜索镜片：输入框聚焦时微抬，作拾起状（镜片无钮，挂在框的聚焦态上） */
+.outline-search__icon svg {
+  transition: transform 0.22s ease;
+}
+.outline-search:focus-within .outline-search__icon svg {
+  transform: rotate(-10deg) translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-draw :is(path, line, circle, rect, polyline),
+  .edit-swap :is(path, line, circle, rect, polyline),
+  .copy-swap :is(path, line, circle, rect, polyline),
+  .settings-toggle[aria-pressed="true"] svg,
+  .export-toggle.is-firing .icon-export__arrow,
+  .jump-bottom .icon-jump__arrow {
+    animation: none !important;
+  }
+  .icon-chev,
+  .outline-toggle :is(line, circle),
+  .edit-swap svg,
+  .edit-swap .icon-pen__body,
+  .icon-open,
+  .icon-open__dash,
+  .icon-export__arrow,
+  .settings-toggle svg,
+  .window-control svg,
+  .window-control svg *,
+  .outline-search__icon svg,
+  .outline-search__nav svg,
+  .outline-search__clear svg,
+  .copy-swap svg {
+    transition: none !important;
+  }
+}
+
 /* ===== 顶栏：分隔线 / 设置齿轮 / 记录中小章 ===== */
 /* 左侧按钮簇里、设置齿轮之前的 1px 分隔竖线 */
 .top-bar__divider {
@@ -801,9 +1021,24 @@ mark.search-match--current {
   outline-offset: -2px;
 }
 
+/* 箭头向底线轻点（常动）：它本身就是「下方还有内容」的路标；悬停催急 */
+@keyframes icon-jump-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(2.5px); }
+}
+.jump-bottom .icon-jump__arrow {
+  animation: icon-jump-bob 1.8s ease-in-out infinite;
+}
+.jump-bottom:hover .icon-jump__arrow {
+  animation-duration: 0.9s;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .jump-bottom {
     transition: none;
+  }
+  .jump-bottom .icon-jump__arrow {
+    animation: none;
   }
 }
 
@@ -1547,6 +1782,39 @@ mark.search-match--current {
 .code-block__copy-icon svg {
   width: 100%;
   height: 100%;
+}
+
+/* 复制 → 对勾 / 叹号换章：三章叠放，复制章缩隐、结果章描出（描边与笔↔书同一套机制） */
+.copy-swap {
+  position: relative;
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+}
+.copy-swap svg {
+  position: absolute;
+  inset: 0;
+  transition: opacity 0.14s ease, transform 0.18s ease;
+}
+.copy-swap .icon-check,
+.copy-swap .icon-error {
+  opacity: 0;
+  transform: scale(0.6);
+}
+.copy-swap.is-done.is-check .icon-check,
+.copy-swap.is-done.is-error .icon-error {
+  opacity: 1;
+  transform: none;
+}
+.copy-swap.is-done .icon-copy {
+  opacity: 0;
+  transform: scale(0.6) translateY(-2px);
+}
+.copy-swap.is-done.is-check .icon-check :is(path, line, circle, rect, polyline),
+.copy-swap.is-done.is-error .icon-error :is(path, line, circle, rect, polyline) {
+  stroke-dasharray: 1;
+  animation: icon-draw 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 0.07s);
 }
 
 .code-block__copy-label {

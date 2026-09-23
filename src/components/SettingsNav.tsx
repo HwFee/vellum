@@ -8,20 +8,23 @@ type SettingsNavProps = {
   searchInputRef: React.RefObject<HTMLInputElement | null>;
 };
 
+/// 描边入场的笔顺（kami.css `.icon-draw` 按 --i 依次描出）
+const iconStagger = (n: number) => ({ "--i": n }) as React.CSSProperties;
+
 function SearchIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="11" cy="11" r="7" />
-      <line x1="16.5" y1="16.5" x2="21" y2="21" />
+    <svg className="icon-draw" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle style={iconStagger(0)} pathLength="1" cx="11" cy="11" r="7" />
+      <line style={iconStagger(1)} pathLength="1" x1="16.5" y1="16.5" x2="21" y2="21" />
     </svg>
   );
 }
 
 function ClearIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="7" y1="7" x2="17" y2="17" />
-      <line x1="17" y1="7" x2="7" y2="17" />
+    <svg className="icon-draw" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <line style={iconStagger(0)} pathLength="1" x1="7" y1="7" x2="17" y2="17" />
+      <line style={iconStagger(1)} pathLength="1" x1="17" y1="7" x2="7" y2="17" />
     </svg>
   );
 }

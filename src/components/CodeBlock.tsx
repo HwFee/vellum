@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { PrismLight as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 
@@ -55,6 +55,9 @@ type CopyStatus = "idle" | "copied" | "error";
 
 const COPY_TIMEOUT_MS = 1500;
 const ERROR_TIMEOUT_MS = 1500;
+
+/// 描边入场的笔顺（kami.css `.icon-draw` 按 --i 依次描出）
+const iconStagger = (n: number) => ({ "--i": n }) as CSSProperties;
 
 // 按需加载的语言表只包含 refractor 规范名（如 typescript），
 // 把 Markdown 代码围栏里的常见别名映射过去，保证 ts/js 等仍能高亮
@@ -211,23 +214,24 @@ export const CodeBlock = memo(function CodeBlock({ code, language }: CodeBlockPr
           onClick={handleCopy}
         >
           <span className="code-block__copy-icon" aria-hidden="true">
-            {isCopied ? (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="19 7.5 9.5 16.5 5 12" />
+            {/* 双章叠放换章：复制章缩隐、对勾/叹号描出（kami.css .copy-swap） */}
+            <span
+              className={`copy-swap${isCopied ? " is-done is-check" : isError ? " is-done is-error" : ""}`}
+            >
+              <svg className="icon-draw icon-copy" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect style={iconStagger(0)} pathLength="1" x="9" y="9" width="12" height="12" rx="2.5" />
+                <path style={iconStagger(1)} pathLength="1" d="M5 15H4.5A2.5 2.5 0 0 1 2 12.5v-8A2.5 2.5 0 0 1 4.5 2h8A2.5 2.5 0 0 1 15 4.5V5" />
+                <path style={iconStagger(2)} pathLength="1" d="M12.5 13.5h3.5" opacity="0.5" />
               </svg>
-            ) : isError ? (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="9" />
-                <line x1="12" y1="8" x2="12" y2="12.5" />
-                <line x1="12" y1="15.5" x2="12.01" y2="15.5" />
+              <svg className="icon-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline style={iconStagger(0)} pathLength="1" points="19 7.5 9.5 16.5 5 12" />
               </svg>
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="9" y="9" width="12" height="12" rx="2.5" />
-                <path d="M5 15H4.5A2.5 2.5 0 0 1 2 12.5v-8A2.5 2.5 0 0 1 4.5 2h8A2.5 2.5 0 0 1 15 4.5V5" />
-                <path d="M12.5 13.5h3.5" opacity="0.5" />
+              <svg className="icon-error" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle style={iconStagger(0)} pathLength="1" cx="12" cy="12" r="9" />
+                <line style={iconStagger(1)} pathLength="1" x1="12" y1="8" x2="12" y2="12.5" />
+                <line style={iconStagger(2)} pathLength="1" x1="12" y1="15.5" x2="12.01" y2="15.5" />
               </svg>
-            )}
+            </span>
           </span>
           <span className="code-block__copy-label" aria-hidden="true">
             {visibleLabel}

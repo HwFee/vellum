@@ -30,36 +30,39 @@ function toChineseNumeral(n: number): string {
   return CN_NUMS[tens - 1] + "十" + (ones === 0 ? "" : CN_NUMS[ones - 1]);
 }
 
+/// 描边入场的笔顺（kami.css `.icon-draw` 按 --i 依次描出）
+const iconStagger = (n: number) => ({ "--i": n }) as React.CSSProperties;
+
 function SearchIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="11" cy="11" r="7" />
-      <line x1="16.5" y1="16.5" x2="21" y2="21" />
+    <svg className="icon-draw" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle style={iconStagger(0)} pathLength="1" cx="11" cy="11" r="7" />
+      <line style={iconStagger(1)} pathLength="1" x1="16.5" y1="16.5" x2="21" y2="21" />
     </svg>
   );
 }
 
 function ChevronUpIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="18 15 12 9 6 15" />
+    <svg className="icon-draw icon-chev icon-chev--up" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline style={iconStagger(0)} pathLength="1" points="18 15 12 9 6 15" />
     </svg>
   );
 }
 
 function ChevronDownIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="6 9 12 15 18 9" />
+    <svg className="icon-draw icon-chev icon-chev--down" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline style={iconStagger(0)} pathLength="1" points="6 9 12 15 18 9" />
     </svg>
   );
 }
 
 function ClearIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="7" y1="7" x2="17" y2="17" />
-      <line x1="17" y1="7" x2="7" y2="17" />
+    <svg className="icon-draw" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <line style={iconStagger(0)} pathLength="1" x1="7" y1="7" x2="17" y2="17" />
+      <line style={iconStagger(1)} pathLength="1" x1="17" y1="7" x2="7" y2="17" />
     </svg>
   );
 }

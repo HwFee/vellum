@@ -9,9 +9,13 @@ type JumpToBottomProps = {
 // mdlog 记录期间内容只往末尾追加，距底拉开时按钮随之浮现，点一下回到讨论现场
 const SHOW_THRESHOLD_PX = 300;
 
+/// 描边入场的笔顺（kami.css `.icon-draw` 按 --i 依次描出）
+const iconStagger = (n: number) => ({ "--i": n }) as React.CSSProperties;
+
 function ArrowToBottomIcon() {
   return (
     <svg
+      className="icon-draw"
       width="15"
       height="15"
       viewBox="0 0 24 24"
@@ -22,9 +26,11 @@ function ArrowToBottomIcon() {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <line x1="12" y1="3" x2="12" y2="15" />
-      <polyline points="6 10 12 16 18 10" />
-      <line x1="5" y1="20" x2="19" y2="20" />
+      <g className="icon-jump__arrow">
+        <line style={iconStagger(0)} pathLength="1" x1="12" y1="3" x2="12" y2="15" />
+        <polyline style={iconStagger(1)} pathLength="1" points="6 10 12 16 18 10" />
+      </g>
+      <line style={iconStagger(2)} pathLength="1" x1="5" y1="20" x2="19" y2="20" />
     </svg>
   );
 }
