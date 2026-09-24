@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### 维护
+
+- **前端结构拆分（行为不变）**：`src/App.tsx`（1762 行 → ~360 行）由「单组件 20 个职责域」拆为「`useAppRuntime` 跨域共享 ref 总线 + `src/hooks/` 14 个领域 hook 按依赖序接线」；`src/components/MarkdownDocument.tsx`（876 行 → ~290 行）拆出 `src/lib/rehypeSearchHighlights.ts`、`kamiSchema.ts`、`remarkPlugins.ts`、`headingId.ts` 与 `src/components/markdownComponents.tsx`（`useMarkdownComponents`）、`src/hooks/useHeadingIdResolver.ts`。代码逐字搬迁（含全部裁定注释），`npm test`（998 用例）与 `npm run build` 全程保持绿。
+
 ## [1.11.0] - 2026-09-23
 
 ### 新增

@@ -40,7 +40,7 @@
 - **不要**把搜索框改回 sticky 或放回滚动容器内——会重新引入「搜索框遮挡激活项」和「连点导航按钮时搜索框上浮误点」。
 - **设置视图打开时侧栏只换内容**（`SettingsNav`，2026-09-20 第二批）：`App.tsx` 里仍是同一枚 `<aside className="outline-sidebar">`，`isSettingsOpen ? <SettingsNav/> : <OutlinePanel/>`——宽度变量、开合（`--open` + `beginWidthTransition()`）、拖宽手柄、窄屏浮层与纱罩、默认关全部自动跟随，**别为设置页另写一套侧栏**。题头复用 `.outline-panel__header`（「設定」，唯一繁体，与「目錄」同例），搜索框与条目复用 `.outline-search*` / `.outline-panel__link*`；`Ctrl+K` 聚焦的是同一枚 `searchInputRef`（两枚面板不会同时在 DOM 里）。
 - 侧边栏宽度可调：`useOutlineWidth`（200–320px，默认 240，双击手柄复位）覆写根 `--outline-width` 变量，`--outline-shift` 由 calc 派生自动跟随。
-- 启动时侧边栏**出厂恒为关闭**：`App.tsx` 必须传 `useOutlineOpen(false)`，该 hook 启动时不读取持久化状态（用户交互后的状态仍照写，只是不回读）。改回 `true` 会让侧栏每次启动都自行展开——这是产品决定，不是待修项。**唯一的例外是「界面 · 启动时展开侧栏」偏好**（2026-09-20 第二批）：`App.tsx` 挂载时单独读一次 `loadAppPreferences()`，为开则经 `setOutlineOpenPinned(true)` 展开（与其它入口同一条宽度过渡路径，仍走 `beginWidthTransition()`）——偏好是「启动时读一次」，不是让 hook 去回读持久化状态，两者别混为一谈。
+- 启动时侧边栏**出厂恒为关闭**：`App.tsx` 必须传 `useOutlineOpen(false)`，该 hook 启动时不读取持久化状态（用户交互后的状态仍照写，只是不回读）。改回 `true` 会让侧栏每次启动都自行展开——这是产品决定，不是待修项。**唯一的例外是「界面 · 启动时展开侧栏」偏好**（2026-09-20 第二批）：`usePinnedLayoutActions` 挂载时单独读一次 `loadAppPreferences()`，为开则经 `setOutlineOpenPinned(true)` 展开（与其它入口同一条宽度过渡路径，仍走 `beginWidthTransition()`）——偏好是「启动时读一次」，不是让 hook 去回读持久化状态，两者别混为一谈。
 - 手柄 `.outline-resize-handle` 必须作 aside 的**兄弟节点**外置（aside 有 `overflow:hidden`）。
 - `JumpToBottom`：距底 >300px 浮现的右下角跳底按钮，z 序须低于窄屏遮罩（750）；点击走 `animateScrollTo` 缓动，用户输入可被全局监听打断。
 
@@ -50,10 +50,10 @@
 - 正文（含 widget iframe 与就地编辑覆盖层）**整体退出 DOM**，不是 `display:none` 藏起来——后者会把 widget iframe 高度塌成 0、把滚动容器夹到 0（与红线 7 的停帧机制同源）。代价：进出设置视图 = 重建正文（markdown 重新解析 + iframe 重建），量级与换文档相当。
 - 阅读位置交接（进出都走既有管线，不另造一套）：`openSettings()` 先用 `currentScrollRecord()` 取下三级记录 → 存 `settingsScrollRecordRef` + 交给 `pendingRestoreRef`（与「后退/前进」同一条落位管线）并即刻落盘 → 复位 `lastRestoredPathRef` → 把**共用滚动容器 `scrollTop` 归零**。顺序不能颠倒（先取位置、后归零）：不归零的话浏览器会把旧 `scrollTop` 钳到设置页的最大值，从长文档中部进来就落在设置页中段/底部。退出时正文回来，`handleContentRendered` 先归零再按记录落位。
 - 设置视图期间 `currentScrollRecord()` 在 stash 的路径与当前文档一致时直接返回那一份、`persistCurrentScroll()` 整体跳过——**绝不量设置页的偏移当阅读位置**。换文档时 `loadPath` 在**离场位置测量之后**才调 `closeSettings()`（顺序提前会量到设置内容）。
-- 视图边界：设置视图里 `Ctrl+E` 不切编辑视图（正文不在 DOM，静默改状态会让「返回阅读」后与预期不符）、`JumpToBottom` 不渲染、`.document-scroll__content--editing` 与覆盖层只在正文分支出现。窄屏 `Escape` 只退设置视图、不连带关侧栏——`App.tsx` 那条关侧栏监听的**依赖表必须含 `isSettingsOpen`**（只写在守卫里的话 effect 不随视图开合重跑，陈旧闭包会把侧栏一起关掉；2026-09-21 审阅修复，有用例钉住）。`SettingsNav` 搜索框里的 `Escape` 就地清词并 `stopPropagation`（栈式语义，不冒到 window）。
+- 视图边界：设置视图里 `Ctrl+E` 不切编辑视图（正文不在 DOM，静默改状态会让「返回阅读」后与预期不符）、`JumpToBottom` 不渲染、`.document-scroll__content--editing` 与覆盖层只在正文分支出现。窄屏 `Escape` 只退设置视图、不连带关侧栏——`usePinnedLayoutActions` 那条关侧栏监听的**依赖表必须含 `isSettingsOpen`**（只写在守卫里的话 effect 不随视图开合重跑，陈旧闭包会把侧栏一起关掉；2026-09-21 审阅修复，有用例钉住）。`SettingsNav` 搜索框里的 `Escape` 就地清词并 `stopPropagation`（栈式语义，不冒到 window）。
 - 大纲观察器重挂：`useOutlineSync(scrollRef, headings, navTargetRef, revision)` 的第 4 参数取 `revision = isSettingsOpen ? "settings" : "document"`——正文重新进 DOM 的是**新元素**，不重挂观察器就再也不会回调（大纲高亮停在空白态）。
 - 分节清单单一来源：`SETTINGS_SECTIONS` / `settingsSectionElementId()` 从 `SettingsView.tsx` 导出，侧栏导航据此生成；点条目 → `handleSelectSettingsSection` 切激活态并用与大纲同一条 `animateContainerTo` 缓动滚到 `#settings-section-*`（设置页与正文**共用同一个滚动容器**，不另开滚动区）。
-- 「界面」与「更新」两节的开关是**启动偏好**，不是当场动作：两者都落 `src/lib/appPreferences.ts`（与 `outlineWidth` / `readerSettings` 同一个 settings Store，读盘失败一律回退出厂值），且只在启动时被读一次——`sidebarOpenOnLaunch`（出厂关）为开则 `App.tsx` 挂载后经 `setOutlineOpenPinned(true)` 展开侧栏（同一条 `beginWidthTransition()` 路径），在设置页里拨它**不会当场开合侧栏**（开合只由顶栏按钮 / `Ctrl+B` 决定），只影响下一次启动；`autoCheckUpdates`（出厂开）同理，只在 `main.tsx` 的启动静默检查那一步被读（设置页「立即检查」不看它）。
+- 「界面」与「更新」两节的开关是**启动偏好**，不是当场动作：两者都落 `src/lib/appPreferences.ts`（与 `outlineWidth` / `readerSettings` 同一个 settings Store，读盘失败一律回退出厂值），且只在启动时被读一次——`sidebarOpenOnLaunch`（出厂关）为开则 `usePinnedLayoutActions` 挂载后经 `setOutlineOpenPinned(true)` 展开侧栏（同一条 `beginWidthTransition()` 路径），在设置页里拨它**不会当场开合侧栏**（开合只由顶栏按钮 / `Ctrl+B` 决定），只影响下一次启动；`autoCheckUpdates`（出厂开）同理，只在 `main.tsx` 的启动静默检查那一步被读（设置页「立即检查」不看它）。
 - 打印：设置视图**不在**主打印段的隐藏清单里——它打开时正文整块不在 DOM，藏掉只会印出一张白纸（弹层时代 `.settings-popover` 浮在正文上，藏掉才印得着正文）。`kami.css.test.ts` 显式断言主段清单**不含** `.settings-view`。
 
 ## 阅读位置记忆与恢复
@@ -109,7 +109,7 @@
 
 - 编辑面沿用既有 `.document-scroll` 容器（textarea 自增高推流），**不得**新建内层滚动系统——滚动记忆 / 跳底 / 自定义滚动条 / 布局过渡窗全部复用。
 - 提交（`useDocumentEditor.commitActive` → `onMarkdownChange` + `save_document`）**不递增 `reloadTick`、不播「墨迹未干」印章、不做滚动补偿**：印章语义是「外部改写了文件」。
-- 提交后 watcher 的回声由「磁盘 vs 内存 markdown（LF 归一）比对」抑制（`App.tsx` `reloadIfExternal`），相等即整体忽略。
+- 提交后 watcher 的回声由「磁盘 vs 内存 markdown（LF 归一）比对」抑制（`usePlatformBindings` `reloadIfExternal`），相等即整体忽略。
 - 块标记包裹层 `.vellum-unit-wrap` 必须 `display: contents`（不生成布局盒）。
 - 因此 `BlockEditor` 的隐藏/锁高/自增高/测量**必须**作用在 `resolveTarget()` 选出的「首个有布局盒的元素」上，作用于包裹层本身会全部失效。
 - 覆盖层选择器必须是 `.document-scroll__content--editing > .block-editor__input`（特异度高于 `kami.css` 的 `.markdown-body textarea`）。
@@ -181,8 +181,9 @@
 
 | 文件 | 职责 |
 |------|------|
-| `src/App.tsx` | 主入口、文档加载、窗口显示、编辑视图接线（提交落盘 / 回声抑制 / 外部变更分流 / 文档代际）、设置视图接线（正文区替换 / 阅读位置交接 / 侧栏内容切换） |
-| `src/components/MarkdownDocument.tsx` | Markdown 渲染（`React.lazy` 懒加载） |
+| `src/App.tsx` | 主入口外壳：创建 `rt`（`useAppRuntime` 跨域共享 ref 总线）→ 领域 hooks 按依赖序接线 → JSX |
+| `src/hooks/` | 领域 hooks（`useX(rt, deps)`）：`useAppRuntime`（共享 ref 总线）、`useDocumentLoader`（状态机 / loadPath / 热重载 / wikilink 解析 / 文档代际）、`usePlatformBindings`（启动管线 / 拖放 / file-changed 分流 / 窗口标题）、`useScrollMemory` + `useScrollPosition`（阅读位置记录 / 落位仲裁）、`useLayoutShift`（布局过渡窗 + 视口钉住）、`usePinnedLayoutActions`（侧栏开合 / 拖宽 / 阅读设置的「先钉视口」入口收口）、`useFullScreenViews`（设置 / 导出整页视图与位置交接）、`useSmoothNav`（缓动跳转 / 锚点接管）、`useNavHistory`、`useMdlog`、`useSearchState`、`useRecentFiles`、`useOutline`、`useGlobalShortcuts`、`useDocumentEditor`（编辑会话）、`useHeadingIdResolver`（标题 id 分配） |
+| `src/components/MarkdownDocument.tsx` | Markdown 渲染（`React.lazy` 懒加载）：管线装配 + 外壳；components 映射在 `markdownComponents.tsx`（`useMarkdownComponents`），插件与 schema 在 `src/lib/rehypeSearchHighlights.ts` / `kamiSchema.ts` / `remarkPlugins.ts` / `headingId.ts` |
 | `src/components/SettingsView.tsx` | 设置视图四节内容栏（`SETTINGS_SECTIONS` / `settingsSectionElementId` 分节清单唯一来源） |
 | `src/components/ExportPdfView.tsx` | 「导出为 PDF」纸张舞台（预览分页 / 缩放 / 浮动工具条 / @page 边盒注入 / 保存对话框） |
 | `src/lib/exportDocument.ts` | 导出底稿消毒（克隆阅读 DOM）、头题识别与摘除（`ownTitle` / `stripLeadingOwnTitle`）、@page 边盒规则文本 |

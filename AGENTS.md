@@ -68,7 +68,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 5. `.vellum-unit-wrap` 必须 `display: contents`；`BlockEditor` 的隐藏/锁高/自增高/测量作用在 `resolveTarget()` 选出的「首个有布局盒的元素」上。 → `docs/agents/rendering.md`
 6. 沙箱根溢出保护三条：出网前注入 / 样式必须落在文档内部 / 只作用 `html`、不碰 `body`。 → `docs/agents/widgets.md`
 7. 离屏 widget 停帧降载**禁止改成 `display:none`**（用 `--parked` = `visibility: hidden`）。 → `docs/agents/widgets.md`
-8. **侧栏开关与拖宽的全部入口**（顶栏按钮 / `Ctrl+B` / `Ctrl+K` / 窄屏 Escape 与遮罩 / 窄屏选章 / 拖宽手柄）都必须走 `beginWidthTransition()`。 → `docs/agents/rendering.md`
+8. **侧栏开关与拖宽的全部入口**（顶栏按钮 / `Ctrl+B` / `Ctrl+K` / 窄屏 Escape 与遮罩 / 窄屏选章 / 拖宽手柄）都必须走 `beginWidthTransition()`；入口已由 `src/hooks/usePinnedLayoutActions.ts` 收口，新加入口同样放这里。 → `docs/agents/rendering.md`
 9. 热重载滚动恢复不要改回纯像素恢复；阅读位置恢复不要改回一次性 `ratio × scrollHeight`。 → `docs/agents/rendering.md`
 10. 打包前必须先 `taskkill /IM vellum.exe /F`（`Get-Process vellum` 为空），否则链接阶段报 `os error 5 拒绝访问`。 → `docs/agents/tooling.md`
 11. capabilities 必须有 `core:window:allow-destroy`、`core:window:allow-set-title` 与 `updater:default`；CSP 必须含 `connect-src ipc: http://ipc.localhost`。 → `docs/agents/tooling.md`
@@ -87,6 +87,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 
 - 应用字体资源：`public/fonts/`（~17MB）。
 - 前端状态与持久化：`src/lib/recentFiles.ts`（最近 8 篇，Store key `recentFiles`，含 `lastOpenedPath` 迁移）、`src/lib/navHistory.ts`（wikilink 前进/后退两栈，条目自带三级位置记录）、`src/lib/taskList.ts`（任务标记定位与翻转，绝对偏移纯函数）、`src/hooks/useReaderSettings.ts`（字号/栏宽/行高，覆写根 CSS 变量，改值前须走 `beginWidthTransition()`）。
+- 应用编排：`src/App.tsx` 只做「`useAppRuntime` 共享 ref 总线 → 领域 hooks 接线 → JSX」，全部职责域在 `src/hooks/`（文档加载 `useDocumentLoader`、平台绑定 `usePlatformBindings`、滚动记忆 `useScrollMemory`/`useScrollPosition`、布局过渡 `useLayoutShift`、钉视口入口 `usePinnedLayoutActions`、整页视图 `useFullScreenViews`、mdlog `useMdlog`、导航 `useNavHistory`/`useSmoothNav`/`useOutline`、搜索 `useSearchState`、快捷键 `useGlobalShortcuts`、编辑会话 `useDocumentEditor` 等）。
 - 设置页与界面偏好：`src/components/SettingsView.tsx`（四节内容栏；`SETTINGS_SECTIONS` / `settingsSectionElementId` 是分节清单的唯一来源，侧栏导航据此生成）、`src/components/SettingsNav.tsx`（设置视图的侧栏内容）、`src/lib/appPreferences.ts`（Store key `sidebarOpenOnLaunch` / `autoCheckUpdates`，读盘失败回退出厂值）、`src/lib/updater.ts`（`checkForUpdates(manual?)`：启动静默检查 + 设置页「立即检查」）。
 - 导出为 PDF：`src/components/ExportPdfView.tsx`（纸张舞台）、`src/lib/exportDocument.ts`（消毒后的正文底稿）、`src/lib/exportLayout.ts`（模板常量）、`src/lib/exportPagination.ts`（按行摹 Chromium 分页）、Rust 侧 `export_pdf` 命令（对主窗口 WebView2 调 CDP `Page.printToPDF`）。
 - pi 扩展实体：`extensions/mdlog/`（pi 的加载位 `~/.pi/agent/extensions/mdlog` 是指向它的目录联接）。

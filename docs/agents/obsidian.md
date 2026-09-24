@@ -6,7 +6,7 @@
 
 出处：`frontmatter.ts` 解析 + `rehypeObsidian.ts` 换树。
 
-- **交给 react-markdown 的字符串永远是完整原文**（`App.tsx` 加载的那一份）：frontmatter 只是换树、绝不从源码里剥掉。
+- **交给 react-markdown 的字符串永远是完整原文**（`useDocumentLoader` 加载的那一份）：frontmatter 只是换树、绝不从源码里剥掉。
 - 因果：块单元按**绝对源码偏移**工作（`editUnits` 算区间、`rehypeEditUnits` 按节点位置匹配、`spliceUnit` 回写整篇）。
 - 字符串一旦被切短，正文每个块的偏移整体平移、标记落到邻块、回写写坏文件。
 - 卡片的位置写成被替换节点的原始区间 `[range.start, range.end)`。
