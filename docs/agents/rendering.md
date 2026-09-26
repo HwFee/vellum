@@ -187,6 +187,13 @@
 - **`F11`/`Esc` 各自有守**：F11 在 `useGlobalShortcuts` 的 Ctrl 早退之前处理、无条件吞键（WebView 的整页全屏加速键不让渡），导出视图打开时只吞不切；Esc 监听在专注 hook 内——设置/导出视图开着或按键落在 input/textarea/contenteditable 上时归它们。
 - **进度线是 DOM 直写**：`FocusProgress` 只在专注态挂载，rAF 节流的 scroll 监听直接写填充宽度的 `style`，不经 React 重渲染；`.top-bar` / `.app-shell__body` 的进出过渡挂在基座规则上（`.top-bar` 不进任何媒体查询——含 `prefers-reduced-motion`，回归守卫在 kami.css.test.ts）。
 
+## 侧栏页签与库面板（2026-09-26 第三批）
+
+- **页签只换内容，侧栏仍是同一枚 `.outline-sidebar`**：阅读态分支按 `sidebarTab`（App state：`outline | files | search | backlinks`）挂载唯一激活面板，`SidebarTabs` 经各面板的 `header` prop 渲染在 `.outline-panel__header` 槽位上；设置视图分支照旧是 `SettingsNav`（页签不出现）。面板复用 `.outline-panel` / `.outline-panel__scroll` / `.outline-search*` / `.outline-panel__link`（激活态仍是 `--active` 那条 2px 靛青边轨），新增类全在 `library-*` / `sidebar-tabs*` 命名空间下。
+- **库根与锚点都在 Rust 侧**：三个命令 `list_library` / `search_library` / `find_backlinks`（`src-tauri/src/library.rs`）一律读 `AppState.current`——前端不传路径；库根 = 含 `.obsidian` 的最近祖先目录（复用 `find_vault_root`），否则文档所在目录；遍历与 wikilink 解析共享 `collect_markdown_files`（限深 12 / 限项 50 000 / 跳点目录与 node_modules），重活都在 `spawn_blocking`。
+- **检索的 char 索引契约**：`matchStart`/`matchLen` 是 **char** 索引（非 UTF-16 code unit 也非字节），前端必须经 `Array.from(snippet)` 的码点序列切片（`src/lib/library.ts` 的 `snippetParts`），CJK 扩展区与代理对不会错位；大小写不敏感是逐字符 `to_lowercase` 比对（`ß` 不折叠成 `ss`，与 `String.toLowerCase` 同语义）。库检索词提升到 App 的 `librarySearchQuery`，切页签回来不丢；`LibrarySearchPanel` 300ms 防抖 + 请求号守卫丢过期回包，点命中行 `onOpenHit` = 打开该篇 + `handleSearchChange(query)`（文内检索接着高亮）。
+- **快捷键三通道**：`Ctrl+Shift+F` 判定在 Ctrl+K/F 别名之前（Shift+F 的 `key.toLowerCase()` 也是 `"f"`）——开侧栏、切「檢索」、60ms 后聚焦 `librarySearchInputRef`；`Ctrl+K`/`Ctrl+F` 聚焦前先 `setSidebarTab("outline")`；两键共用 `focusTimerRef`，连按不会留下过期聚焦。
+
 ## 文件索引
 
 | 文件 | 职责 |
@@ -216,6 +223,12 @@
 | `src/components/ImageViewer.tsx` | 图片点击查看器（MarkdownImage 点击放大，portal 挂 `document.body`：滚轮 1–5× 缩放 / 拖拽平移 / Esc 捕获段与背底点击关闭） |
 | `src/components/HoverPreviewLayer.tsx` | 悬停预览层（`React.lazy`，不进 components 映射）：滚动容器委托监听——脚注浮笺（克隆 li）与 wikilink 笺页卡（`read_note_preview` + 缓存） |
 | `src/components/FocusProgress.tsx` | 专注模式顶缘 2px 阅读进度线（rAF 节流 scroll 监听直写 style） |
+| `src/components/SidebarTabs.tsx` | 侧栏页签（目錄 / 文件 / 檢索 / 反鏈）：`role=tablist`，渲染在面板的 `header` 槽位上 |
+| `src/components/FilesPanel.tsx` | 「文件」页签：`list_library` → 目录树（折叠 / 当前篇高亮 / 祖先自动展开），relPath 筛选退成扁平清单 |
+| `src/components/LibrarySearchPanel.tsx` | 「檢索」页签：`search_library` 全库检索（300ms 防抖 + 请求号守卫），命中片段 char 索引切 `mark.search-match` |
+| `src/components/BacklinksPanel.tsx` | 「反鏈」页签：`find_backlinks` 链到本篇的笔记清单 + 至多五行摘录 |
+| `src/lib/library.ts` | 库命令的 TS 契约类型 + `buildFileTree`（目录树构建排序）+ `snippetParts`（char 索引切片） |
+| `src-tauri/src/library.rs` | 库三命令纯逻辑：库根判定（`find_vault_root` 复用）、全库检索（char 小写比对 / 摘录窗口 / 双截断帽）、反链扫描（围栏剔除 / slash 路径后缀判据） |
 | `src/components/CodeBlock.tsx` | 代码高亮（PrismLight，20 种语言） |
 | `src/hooks/useOutlineWidth.ts` | 侧边栏宽度（200–320px，持久化） |
 | `src/main.tsx` | 入口、字体加载 |

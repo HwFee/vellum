@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useCallback, useState } from "react";
 import { BlockEditor } from "./components/BlockEditor";
 import { CustomScrollbar } from "./components/CustomScrollbar";
 import { EmptyState } from "./components/EmptyState";
@@ -9,6 +9,10 @@ import { OutlinePanel } from "./components/OutlinePanel";
 import { SettingsNav } from "./components/SettingsNav";
 import { SettingsView } from "./components/SettingsView";
 import { ExportPdfView } from "./components/ExportPdfView";
+import { SidebarTabs } from "./components/SidebarTabs";
+import { FilesPanel } from "./components/FilesPanel";
+import { LibrarySearchPanel } from "./components/LibrarySearchPanel";
+import { BacklinksPanel } from "./components/BacklinksPanel";
 import { TopBar } from "./components/TopBar";
 import { useAppPreferences } from "./hooks/useAppPreferences";
 import { useAppRuntime } from "./hooks/useAppRuntime";
@@ -32,6 +36,7 @@ import { useScrollPosition } from "./hooks/useScrollPosition";
 import { useSearchState } from "./hooks/useSearchState";
 import { useSmoothNav } from "./hooks/useSmoothNav";
 import { fileNameToTitle } from "./lib/path";
+import type { SidebarTab } from "./lib/library";
 
 // 代码分割：react-markdown + rehype/remark + 语法高亮是体积最大的依赖，
 // 懒加载后首屏（顶栏/空状态）先行渲染，文档引擎在后台加载。
@@ -46,7 +51,7 @@ const HoverPreviewLayer = lazy(() => import("./components/HoverPreviewLayer"));
  */
 export default function App() {
   const rt = useAppRuntime();
-  const { scrollRef, contentRef, documentContentRef, searchInputRef } = rt.dom;
+  const { scrollRef, contentRef, documentContentRef, searchInputRef, librarySearchInputRef } = rt.dom;
   const { loadPathRef } = rt.doc;
 
   const [isOutlineOpen, toggleOutline, setIsOutlineOpen] = useOutlineOpen(false);
@@ -59,6 +64,9 @@ export default function App() {
   // 专注模式（C2「留一线」）状态本体在 App：useLayoutShift 的补偿帧依赖表与它都
   // 早于 usePinnedLayoutActions 创建，进出逻辑收在那边（红线 8：它也收侧栏）
   const [isFocusMode, setIsFocusMode] = useState(false);
+  // 侧栏页签（目錄/文件/檢索/反鏈）与库检索词（提升到 App——切页签回来不丢）
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("outline");
+  const [librarySearchQuery, setLibrarySearchQuery] = useState("");
 
   // 布局过渡窗 + 宽度过渡期视口钉住
   const { isLayoutShifting, noteLayoutShift, beginWidthTransition } = useLayoutShift(rt, {
@@ -230,7 +238,31 @@ export default function App() {
     handleNextMatch,
     handlePrevMatch,
     toggleFocusMode,
+    setSidebarTab,
+    librarySearchInputRef,
   });
+
+  // 库面板打开一篇笔记：走普通文档加载（不进 wikilink 历史栈）；
+  // 窄屏浮层侧栏选完即收（与窄屏选章同一动线）
+  const openLibraryPath = useCallback(
+    (path: string) => {
+      void loadPathRef.current(path);
+      if (isNarrow) setOutlineOpenPinned(false);
+    },
+    [loadPathRef, isNarrow, setOutlineOpenPinned]
+  );
+
+  // 库检索命中：打开该篇并把查询词喂给文内检索（切回「目錄」时搜索框里就是它）
+  const openSearchHit = useCallback(
+    (path: string, query: string) => {
+      openLibraryPath(path);
+      handleSearchChange(query);
+    },
+    [openLibraryPath, handleSearchChange]
+  );
+
+  // 侧栏页签题头：目錄 / 文件 / 檢索 / 反鏈——同一枚 .outline-sidebar 只换内容
+  const sidebarTabs = <SidebarTabs active={sidebarTab} onSelect={setSidebarTab} />;
 
   return (
     <main
@@ -292,7 +324,30 @@ export default function App() {
               searchInputRef={searchInputRef}
             />
           ) : (
+            sidebarTab === "files" ? (
+              <FilesPanel
+                header={sidebarTabs}
+                documentPath={state.status === "ready" ? state.document.path : null}
+                onOpenPath={openLibraryPath}
+              />
+            ) : sidebarTab === "search" ? (
+              <LibrarySearchPanel
+                header={sidebarTabs}
+                documentPath={state.status === "ready" ? state.document.path : null}
+                query={librarySearchQuery}
+                onQueryChange={setLibrarySearchQuery}
+                onOpenHit={openSearchHit}
+                inputRef={librarySearchInputRef}
+              />
+            ) : sidebarTab === "backlinks" ? (
+              <BacklinksPanel
+                header={sidebarTabs}
+                documentPath={state.status === "ready" ? state.document.path : null}
+                onOpenPath={openLibraryPath}
+              />
+            ) : (
             <OutlinePanel
+              header={sidebarTabs}
               headings={headings}
               activeHeadingId={activeHeadingId}
               onSelectHeading={handleSelectHeading}
@@ -305,6 +360,7 @@ export default function App() {
               onPrevMatch={handlePrevMatch}
               searchInputRef={searchInputRef}
             />
+            )
           )}
         </aside>
         {/* 侧边栏宽度手柄：骑跨侧栏右缘边线（aside overflow:hidden，须作兄弟节点外置），

@@ -17,6 +17,8 @@ type OutlinePanelProps = {
   onNextMatch: () => void;
   onPrevMatch: () => void;
   searchInputRef: React.RefObject<HTMLInputElement | null>;
+  /// 题头槽位：默认渲染「目錄」题头；侧栏页签接管时传进来
+  header?: React.ReactNode;
 };
 
 const CN_NUMS = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
@@ -122,6 +124,7 @@ export function OutlinePanel({
   onNextMatch,
   onPrevMatch,
   searchInputRef,
+  header,
 }: OutlinePanelProps) {
   const navRef = useRef<HTMLElement>(null);
   const scrollCancelRef = useRef<(() => void) | null>(null);
@@ -158,7 +161,7 @@ export function OutlinePanel({
 
   return (
     <nav ref={navRef} className="outline-panel" aria-label="文档大纲">
-      <div className="outline-panel__header">目錄</div>
+      {header ?? <div className="outline-panel__header">目錄</div>}
 
       {/* 搜索框 — 样式 C 描边式 */}
       <div className={`outline-search ${isSearching ? "outline-search--active" : ""}`}>

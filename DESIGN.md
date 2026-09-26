@@ -228,6 +228,7 @@ components:
 - **脚注浮笺（hover-preview--footnote）：** 悬停脚注上标 200ms 出的≤320px 小卡——ivory 底 + inset 发丝描边（上限投影），mono 10px stone 题签「注 n」+ 13px 正文；默认锚点上方、放不下翻下方（出现动效 150ms 淡入 + 2px 反向浮起）；指针可移入续读，滚动 / 卡外点按 / Esc 即收。
 - **wikilink 笺页卡（hover-preview--note）：** 与浮笺同一容器语汇放大到 360px / ≤240px——500 15px 题目 + mono 10px stone 路径行 + 12.5px 开头正文（标题降档、列表收紧），底缘 36px 渐隐进 ivory；整卡可点（与点链接同一路径）。悬停 350ms 延迟出卡，未解析链接永远不出卡。
 - **专注模式「留一线」（app-shell--focus / focus-progress / focus-hint）：** F11 进出——顶栏 200ms 上滑隐去、正文 46px 顶距归零（列宽不变，原地居中）、侧栏按进入前开合态收放；顶缘留 2px 发丝轨上的靛青阅读进度线（peek 顶栏滑回时随其藏起），指针探入顶缘 8px 感应带顶栏暂驻滑回。进出提示章复用 editor-toast 语汇（tag-bg 实底 + mono 10px 墨色），出现靠挂载、消失由定时器负责。
+- **侧栏页签（sidebar-tabs）：** 接管 `.outline-panel__header` 那一槽——同一枚 `.outline-sidebar` 顶上四枚等宽页签（目錄 / 文件 / 檢索 / 反鏈），同一块「20px 上距 + 发丝底线」题头区；默认石色、悬停靛青、激活近墨字 + 靛青 2px 底栏（与大纲激活边轨同一语汇）。页签只切换面板内容，侧栏开合与宽度管线一律不动。库内三面板（文件树 / 全库检索 / 反鏈）复用 `.outline-panel` 与 `.outline-search` 语汇，库根行与截断注脚是 mono 10px 石色，命中摘录是 12px 橄榄。
 
 ## Do's and Don'ts
 

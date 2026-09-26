@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type MutableRefObject } from "react";
+import type { SidebarTab } from "../lib/library";
 import type { AppRuntime } from "./useAppRuntime";
 
 export type GlobalShortcutDeps = {
@@ -23,13 +24,18 @@ export type GlobalShortcutDeps = {
   handlePrevMatch: () => void;
   /// F11 专注模式（C2「留一线」）进出；状态机在 usePinnedLayoutActions 收口
   toggleFocusMode: () => void;
+  /// 侧栏页签切换（Ctrl+K/F 回「目錄」、Ctrl+Shift+F 去「檢索」）；setState 稳定
+  setSidebarTab: (tab: SidebarTab) => void;
+  /// Ctrl+Shift+F 的聚焦目标：库内检索框（挂在「檢索」页签的输入上）
+  librarySearchInputRef: MutableRefObject<HTMLInputElement | null>;
 };
 
 /**
  * 全局快捷键（原 App.tsx 的 keydown effect）：⌘K / Ctrl+K（及 Ctrl+F）聚焦搜索框，
  * Ctrl+O 打开文件对话框，Ctrl+B 切换侧栏，Ctrl+E 切换编辑视图，Ctrl+S 提交当前块，
  * Ctrl+P 导出为 PDF，Ctrl+= / Ctrl+- 步进正文字号、Ctrl+0 复位默认字号，
- * F3 / Shift+F3 下一个/上一个搜索匹配，F11 进出专注模式，Alt+← / Alt+→ 历史后退/前进。
+ * F3 / Shift+F3 下一个/上一个搜索匹配，F11 进出专注模式，
+ * Ctrl+Shift+F 全库检索（切「檢索」页签），Alt+← / Alt+→ 历史后退/前进。
  * 依赖是侧栏开关与引用恒定的回调（空依赖 useCallback 或经 ref 读取），
  * 热重载与每次按键都不重新订阅。
  */
@@ -37,12 +43,15 @@ export function useGlobalShortcuts(rt: AppRuntime, deps: GlobalShortcutDeps): vo
   const { editorRef } = rt.doc;
   const { isSettingsOpenRef, isExportOpenRef } = rt.views;
   const { searchInputRef } = rt.dom;
-  const { isOutlineOpen, setOutlineOpenPinned, toggleOutlinePinned, handleNavBack, handleNavForward, toggleExport, handleOpen, stepReaderFontSize, handleNextMatch, handlePrevMatch, toggleFocusMode } = deps;
+  const { isOutlineOpen, setOutlineOpenPinned, toggleOutlinePinned, handleNavBack, handleNavForward, toggleExport, handleOpen, stepReaderFontSize, handleNextMatch, handlePrevMatch, toggleFocusMode, setSidebarTab, librarySearchInputRef } = deps;
 
   // 搜索匹配导航回调随 matchCount 换代（useCallback 依赖了它）：固定监听经 ref
   // 读最新一份，不为每次匹配计数变化重挂 window 监听
   const searchNavRef = useRef({ next: handleNextMatch, prev: handlePrevMatch });
   searchNavRef.current = { next: handleNextMatch, prev: handlePrevMatch };
+  /// 60ms 延迟聚焦定时器：Ctrl+K/F 与 Ctrl+Shift+F 共用一份——连着按两个
+  /// 快捷键时后者顶掉前者，不会留下一次过期聚焦把焦点拽回旧输入框
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     function handleGlobalShortcut(event: KeyboardEvent) {
@@ -121,14 +130,34 @@ export function useGlobalShortcuts(rt: AppRuntime, deps: GlobalShortcutDeps): vo
         return;
       }
 
+      // Ctrl+Shift+F 全库检索：必须先于 Ctrl+K/F 别名判定（Shift+F 的 key 经
+      // toLowerCase 也是 "f"，不抢在前面就会当成 Ctrl+F）。无条件吞键——它是
+      // WebView 的整页搜索加速键；设置/导出整页视图打开时静默忽略
+      // （侧栏此刻不在 DOM，库检索框聚焦不到）。
+      if (key === "f" && event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        if (!isSettingsOpenRef.current && !isExportOpenRef.current) {
+          if (!isOutlineOpen) setOutlineOpenPinned(true);
+          setSidebarTab("search");
+          if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+          focusTimerRef.current = setTimeout(() => {
+            librarySearchInputRef.current?.focus();
+          }, 60);
+        }
+        return;
+      }
+
       if (key === "k" || key === "f") {
         event.preventDefault();
-        // 侧栏已开（搜索框可能已聚焦）时只保焦，第二次按下不动作；关闭走 Ctrl+B
+        // 侧栏已开（搜索框可能已聚焦）时只保焦，第二次按下不动作；关闭走 Ctrl+B；
+        // 切回「目錄」页签——从「檢索」回来也要回到文内检索的语境
         if (!isOutlineOpen) {
           setOutlineOpenPinned(true);
         }
+        setSidebarTab("outline");
         // 等侧栏展开后再聚焦
-        setTimeout(() => searchInputRef.current?.focus(), 60);
+        if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+        focusTimerRef.current = setTimeout(() => searchInputRef.current?.focus(), 60);
         return;
       }
 
@@ -170,5 +199,5 @@ export function useGlobalShortcuts(rt: AppRuntime, deps: GlobalShortcutDeps): vo
     }
     window.addEventListener("keydown", handleGlobalShortcut);
     return () => window.removeEventListener("keydown", handleGlobalShortcut);
-  }, [isOutlineOpen, setOutlineOpenPinned, toggleOutlinePinned, handleNavBack, handleNavForward, toggleExport, handleOpen, stepReaderFontSize, toggleFocusMode, editorRef, isSettingsOpenRef, isExportOpenRef, searchInputRef]);
+  }, [isOutlineOpen, setOutlineOpenPinned, toggleOutlinePinned, handleNavBack, handleNavForward, toggleExport, handleOpen, stepReaderFontSize, toggleFocusMode, setSidebarTab, librarySearchInputRef, editorRef, isSettingsOpenRef, isExportOpenRef, searchInputRef]);
 }

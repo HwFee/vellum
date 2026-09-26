@@ -57,7 +57,16 @@ Markdown files directly from File Explorer.
 
 ### 寻 · Finding
 
+- **侧栏页签。** 同一枚侧栏顶着四枚页签——目錄 / 文件 / 檢索 / 反鏈，只换内容不换壳。
 - **大纲。** h1–h6 收成左侧目录（h4–h6 缩进更深、字号更小），随正文滚动实时高亮当前章节，点击缓动跳转。
+- **库内文件。** 「文件」页签列出当前文档所属库的 Markdown 文件树（库根 = 含 `.obsidian`
+  的最近祖先目录，否则文档所在目录），目录可折叠、当前篇高亮并自动展开所在目录；
+  筛选输入命中即退成扁平清单，点条目直接打开。
+- **反向链接。** 「反鏈」页签列出库里哪些笔记 `[[链到本篇]]`——含别名、片段与 `![[嵌入]]`
+  写法，代码围栏里的不算；每条来文带至多五行命中摘录，点题名即打开。
+- **库内全文检索。** <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> 直达「檢索」页签：
+  对全库逐行大小写不敏感检索，命中片段就地高亮、按文件分组；点命中行打开该篇并把
+  关键词交给文内检索继续高亮。
 - **全文检索。** <kbd>Ctrl</kbd>+<kbd>K</kbd>（或 <kbd>Ctrl</kbd>+<kbd>F</kbd>）聚焦，
   匹配项在正文里就地高亮，<kbd>F3</kbd> / <kbd>Shift</kbd>+<kbd>F3</kbd>（或搜索框内
   Enter / Shift+Enter）逐个跳。
@@ -100,7 +109,7 @@ Markdown files directly from File Explorer.
 - **自动更新。** 启动时静默检查新版本（可在设置页关掉，也可手动「立即检查」），有更新先提示再下载安装；失败一律不打扰。
 - **离线优先。** 除启动时的一次版本更新检查外不联网；没有云、没有账号。打开的是磁盘上的那个文件，写回的也是它。
 - **真机验收。** 数学 / 搜索 / 编辑 / 滚动这类热路径都有 CDP 真机探针与回归测试
-  （54 个测试文件 / 1032 个用例）。
+  （56 个测试文件 / 1050 个用例）。
 
 ## Usage
 
@@ -113,10 +122,13 @@ Markdown files directly from File Explorer.
    through matches), <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> to adjust the
    type size, <kbd>Ctrl</kbd>+<kbd>E</kbd> to edit in place, <kbd>Ctrl</kbd>+<kbd>B</kbd> to
    toggle the outline, <kbd>F11</kbd> for focus mode.
-5. Follow a `[[wikilink]]`, then <kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>Alt</kbd>+<kbd>→</kbd> to step
+5. The sidebar has four tabs — 目錄 outline, 文件 library files, 檢索 library-wide search
+   (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd>), 反鏈 backlinks. The "library" is the
+   nearest ancestor folder containing `.obsidian`, or the document's own folder.
+6. Follow a `[[wikilink]]`, then <kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>Alt</kbd>+<kbd>→</kbd> to step
    back and forward through the notes you visited.
-6. Click a task list checkbox in the reading view to write the change straight back to the file.
-7. Open the settings view from the gear button in the top bar: type size, column width and line
+7. Click a task list checkbox in the reading view to write the change straight back to the file.
+8. Open the settings view from the gear button in the top bar: type size, column width and line
    height, launch behaviour, update checks, and the current document path. <kbd>Esc</kbd> returns
    to your reading position.
 

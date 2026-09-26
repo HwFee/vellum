@@ -37,6 +37,7 @@ function formatLineHeight(value: number): string {
 const SHORTCUTS = [
   { label: "切换大纲", keys: ["CTRL", "B"] },
   { label: "聚焦搜索", keys: ["CTRL", "K / F"] },
+  { label: "全库检索", keys: ["CTRL", "SHIFT", "F"] },
   { label: "打开文件", keys: ["CTRL", "O"] },
   { label: "就地编辑", keys: ["CTRL", "E"] },
   { label: "提交保存", keys: ["CTRL", "S"] },

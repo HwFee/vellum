@@ -2738,6 +2738,75 @@ test("Ctrl+F 是 Ctrl+K 的别名：打开侧栏并聚焦搜索框", async () =>
   await waitFor(() => expect(screen.getByLabelText("搜索文档内容")).toHaveFocus());
 });
 
+test("侧栏页签：点「文件」挂载库文件面板，点文件行按普通路径 loadPath", async () => {
+  await loadDocument();
+
+  // 打开侧栏 → 页签题头在目錄态
+  fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
+  expect(screen.getByRole("tab", { name: "目錄" })).toHaveAttribute("aria-selected", "true");
+
+  const listing = {
+    root: "C:/notes",
+    rootName: "notes",
+    isVault: true,
+    files: [
+      { path: "C:/notes/readme.md", relPath: "readme.md" },
+      { path: "C:/notes/other.md", relPath: "other.md" },
+    ],
+    truncated: false,
+  };
+  backendInvoke.mockImplementation((command: string) =>
+    command === "list_library" ? Promise.resolve(listing) : Promise.resolve(null)
+  );
+
+  fireEvent.click(screen.getByRole("tab", { name: "文件" }));
+  await waitFor(() =>
+    expect(backendInvoke).toHaveBeenCalledWith("list_library", undefined)
+  );
+  expect(screen.getByRole("tab", { name: "文件" })).toHaveAttribute("aria-selected", "true");
+
+  // 点文件行 → 走普通文档加载（load_document），不进 wikilink 历史栈
+  const otherDoc = {
+    path: "C:/notes/other.md",
+    fileName: "other.md",
+    parentPath: "C:/notes",
+    markdown: "# Other\n\n正文。",
+  };
+  backendInvoke.mockImplementation((command: string) =>
+    command === "load_document" ? Promise.resolve(otherDoc) : Promise.resolve(null)
+  );
+  fireEvent.click(screen.getByRole("button", { name: "other" }));
+  await waitFor(() =>
+    expect(backendInvoke).toHaveBeenCalledWith("load_document", { path: "C:/notes/other.md" })
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("heading", { name: "Other" })).toBeInTheDocument()
+  );
+});
+
+test("Ctrl+Shift+F 开侧栏切「檢索」页签并聚焦库检索框（不当成 Ctrl+F）", async () => {
+  await loadDocument();
+
+  expect(fireEvent.keyDown(window, { key: "F", ctrlKey: true, shiftKey: true })).toBe(false);
+  expect(document.querySelector(".outline-sidebar--open")).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "檢索" })).toHaveAttribute("aria-selected", "true");
+
+  // 60ms 延迟后聚焦的是库检索框；「目錄」未挂载——文内检索框此刻不在 DOM
+  await waitFor(() => expect(screen.getByLabelText("检索全库内容")).toHaveFocus());
+  expect(screen.queryByLabelText("搜索文档内容")).toBeNull();
+});
+
+test("Ctrl+K 从「檢索」页签切回「目錄」并聚焦文内检索框", async () => {
+  await loadDocument();
+
+  fireEvent.keyDown(window, { key: "F", ctrlKey: true, shiftKey: true });
+  await waitFor(() => expect(screen.getByLabelText("检索全库内容")).toHaveFocus());
+
+  fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+  expect(screen.getByRole("tab", { name: "目錄" })).toHaveAttribute("aria-selected", "true");
+  await waitFor(() => expect(screen.getByLabelText("搜索文档内容")).toHaveFocus());
+});
+
 test("Ctrl+O 走与顶栏同一「打开文件」对话框并吞键；按住 repeat 不重复弹出", async () => {
   backendInvoke.mockResolvedValueOnce(loadedDoc);
   vi.mocked(open).mockResolvedValueOnce("C:/notes/readme.md");

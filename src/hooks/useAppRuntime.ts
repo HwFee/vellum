@@ -55,6 +55,8 @@ export type AppRuntime = {
     contentRef: MutableRefObject<HTMLDivElement | null>;
     documentContentRef: MutableRefObject<HTMLDivElement | null>;
     searchInputRef: MutableRefObject<HTMLInputElement | null>;
+    /// 「檢索」页签的全库检索框（Ctrl+Shift+F 的聚焦目标）
+    librarySearchInputRef: MutableRefObject<HTMLInputElement | null>;
   };
   /// 文档会话
   doc: {
@@ -161,6 +163,7 @@ export function useAppRuntime(): AppRuntime {
         contentRef: { current: null },
         documentContentRef: { current: null },
         searchInputRef: { current: null },
+        librarySearchInputRef: { current: null },
       },
       doc: {
         currentPathRef: { current: null },

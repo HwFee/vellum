@@ -6,6 +6,7 @@ use std::sync::Mutex;
 
 use tauri::Manager;
 use vellum_lib::document::{self, LoadedDocument};
+use vellum_lib::library;
 use vellum_lib::state::AppState;
 use vellum_lib::watcher;
 use vellum_lib::widget::{build_widget_response, WidgetRegistry, WidgetState};
@@ -181,6 +182,56 @@ async fn resolve_wikilinks(
         .collect();
     *state.preview_allow.lock().unwrap_or_else(|p| p.into_inner()) = allow;
     Ok(map)
+}
+
+/// 库面板：文件列表（库根 = 含 `.obsidian` 的最近祖先，否则文档所在目录）。
+/// 锚点一律是 AppState.current——前端不传路径；遍历放 spawn_blocking 不占运行时线程。
+#[tauri::command]
+async fn list_library(
+    state: tauri::State<'_, AppState>,
+) -> Result<library::LibraryListing, String> {
+    let current = state
+        .current
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
+        .ok_or_else(|| "no document loaded".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || library::list_library(&current))
+        .await
+        .map_err(|error| format!("list_library failed: {error}"))?
+}
+
+/// 库面板：全库全文检索（大小写不敏感、char 粒度）。同上锚定 current，重活入 spawn_blocking。
+#[tauri::command]
+async fn search_library(
+    query: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<library::LibrarySearch, String> {
+    let current = state
+        .current
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
+        .ok_or_else(|| "no document loaded".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || library::search_library(&current, &query))
+        .await
+        .map_err(|error| format!("search_library failed: {error}"))?
+}
+
+/// 库面板：反向链接（哪些笔记 `[[链到本篇]]`）。同上锚定 current。
+#[tauri::command]
+async fn find_backlinks(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<library::BacklinkFile>, String> {
+    let current = state
+        .current
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
+        .ok_or_else(|| "no document loaded".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || library::find_backlinks(&current))
+        .await
+        .map_err(|error| format!("find_backlinks failed: {error}"))?
 }
 
 /// wikilink 悬停预览：读一篇已解析笔记的开头部分（≤64KiB）。
@@ -561,6 +612,9 @@ fn main() {
             resolve_asset,
             resolve_wikilinks,
             read_note_preview,
+            list_library,
+            search_library,
+            find_backlinks,
             save_document,
             drain_pending_open_paths,
             export_pdf,

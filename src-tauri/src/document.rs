@@ -325,7 +325,7 @@ fn resolve_by_ancestors(from_dir: &Path, target: &str) -> Option<PathBuf> {
 }
 
 /// 从文档所在目录向上找库根（含 `.obsidian` 目录的最近祖先）；没有则返回 None。
-fn find_vault_root(from_dir: &Path) -> Option<PathBuf> {
+pub(crate) fn find_vault_root(from_dir: &Path) -> Option<PathBuf> {
     let mut current = Some(from_dir.to_path_buf());
 
     while let Some(dir) = current {
@@ -341,23 +341,31 @@ fn find_vault_root(from_dir: &Path) -> Option<PathBuf> {
 /// 全库 basename 索引：`<去扩展名的小写 basename>` → 命中文件。
 type BasenameIndex = HashMap<String, Vec<PathBuf>>;
 
-/// 递归遍历库根（跳过点目录与 node_modules、限深限项），建一次索引供本次调用的
-/// 全部目标共用——逐个目标重扫整库会让一篇 160 处链接的笔记扫 160 遍。
-fn build_basename_index(root: &Path) -> BasenameIndex {
-    let mut index: BasenameIndex = HashMap::new();
+/// 递归遍历库根（跳过点目录与 node_modules、限深限项），返回全部 Markdown 文件的
+/// `(绝对路径, 相对库根的 '/' 分隔路径)`，按 rel 排序；条目预算耗尽时 truncated=true。
+/// basename 索引（wikilink 解析兜底）与库面板三命令共用这一份遍历规则。
+pub(crate) fn collect_markdown_files(root: &Path) -> (Vec<(PathBuf, String)>, bool) {
+    let mut files: Vec<(PathBuf, String)> = Vec::new();
     let mut budget = VAULT_WALK_MAX_ENTRIES;
-    index_dir(root, 0, &mut budget, &mut index);
-    index
+    collect_dir(root, root, 0, &mut budget, &mut files);
+    files.sort_by(|left, right| left.1.cmp(&right.1));
+    (files, budget == 0)
 }
 
-fn index_dir(dir: &Path, depth: usize, budget: &mut usize, index: &mut BasenameIndex) {
+fn collect_dir(
+    dir: &Path,
+    root: &Path,
+    depth: usize,
+    budget: &mut usize,
+    out: &mut Vec<(PathBuf, String)>,
+) {
     if depth > VAULT_WALK_MAX_DEPTH {
         return;
     }
 
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
-        Err(_) => return, // 读不了的目录不是错误：索引少一部分，解析退化成 None
+        Err(_) => return, // 读不了的目录不是错误：索引少一部分，结果退化成空集
     };
 
     for entry in entries.flatten() {
@@ -373,7 +381,7 @@ fn index_dir(dir: &Path, depth: usize, budget: &mut usize, index: &mut BasenameI
             if name.starts_with('.') || name == "node_modules" {
                 continue;
             }
-            index_dir(&entry.path(), depth + 1, budget, index);
+            collect_dir(&entry.path(), root, depth + 1, budget, out);
             continue;
         }
 
@@ -383,17 +391,45 @@ fn index_dir(dir: &Path, depth: usize, budget: &mut usize, index: &mut BasenameI
 
         if let Some(stem) = markdown_stem(&name) {
             if !stem.is_empty() {
-                index
-                    .entry(stem.to_ascii_lowercase())
-                    .or_default()
-                    .push(entry.path());
+                let rel = entry
+                    .path()
+                    .strip_prefix(root)
+                    .map(|p| {
+                        p.components()
+                            .map(|c| c.as_os_str().to_string_lossy().to_string())
+                            .collect::<Vec<_>>()
+                            .join("/")
+                    })
+                    .unwrap_or_default();
+                out.push((entry.path(), rel));
             }
         }
     }
 }
 
+/// 递归遍历库根（跳过点目录与 node_modules、限深限项），建一次索引供本次调用的
+/// 全部目标共用——逐个目标重扫整库会让一篇 160 处链接的笔记扫 160 遍。
+fn build_basename_index(root: &Path) -> BasenameIndex {
+    let mut index: BasenameIndex = HashMap::new();
+    let (files, _truncated) = collect_markdown_files(root);
+    for (path, _rel) in files {
+        let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
+            continue;
+        };
+        if let Some(stem) = markdown_stem(&name) {
+            if !stem.is_empty() {
+                index
+                    .entry(stem.to_ascii_lowercase())
+                    .or_default()
+                    .push(path);
+            }
+        }
+    }
+    index
+}
+
 /// 文件名去掉 `.md` / `.markdown` 后的主名；不是 Markdown 文件返回 None。
-fn markdown_stem(name: &str) -> Option<&str> {
+pub(crate) fn markdown_stem(name: &str) -> Option<&str> {
     let lower = name.to_ascii_lowercase();
     if lower.ends_with(".markdown") {
         return Some(&name[..name.len() - ".markdown".len()]);

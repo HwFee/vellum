@@ -90,6 +90,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 - 应用编排：`src/App.tsx` 只做「`useAppRuntime` 共享 ref 总线 → 领域 hooks 接线 → JSX」，全部职责域在 `src/hooks/`（文档加载 `useDocumentLoader`、平台绑定 `usePlatformBindings`、滚动记忆 `useScrollMemory`/`useScrollPosition`、布局过渡 `useLayoutShift`、钉视口入口 `usePinnedLayoutActions`、整页视图 `useFullScreenViews`、mdlog `useMdlog`、导航 `useNavHistory`/`useSmoothNav`/`useOutline`、搜索 `useSearchState`、快捷键 `useGlobalShortcuts`、编辑会话 `useDocumentEditor` 等）。
 - 设置页与界面偏好：`src/components/SettingsView.tsx`（四节内容栏；`SETTINGS_SECTIONS` / `settingsSectionElementId` 是分节清单的唯一来源，侧栏导航据此生成）、`src/components/SettingsNav.tsx`（设置视图的侧栏内容）、`src/lib/appPreferences.ts`（Store key `sidebarOpenOnLaunch` / `autoCheckUpdates`，读盘失败回退出厂值）、`src/lib/updater.ts`（`checkForUpdates(manual?)`：启动静默检查 + 设置页「立即检查」）。
 - 导出为 PDF：`src/components/ExportPdfView.tsx`（纸张舞台）、`src/lib/exportDocument.ts`（消毒后的正文底稿）、`src/lib/exportLayout.ts`（模板常量）、`src/lib/exportPagination.ts`（按行摹 Chromium 分页）、Rust 侧 `export_pdf` 命令（对主窗口 WebView2 调 CDP `Page.printToPDF`）。
+- 库面板：`src-tauri/src/library.rs`（`list_library` / `search_library` / `find_backlinks`，锚定 `AppState.current`）、`src/components/SidebarTabs.tsx` 与 `FilesPanel` / `LibrarySearchPanel` / `BacklinksPanel`（同一枚 `.outline-sidebar` 内换内容）、`src/lib/library.ts`（契约类型 + `buildFileTree` + `snippetParts`）。
 - pi 扩展实体：`extensions/mdlog/`（pi 的加载位 `~/.pi/agent/extensions/mdlog` 是指向它的目录联接）。
 - 真机探针：`scripts/cdp-*.mjs`（`cdp-verify` / `cdp-perf-scroll` / `cdp-sidebar-jump` / `cdp-anchor-synthetic` / `cdp-obsidian-verify`）。
 - 设计语言：`DESIGN.md`；变更记录：`CHANGELOG.md`。

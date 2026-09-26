@@ -798,6 +798,235 @@ textarea {
   background: var(--parchment);
 }
 
+/* ===== 侧栏页签与库面板（文件 / 检索 / 反鏈，2026-09-26 第三批） ===== */
+/* 页签接管 .outline-panel__header 槽位：同一块「20px 上距 + 发丝底线」题头区。
+   字号沿题头的 serif 15px、字距收 2px——四枚两字签在 200px 最小侧栏宽下
+   恰好不折行（4×(30+2) 字 + 缩进 ≈ 140px）；激活态 = 近墨字 + 靛青 2px 底栏
+   （与大纲激活边轨同一语汇），不加重量感。 */
+.sidebar-tabs {
+  display: flex;
+  flex-shrink: 0;
+  margin-bottom: 16px;
+  padding: 20px 8px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.sidebar-tabs__tab {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  padding: 0 2px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--stone);
+  font-family: var(--serif);
+  font-size: 15px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.sidebar-tabs__tab:hover {
+  color: var(--brand);
+}
+
+.sidebar-tabs__tab:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
+.sidebar-tabs__tab--active {
+  color: var(--near-black);
+}
+
+.sidebar-tabs__tab--active::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--brand);
+  border-radius: 1px;
+}
+
+/* 库根行（库名 / 「· 库」标记）：mono 10px 石色一行截断 */
+.library-root {
+  margin: -8px 0 10px;
+  padding: 0 8px;
+  font: 400 10px/1.5 var(--mono);
+  color: var(--stone);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 库内提示注脚（遍历/命中截断说明）：mono 石色小字，不参与交互 */
+.library-note {
+  margin: 10px 8px 0;
+  font: 400 10px/1.5 var(--mono);
+  color: var(--stone);
+}
+
+/* 文件树：嵌套层级沿用大纲的发丝缩进线；目录行是幽灵按钮 + 折角符，
+   文件行复用 .outline-panel__link（含 --active 激活边轨） */
+.library-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.library-tree .library-tree {
+  margin: 2px 0 2px 6px;
+  padding-left: 12px;
+  border-left: 1px solid var(--hairline);
+}
+
+.library-tree__folder {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 4px 10px 4px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--olive);
+  font-family: var(--serif);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.library-tree__folder:hover {
+  color: var(--brand);
+}
+
+.library-tree__folder:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
+.library-tree__folder svg {
+  flex-shrink: 0;
+  color: var(--stone);
+}
+
+.library-tree__chev {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 10px;
+  justify-content: center;
+  color: var(--stone);
+  transition: transform 150ms ease;
+}
+
+.library-tree__folder[aria-expanded="true"] .library-tree__chev {
+  transform: rotate(90deg);
+}
+
+/* 文件行与目录名对齐（8 + chev 10 + gap 5 + 图标≈14 ≈ 26 内缘起算） */
+.library-tree__file {
+  padding-left: 26px;
+}
+
+/* 筛选态的扁平命中行：题下缀一行 mono 10px 的相对路径 */
+.library-tree__dir {
+  display: block;
+  font: 400 10px/1.4 var(--mono);
+  color: var(--stone);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 全库检索结果：按文件分组，题 = serif 13px 近墨 + mono 命中计数；
+   命中行是整行可点的幽灵按钮（L行号 mono 石色 + 12px 橄榄摘录） */
+.library-hit {
+  margin-bottom: 10px;
+}
+
+.library-hit__title {
+  display: flex;
+  align-items: baseline;
+  padding: 2px 10px;
+  font: 500 13px/1.5 var(--serif);
+  color: var(--near-black);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.library-hit__count {
+  flex-shrink: 0;
+  margin-left: 6px;
+  font: 500 10px/1.5 var(--mono);
+  color: var(--stone);
+}
+
+.library-hit__line {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--olive);
+  font-family: var(--serif);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: left;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.library-hit__line:hover {
+  color: var(--brand);
+}
+
+.library-hit__line:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
+.library-hit__ln {
+  flex-shrink: 0;
+  padding-top: 1px;
+  font: 400 10px/1.6 var(--mono);
+  color: var(--stone);
+}
+
+.library-hit__text {
+  overflow-wrap: anywhere;
+}
+
+/* 反鏈摘录行：题名沿用 .outline-panel__link；摘录是 12px 橄榄小字 + mono 行号 */
+.library-backlink {
+  margin-bottom: 4px;
+}
+
+.library-backlink__lines {
+  list-style: none;
+  margin: 2px 0 6px;
+  padding: 0 10px 0 26px;
+}
+
+.library-backlink__line {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--olive);
+  overflow-wrap: anywhere;
+}
+
+.library-backlink__ln {
+  margin-right: 6px;
+  font: 400 10px/1.6 var(--mono);
+  color: var(--stone);
+}
+
 /* ===== 搜索高亮（原文） ===== */
 mark.search-match {
   background: color-mix(in srgb, var(--brand) 18%, transparent);

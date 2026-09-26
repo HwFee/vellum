@@ -197,12 +197,13 @@ describe("SettingsView", () => {
     expect(onClearRecent).toHaveBeenCalledTimes(1);
   });
 
-  it("快捷键一览：十行只读陈列，kbd 复用大纲搜索框的样式类", async () => {
+  it("快捷键一览：十一行只读陈列，kbd 复用大纲搜索框的样式类", async () => {
     await setup();
 
     const rows: Array<[string, string[]]> = [
       ["切换大纲", ["CTRL", "B"]],
       ["聚焦搜索", ["CTRL", "K / F"]],
+      ["全库检索", ["CTRL", "SHIFT", "F"]],
       ["打开文件", ["CTRL", "O"]],
       ["就地编辑", ["CTRL", "E"]],
       ["提交保存", ["CTRL", "S"]],
