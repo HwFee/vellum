@@ -134,6 +134,7 @@ node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/ex
     - 分两次读数：T2 落地后 **192.86KB / gzip 54.68KB**，T2 审阅修复（窄屏 Escape 依赖表 + 进设置视图归零）后 **192.90KB / gzip 54.69KB**；T3 只改 CSS 与断言，JS 尺寸不变。
 - **v1.11.0 图标动效后为 204.65KB**（`index-E30tNwKl.js`，gzip 58.21KB）——**2026-09-23 实测**（`npm test` 51 文件 / 998 用例全绿、`npm run build` 通过）。+11.75KB 的大头是 v1.10.0 导出 PDF 那批（`ExportPdfView` / `exportDocument` / `exportLayout` / `exportPagination` 进入口链），图标动效本体只添了 svg 属性与一个 `useState`；入口 CSS 涨到 **43.82KB / gzip 8.60KB**（`index-BSYYaWY-.css`，含导出舞台段与图标动效段）。
   - 入口 CSS 从 33.43KB / gzip 6.83KB 涨到 **34.74KB / gzip 7.04KB**（+1.31KB）：设置视图段与三个迁出的通用类（`.segments` / `.seg`、`.text-button`、`.button.button-ghost`）、齿轮按下态、勾选定稿（自绘方框 + 钤印 + 划线）与打印覆写；同时删掉 `.settings-popover*` / `.settings-anchor`，打印隐藏清单去掉 `.settings-popover`。
+- **v1.12.0 后为 225.64KB**（`index-BsK0A4Hx.js`，gzip 64.42KB）——**2026-09-26 实测**（`npm test` 56 文件 / 1050 用例全绿、`cargo test` 107 用例全绿、`npm run build` 通过）。三批累计 +21.0KB：批一（快捷键扩充 + 图片查看器，213.27KB）、批二（悬停预览层懒加载 5.67KB 独立 chunk + 专注模式，`index-B6BFn0kP.js` 216.06KB）、批三（侧栏页签 + 库内文件/检索/反链三面板，`SidebarTabs` / `FilesPanel` / `LibrarySearchPanel` / `BacklinksPanel` / `library.ts` 进入口）。入口 CSS **51.13KB / gzip 9.72KB**（`index-CJf8q09_.css`，含 `.sidebar-tabs` / `.library-*` 段）。
 
 ## 注意事项
 
