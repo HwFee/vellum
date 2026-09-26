@@ -19,10 +19,12 @@ export type LayoutShift = {
 export function useLayoutShift(
   rt: AppRuntime,
   deps: {
-    /// 触发 applyNow 补偿帧的渲染值（侧栏开合 / 宽度 / 阅读设置）
+    /// 触发 applyNow 补偿帧的渲染值（侧栏开合 / 宽度 / 阅读设置 / 专注模式进出）
     isOutlineOpen: boolean;
     outlineWidth: number;
     readerSettings: ReaderSettings;
+    /// 专注模式开合同样整篇位移（顶栏 46px 顶距进出），要进补偿帧依赖表
+    isFocusMode: boolean;
   }
 ): LayoutShift {
   const { scrollRef, contentRef } = rt.dom;
@@ -83,7 +85,7 @@ export function useLayoutShift(
   // 同步读 rect 会按新布局求值，从而在首帧就把视口内容钉回原位（否则每帧都可能闪）
   useLayoutEffect(() => {
     viewportPinRef.current?.applyNow();
-  }, [deps.isOutlineOpen, deps.outlineWidth, deps.readerSettings, viewportPinRef]);
+  }, [deps.isOutlineOpen, deps.outlineWidth, deps.readerSettings, deps.isFocusMode, viewportPinRef]);
 
   return { isLayoutShifting, noteLayoutShift, beginWidthTransition };
 }

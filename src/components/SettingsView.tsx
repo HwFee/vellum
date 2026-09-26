@@ -44,6 +44,7 @@ const SHORTCUTS = [
   { label: "字号 大·小·复位", keys: ["CTRL", "+", "−", "0"] },
   { label: "下一处·上一处匹配", keys: ["F3", "SHIFT F3"] },
   { label: "后退·前进", keys: ["ALT", "←", "→"] },
+  { label: "专注模式", keys: ["F11"] },
 ] as const;
 
 type SegmentRowProps = {

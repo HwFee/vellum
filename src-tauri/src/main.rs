@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -52,7 +52,7 @@ async fn load_document(
     let canonical = PathBuf::from(&doc.path);
 
     // W1: 将「判定 -> 清空注册表 -> 重建 watcher -> 写 current」收拢进同一临界区。
-    // 统一锁序：current -> watcher -> widget_state.0，彻底消除 TOCTOU 竞态。
+    // 统一锁序：current -> watcher -> widget_state.0 -> preview_allow，彻底消除 TOCTOU 竞态。
     // S2: AppState 与 WidgetRegistry 为纯内存状态，中毒时通过 into_inner() 安全自愈，避免文档切换永久不可逆失败。
     {
         let mut current_lock = state.current.lock().unwrap_or_else(|p| p.into_inner());
@@ -65,6 +65,13 @@ async fn load_document(
         if path_changed {
             let mut registry = widget_state.0.lock().unwrap_or_else(|p| p.into_inner());
             apply_rebind(&mut registry, &mut current_lock, &canonical, path_changed);
+            // 预览白名单随文档切换整批作废：上一篇允许预览的笔记集合不带给新文档，
+            // 由下一次 resolve_wikilinks 重建。
+            state
+                .preview_allow
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clear();
         }
 
         if rebuild_watcher {
@@ -129,16 +136,67 @@ async fn resolve_asset(
     document::resolve_asset_to_data_url(&anchor_dir, &asset_src)
 }
 
+/// 纯函数：`resolve_wikilinks` 的基准路径闸门——只允许以「当前已加载文档」为
+/// 解析基准（收窄前前端可用任意 from_path 探测文件存在性，这是一个路径神谕）。
+fn require_current_document(current: Option<&Path>, from: &Path) -> Result<(), String> {
+    match current {
+        Some(path) if path == from => Ok(()),
+        _ => Err("from_path is not the current document".to_string()),
+    }
+}
+
 /// Obsidian `[[wikilink]]` 解析：目标 → 磁盘上的笔记绝对路径（找不到为 null）。
 ///
-/// 只读存在性检查，无状态、无副作用；`from_path` 是当前文档路径（解析基准，也是找
-/// `.obsidian` 库根的起点）。前端在一次打开里只调一次（目标清单去重后整批传）。
+/// `from_path` 是当前文档路径（解析基准，也是找 `.obsidian` 库根的起点），且必须
+/// 等于 AppState.current——否则拒绝。解析命中的路径集合同步写入 preview_allow，
+/// 作为 read_note_preview 的读取白名单。
+///
+/// 锁序：先取 current 立刻放锁（扫库期间不持任何锁），结果落定后才锁 preview_allow
+/// 整体替换（同一代际重建）。
 #[tauri::command]
 async fn resolve_wikilinks(
     from_path: String,
     targets: Vec<String>,
+    state: tauri::State<'_, AppState>,
 ) -> Result<std::collections::HashMap<String, Option<String>>, String> {
-    Ok(document::resolve_wikilink_map(Path::new(&from_path), &targets))
+    let from = dunce::canonicalize(Path::new(&from_path))
+        .map_err(|error| format!("Cannot open file: {error}"))?;
+    {
+        let current = state.current.lock().unwrap_or_else(|p| p.into_inner());
+        require_current_document(current.as_deref(), &from)?;
+    }
+    let map = document::resolve_wikilink_map(&from, &targets);
+    // 复查闸门（锁序同前：current -> preview_allow）：扫库期间用户可能已经换文档——
+    // 那时 load_document 的临界区已按新代际清空/重建白名单，迟到解析的结果表只许带回
+    // （前端会按当前文档判时效），绝不许覆写新一代的 allow。
+    {
+        let current = state.current.lock().unwrap_or_else(|p| p.into_inner());
+        if current.as_deref() != Some(from.as_path()) {
+            return Ok(map);
+        }
+    }
+    let allow: HashSet<PathBuf> = map
+        .values()
+        .filter_map(|resolved| resolved.as_ref().map(PathBuf::from))
+        .collect();
+    *state.preview_allow.lock().unwrap_or_else(|p| p.into_inner()) = allow;
+    Ok(map)
+}
+
+/// wikilink 悬停预览：读一篇已解析笔记的开头部分（≤64KiB）。
+/// 读取面收窄到 preview_allow 白名单——即「当前文档 wikilink 解析命中的笔记」。
+#[tauri::command]
+async fn read_note_preview(
+    path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<document::NotePreview, String> {
+    // 克隆白名单后立即放锁：读盘不持锁（白名单是小型 HashSet<PathBuf>）
+    let allow = state
+        .preview_allow
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
+    document::read_note_preview_file(Path::new(&path), &allow)
 }
 
 
@@ -290,8 +348,10 @@ fn apply_rebind(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_rebind, first_markdown_from_args, needs_watcher_rebuild, should_clear_registry,
+        apply_rebind, first_markdown_from_args, needs_watcher_rebuild, require_current_document,
+        should_clear_registry,
     };
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn tauri_conf_csp_contains_frame_src_for_widget() {
@@ -448,6 +508,25 @@ mod tests {
         let args = vec!["vellum.exe".to_string(), "--verbose".to_string()];
         assert_eq!(first_markdown_from_args(&args), None);
     }
+
+    #[test]
+    fn resolve_gate_accepts_current_document() {
+        let current = PathBuf::from("C:/notes/a.md");
+        assert!(require_current_document(Some(&current), Path::new("C:/notes/a.md")).is_ok());
+    }
+
+    #[test]
+    fn resolve_gate_rejects_foreign_path() {
+        let current = PathBuf::from("C:/notes/a.md");
+        let error =
+            require_current_document(Some(&current), Path::new("C:/notes/b.md")).unwrap_err();
+        assert!(error.contains("not the current document"));
+    }
+
+    #[test]
+    fn resolve_gate_rejects_when_nothing_loaded() {
+        assert!(require_current_document(None, Path::new("C:/notes/a.md")).is_err());
+    }
 }
 
 fn main() {
@@ -481,6 +560,7 @@ fn main() {
             load_document,
             resolve_asset,
             resolve_wikilinks,
+            read_note_preview,
             save_document,
             drain_pending_open_paths,
             export_pdf,

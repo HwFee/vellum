@@ -177,6 +177,16 @@
 - **常动只两枚**：跳底箭头 `icon-jump-bob`（悬停催急）、齿轮按下态 `icon-gear-spin` 9s/圈。`prefers-reduced-motion` 由动效段末尾一条媒体查询整体关停（动画 `none !important` + 过渡 `none !important`）。
 - **加新动效图标**：svg 挂 `.icon-draw` + 叶子补 `pathLength="1"` + `style={iconStagger(n)}`；要位变就先确认 `transform-box` 基准。
 
+## 悬停预览与专注模式（2026-09-26，设计稿 `docs/design/batch2-mockups.html`，定稿 A1/B1/C2）
+
+- **预览是「挂在 App 层的委托层」，不进 components 映射**：`HoverPreviewLayer` 在滚动容器上做一次 `pointerover`/`pointerout` 委托，脚注上标（`a[data-footnote-ref]`，200ms）出浮笺、已解析 wikilink（`a.wikilink[href]`；未解析链渲染成 `span.wikilink--missing`，天然落选）350ms 出笺页卡——`markdownComponents.tsx` 与 `MarkdownDocument` 一个字没动。
+- **浮笺正文是 DOM 克隆而非再渲染**：`document.getElementById(href)` 找文尾 `li`（必须在 `documentContentRef` 宿主内），`cloneNode` 后剥 `[data-footnote-backref]` 与全部 `id`（防重复 id），子节点直接搬进卡——不取 innerHTML、不重跑 markdown 管线。
+- **笺页卡内容走 `read_note_preview`（Rust）**：白名单 = `resolve_wikilinks` 对当前文档的解析命中集（`AppState.preview_allow`，换文档清、同代际重建）；单篇 ≤64KiB 且截断回退到合法 UTF-8 边界。前端剥 frontmatter、截 3000 字符、`[[t|label]]` 换显示标签后交给 react-markdown（只挂 gfm + cjk-friendly，`skipHtml`，`img→null`、`a→span`、pre/code 纯元素）。
+- **收卡时机全集**：离锚 150ms 宽限（进卡取消）/ 离卡 150ms / 容器滚动 / 卡外 pointerdown / `Escape` / 编辑视图 / 换文档 / 卸载；异步回包以「仍是当前悬停锚点」判时效，过期只落缓存不进卡。
+- **专注模式进出走 `usePinnedLayoutActions`**（红线 8 收口：它也收侧栏、动 46px 顶距）：`isFocusMode` 状态本体在 App（`useLayoutShift` 的 applyNow 依赖表要它，先于该 hook 创建），进入 = 记开合 → `beginWidthTransition` → 真收侧栏 → `setFullscreen(true)` → `noteLayoutShift(800)`（罩住异步窗口重排）；退出对称还原。顶缘 8px 感应带的 peek 态与「F11 · ESC 退出」提示章由该 hook 自持。
+- **`F11`/`Esc` 各自有守**：F11 在 `useGlobalShortcuts` 的 Ctrl 早退之前处理、无条件吞键（WebView 的整页全屏加速键不让渡），导出视图打开时只吞不切；Esc 监听在专注 hook 内——设置/导出视图开着或按键落在 input/textarea/contenteditable 上时归它们。
+- **进度线是 DOM 直写**：`FocusProgress` 只在专注态挂载，rAF 节流的 scroll 监听直接写填充宽度的 `style`，不经 React 重渲染；`.top-bar` / `.app-shell__body` 的进出过渡挂在基座规则上（`.top-bar` 不进任何媒体查询——含 `prefers-reduced-motion`，回归守卫在 kami.css.test.ts）。
+
 ## 文件索引
 
 | 文件 | 职责 |
@@ -204,6 +214,8 @@
 | `src/lib/navHistory.ts` | wikilink 前进/后退历史两栈（栈条目 = 路径 + 三级位置记录） |
 | `src/components/JumpToBottom.tsx` | 跳转到底部浮钮 |
 | `src/components/ImageViewer.tsx` | 图片点击查看器（MarkdownImage 点击放大，portal 挂 `document.body`：滚轮 1–5× 缩放 / 拖拽平移 / Esc 捕获段与背底点击关闭） |
+| `src/components/HoverPreviewLayer.tsx` | 悬停预览层（`React.lazy`，不进 components 映射）：滚动容器委托监听——脚注浮笺（克隆 li）与 wikilink 笺页卡（`read_note_preview` + 缓存） |
+| `src/components/FocusProgress.tsx` | 专注模式顶缘 2px 阅读进度线（rAF 节流 scroll 监听直写 style） |
 | `src/components/CodeBlock.tsx` | 代码高亮（PrismLight，20 种语言） |
 | `src/hooks/useOutlineWidth.ts` | 侧边栏宽度（200–320px，持久化） |
 | `src/main.tsx` | 入口、字体加载 |

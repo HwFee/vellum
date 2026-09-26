@@ -13,6 +13,7 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-show",
     "core:window:allow-set-title",
+    "core:window:allow-set-fullscreen",
     "core:window:allow-destroy",
     "dialog:default",
     "dialog:allow-save",

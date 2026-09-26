@@ -589,3 +589,70 @@ mod wikilink_tests {
         assert_eq!(path_of(&map, "firecrawl"), None);
     }
 }
+
+mod note_preview_tests {
+    use super::*;
+    use crate::document::read_note_preview_file;
+    use std::collections::HashSet;
+
+    /// 把 canonical 路径放进白名单返回（read_note_preview_file 以 canonical 形态查集合）。
+    fn allow(path: &std::path::Path) -> HashSet<PathBuf> {
+        let mut set = HashSet::new();
+        set.insert(dunce::canonicalize(path).unwrap());
+        set
+    }
+
+    #[test]
+    fn preview_rejects_path_outside_allowlist() {
+        let root = TestDir::new("vellum_preview_deny_test");
+        let file = root.path().join("secret.md");
+        fs::write(&file, "# 不该被读").unwrap();
+
+        let allow = HashSet::new();
+        let error = read_note_preview_file(&file, &allow).unwrap_err();
+        assert!(error.contains("allowlist"));
+    }
+
+    #[test]
+    fn preview_rejects_non_markdown_extension() {
+        let root = TestDir::new("vellum_preview_ext_test");
+        let file = root.path().join("data.txt");
+        fs::write(&file, "plain text").unwrap();
+
+        let allow = allow(&file);
+        let error = read_note_preview_file(&file, &allow).unwrap_err();
+        assert!(error.contains("markdown"));
+    }
+
+    #[test]
+    fn preview_reads_markdown_head() {
+        let root = TestDir::new("vellum_preview_ok_test");
+        let file = root.path().join("note.md");
+        fs::write(&file, "# 标题\n\n正文一段。").unwrap();
+
+        let allow = allow(&file);
+        let preview = read_note_preview_file(&file, &allow).unwrap();
+
+        assert_eq!(preview.file_name, "note.md");
+        assert_eq!(preview.markdown, "# 标题\n\n正文一段。");
+        assert!(!preview.truncated);
+    }
+
+    #[test]
+    fn preview_truncates_at_utf8_boundary() {
+        let root = TestDir::new("vellum_preview_trunc_test");
+        let file = root.path().join("long.md");
+        // 65534 个 ASCII + 一个三字节 CJK 字「中」：文件 65537 字节，take(65536)
+        // 正好切在「中」内部（字节 65534..65536），截断须回退到合法边界。
+        let mut content = "a".repeat(65534);
+        content.push('中');
+        fs::write(&file, &content).unwrap();
+
+        let allow = allow(&file);
+        let preview = read_note_preview_file(&file, &allow).unwrap();
+
+        assert!(preview.truncated);
+        assert_eq!(preview.markdown.len(), 65534);
+        assert!(preview.markdown.is_ascii());
+    }
+}

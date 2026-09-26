@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { loadAppPreferences } from "../lib/appPreferences";
 import { stepFontSize, type ReaderSettings } from "./useReaderSettings";
 
@@ -13,6 +14,14 @@ export type PinnedLayoutActions = {
   /// 侧栏右缘拖宽手柄的 pointerdown（JSX 直接用）
   handleSidebarResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
   isSidebarResizing: boolean;
+  /// 专注模式（C2「留一线」，F11 进出）：顶栏隐去 + 侧栏收回 + 窗口全屏
+  isFocusMode: boolean;
+  /// 顶缘 8px 感应带暂驻态：true 时顶栏滑回
+  isFocusPeek: boolean;
+  /// 进入专注时的底部提示章生命周期：show 2s → exit（淡出）→ null（卸载）
+  focusHint: "show" | "exit" | null;
+  toggleFocusMode: () => void;
+  exitFocusMode: () => void;
 };
 
 export type PinnedLayoutDeps = {
@@ -32,6 +41,10 @@ export type PinnedLayoutDeps = {
   /// 窄屏 Escape 的互斥守卫：设置/导出视图打开时 Escape 归它们
   isSettingsOpen: boolean;
   isExportOpen: boolean;
+  /// 专注模式状态本体在 App（useLayoutShift 的 applyNow 依赖表要拿到同一个值，
+  /// 而本 hook 的开关逻辑读它）——与 isOutlineOpen 同一个「状态在 App、入口在这里」的分工
+  isFocusMode: boolean;
+  setIsFocusMode: (on: boolean) => void;
 };
 
 /**
@@ -55,6 +68,8 @@ export function usePinnedLayoutActions(deps: PinnedLayoutDeps): PinnedLayoutActi
     noteLayoutShift,
     isSettingsOpen,
     isExportOpen,
+    isFocusMode,
+    setIsFocusMode,
   } = deps;
 
   const outlineWidthRef = useRef(outlineWidth);
@@ -151,6 +166,91 @@ export function usePinnedLayoutActions(deps: PinnedLayoutDeps): PinnedLayoutActi
     document.addEventListener("pointerup", onUp);
   };
 
+  // ===== 专注模式（C2「留一线」，F11 进出） =====
+  // 专注也是宽度与版心事件（顶栏隐去、侧栏收回、正文居中），入口全部走
+  // beginWidthTransition 钉视口；侧栏收放走真 setter（不是 CSS 层障眼），
+  // 退出时按进入前的开合态还原。提示章生命周期照搬 editor-toast：出现由状态挂载、
+  // 消失由定时器负责（2s 后先置 exit 淡出，再过 300ms 卸载）。
+  const [isFocusPeek, setIsFocusPeek] = useState(false);
+  const [focusHint, setFocusHint] = useState<"show" | "exit" | null>(null);
+  const wasOutlineOpenRef = useRef(false);
+  const hintTimersRef = useRef<number[]>([]);
+
+  const clearHintTimers = useCallback(() => {
+    for (const id of hintTimersRef.current) window.clearTimeout(id);
+    hintTimersRef.current = [];
+  }, []);
+
+  const enterFocusMode = useCallback(() => {
+    wasOutlineOpenRef.current = isOutlineOpen;
+    beginWidthTransition();
+    if (isOutlineOpen) setIsOutlineOpen(false);
+    setIsFocusMode(true);
+    void getCurrentWindow()
+      .setFullscreen(true)
+      .catch((error: unknown) => console.warn("setFullscreen(true) failed:", error));
+    // 全屏是异步窗口重排：把钉视窗续到 800ms 罩住它
+    noteLayoutShift(800);
+    clearHintTimers();
+    setFocusHint("show");
+    hintTimersRef.current = [
+      window.setTimeout(() => setFocusHint("exit"), 2000),
+      window.setTimeout(() => setFocusHint(null), 2300),
+    ];
+  }, [isOutlineOpen, setIsOutlineOpen, setIsFocusMode, beginWidthTransition, noteLayoutShift, clearHintTimers]);
+
+  const exitFocusMode = useCallback(() => {
+    beginWidthTransition();
+    void getCurrentWindow()
+      .setFullscreen(false)
+      .catch((error: unknown) => console.warn("setFullscreen(false) failed:", error));
+    setIsOutlineOpen(wasOutlineOpenRef.current);
+    setIsFocusMode(false);
+    setIsFocusPeek(false);
+    clearHintTimers();
+    setFocusHint(null);
+    noteLayoutShift(800);
+  }, [setIsOutlineOpen, setIsFocusMode, beginWidthTransition, noteLayoutShift, clearHintTimers]);
+
+  const toggleFocusMode = useCallback(() => {
+    if (isFocusMode) exitFocusMode();
+    else enterFocusMode();
+  }, [isFocusMode, enterFocusMode, exitFocusMode]);
+
+  // 顶缘 8px 感应带：指针进带顶栏滑回（peek），离开顶栏区域（y > 54）收回
+  useEffect(() => {
+    if (!isFocusMode) return;
+    function onPointerMove(event: PointerEvent) {
+      if (event.clientY <= 8) setIsFocusPeek(true);
+      else if (event.clientY > 54) setIsFocusPeek(false);
+    }
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      setIsFocusPeek(false);
+    };
+  }, [isFocusMode]);
+
+  // 专注态下 Escape 退出：设置/导出整页视图开着时 Escape 归它们；
+  // 落在输入控件（搜索框 / BlockEditor 的 textarea / contenteditable）上的 Esc
+  // 与已被消费的按键都不接管（与窄屏关侧栏同一套守卫分工）
+  useEffect(() => {
+    if (!isFocusMode || isSettingsOpen || isExportOpen) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const target = event.target;
+      // 落在输入控件上的 Esc 归控件（搜索框 / BlockEditor / contenteditable），
+      // target 可能是 window/document 这类非 Element，先过 instanceof
+      if (target instanceof Element && target.closest("input, textarea, [contenteditable]")) return;
+      exitFocusMode();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isFocusMode, isSettingsOpen, isExportOpen, exitFocusMode]);
+
+  // 卸载时清掉提示章定时器（组件销毁不留孤儿 setTimeout）
+  useEffect(() => clearHintTimers, [clearHintTimers]);
+
   return {
     toggleOutlinePinned,
     setOutlineOpenPinned,
@@ -158,5 +258,10 @@ export function usePinnedLayoutActions(deps: PinnedLayoutDeps): PinnedLayoutActi
     stepReaderFontSize,
     handleSidebarResizeStart,
     isSidebarResizing,
+    isFocusMode,
+    isFocusPeek,
+    focusHint,
+    toggleFocusMode,
+    exitFocusMode,
   };
 }

@@ -1,8 +1,9 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useState } from "react";
 import { BlockEditor } from "./components/BlockEditor";
 import { CustomScrollbar } from "./components/CustomScrollbar";
 import { EmptyState } from "./components/EmptyState";
 import { ErrorState } from "./components/ErrorState";
+import { FocusProgress } from "./components/FocusProgress";
 import { JumpToBottom } from "./components/JumpToBottom";
 import { OutlinePanel } from "./components/OutlinePanel";
 import { SettingsNav } from "./components/SettingsNav";
@@ -35,6 +36,8 @@ import { fileNameToTitle } from "./lib/path";
 // 代码分割：react-markdown + rehype/remark + 语法高亮是体积最大的依赖，
 // 懒加载后首屏（顶栏/空状态）先行渲染，文档引擎在后台加载。
 const MarkdownDocument = lazy(() => import("./components/MarkdownDocument"));
+// 悬停预览层自带 react-markdown 依赖：懒加载，不进入口 chunk
+const HoverPreviewLayer = lazy(() => import("./components/HoverPreviewLayer"));
 
 /**
  * 应用外壳：只负责「runtime 创建 → 领域 hooks 按依赖序接线 → JSX」。
@@ -53,12 +56,16 @@ export default function App() {
   const [readerSettings, setReaderSettings] = useReaderSettings();
   // 界面行为偏好（启动时展开侧栏 / 启动时自动检查更新）：与阅读设置同一个 settings.json Store
   const [preferences, setPreferences] = useAppPreferences();
+  // 专注模式（C2「留一线」）状态本体在 App：useLayoutShift 的补偿帧依赖表与它都
+  // 早于 usePinnedLayoutActions 创建，进出逻辑收在那边（红线 8：它也收侧栏）
+  const [isFocusMode, setIsFocusMode] = useState(false);
 
   // 布局过渡窗 + 宽度过渡期视口钉住
   const { isLayoutShifting, noteLayoutShift, beginWidthTransition } = useLayoutShift(rt, {
     isOutlineOpen,
     outlineWidth,
     readerSettings,
+    isFocusMode,
   });
 
   // ===== 搜索状态 =====
@@ -107,6 +114,9 @@ export default function App() {
     stepReaderFontSize,
     handleSidebarResizeStart,
     isSidebarResizing,
+    isFocusPeek,
+    focusHint,
+    toggleFocusMode,
   } = usePinnedLayoutActions({
     toggleOutline,
     setIsOutlineOpen,
@@ -120,6 +130,8 @@ export default function App() {
     noteLayoutShift,
     isSettingsOpen,
     isExportOpen,
+    isFocusMode,
+    setIsFocusMode,
   });
 
   // 程序化滚动与文档内导航
@@ -217,6 +229,7 @@ export default function App() {
     stepReaderFontSize,
     handleNextMatch,
     handlePrevMatch,
+    toggleFocusMode,
   });
 
   return (
@@ -224,7 +237,9 @@ export default function App() {
       className={
         "app-shell" +
         (isLayoutShifting ? " app-shell--layout-shifting" : "") +
-        (isSidebarResizing ? " app-shell--sidebar-resizing" : "")
+        (isSidebarResizing ? " app-shell--sidebar-resizing" : "") +
+        (isFocusMode ? " app-shell--focus" : "") +
+        (isFocusPeek ? " app-shell--focus-peek" : "")
       }
     >
       <TopBar
@@ -422,6 +437,27 @@ export default function App() {
       <CustomScrollbar containerRef={scrollRef} contentRef={contentRef} />
       {/* 跳底按钮是正文的装置：设置视图里没有「文档底部」可言 */}
       {state.status === "ready" && !isSettingsOpen && !isExportOpen && <JumpToBottom containerRef={scrollRef} />}
+      {/* 悬停预览层（脚注浮笺 / wikilink 笺页卡）：ready 阅读视图的增强，
+          委托监听挂在滚动容器上，不进 components 映射（引用稳定性） */}
+      {state.status === "ready" && !isSettingsOpen && !isExportOpen && (
+        <Suspense fallback={null}>
+          <HoverPreviewLayer
+            containerRef={scrollRef}
+            contentRef={documentContentRef}
+            enabled={editor.viewMode !== "editing"}
+            wikilinks={state.wikilinks}
+            documentPath={state.document.path}
+            onOpenWikilink={handleOpenWikilink}
+          />
+        </Suspense>
+      )}
+      {/* 专注模式（C2「留一线」）：顶缘 2px 进度线 + 进出时的底部提示章 */}
+      {isFocusMode && <FocusProgress containerRef={scrollRef} />}
+      {focusHint ? (
+        <div className={"focus-hint" + (focusHint === "exit" ? " focus-hint--exit" : "")} role="status">
+          F11 · ESC 退出
+        </div>
+      ) : null}
       {isOutlineOpen && isNarrow && (
         <div className="outline-scrim" role="presentation" onClick={() => setOutlineOpenPinned(false)} />
       )}

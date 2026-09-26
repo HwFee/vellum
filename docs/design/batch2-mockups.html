@@ -1,0 +1,1021 @@
+<!doctype>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第二批 · 悬停预览与专注模式（候选） — Vellum 素笺</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../../src/styles/kami.css">
+<style>
+/* file:// 打开时 kami.css 里的 /fonts 绝对路径失效，这里用相对路径补一份同名 @font-face */
+@font-face { font-family: "TsangerJinKai02"; src: url("../../public/fonts/TsangerJinKai02-W04.woff2") format("woff2"); font-weight: 400; }
+@font-face { font-family: "TsangerJinKai02"; src: url("../../public/fonts/TsangerJinKai02-W05.woff2") format("woff2"); font-weight: 500; }
+@font-face { font-family: "JetBrains Mono"; src: url("../../public/fonts/JetBrainsMono.woff2") format("woff2"); font-weight: 400 500; }
+
+/* ===== 设计稿自身版式（与 export-pdf-mockups.html 同一套） ===== */
+.doc { max-width: 1120px; margin: 0 auto; padding: 64px 40px 96px; }
+.doc-eyebrow { font: 500 10px/1.5 var(--mono); letter-spacing: 0.42em; color: var(--stone); }
+.doc-title { font: 500 30px/1.2 var(--serif); color: var(--near-black); margin: 10px 0 8px; }
+.doc-meta { font: 400 11px/1.6 var(--mono); color: var(--stone); margin: 0 0 14px; }
+.doc-lede { color: var(--olive); max-width: 680px; margin: 0 0 8px; }
+.doc-lede code, .spec-list code { font: 400 11px/1.5 var(--mono); background: var(--inline-code-bg); border-radius: 3px; padding: 1px 5px; color: var(--dark-warm); }
+.doc-h2 { font: 500 21px/1.25 var(--serif); color: var(--near-black); margin: 52px 0 6px; }
+.doc-sub { font-size: 12.5px; color: var(--stone); margin: 0 0 20px; }
+
+.spec-list { font-size: 13px; color: var(--olive); line-height: 2.05; padding-left: 0; list-style: none; margin: 14px 0 0; }
+.spec-list li { padding-left: 18px; position: relative; }
+.spec-list li::before { content: ""; position: absolute; left: 0; top: 0.95em; width: 5px; height: 5px; border-radius: 1px; background: var(--brand); }
+.spec-list strong { font-weight: 500; color: var(--dark-warm); }
+
+/* ===== 窗口框架与顶栏（.top-bar 是真件的 fixed 布局，框架里用 .m-topbar 复刻） ===== */
+.frame { border: 1px solid var(--hairline); border-radius: 6px; overflow: hidden; background: var(--parchment); margin-top: 20px; }
+.m-topbar { height: 46px; flex: none; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding: 0 12px 0 14px; border-bottom: 1px solid var(--border-soft); background: color-mix(in srgb, var(--parchment) 94%, var(--ivory)); }
+.m-topbar__group { display: flex; align-items: center; gap: 6px; }
+.m-iconbtn { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; color: var(--stone); box-shadow: inset 0 0 0 1px var(--hairline); }
+.m-iconbtn svg { width: 14px; height: 14px; }
+.m-divider { width: 1px; height: 16px; background: var(--hairline); margin: 0 2px; }
+.mk-variant { font: 500 17px/1.3 var(--serif); color: var(--near-black); margin: 34px 0 4px; }
+.mk-tag { font: 500 10px/1.5 var(--mono); letter-spacing: 0.4px; color: var(--stone); margin: 0 0 6px; }
+.doc-foot { margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--hairline); font-size: 11.5px; color: var(--stone); line-height: 1.8; }
+
+/* ===== 框架内的应用外壳（真件的 fixed/flex 视口布局 → 框架内的在流布局） ===== */
+.mk-shell { display: flex; position: relative; }
+.mk-sidebar { flex: none; width: var(--outline-width); border-right: 1px solid var(--hairline); background: var(--parchment); display: flex; flex-direction: column; overflow: hidden; transition: margin-left 200ms ease, opacity 200ms ease; }
+.mk-scroll { position: relative; flex: 1; min-width: 0; overflow-y: auto; background: var(--parchment); scrollbar-width: thin; scrollbar-color: var(--hairline) transparent; }
+.mk-scroll::-webkit-scrollbar { width: 6px; }
+.mk-scroll::-webkit-scrollbar-thumb { background: var(--hairline); border-radius: 3px; }
+/* A/B 段的阅读面高度 */
+.mk-scroll--h { height: 400px; }
+/* B 段框架加高：让 240px 笺页卡 / 360px 预读在视口内有地方落脚（链接锚点在页面上方） */
+.mk-scroll--b { height: 560px; }
+.mk-scroll--b3 { height: 640px; }
+/* A2 宽框架把栏宽收窄，给页边旁注让出右缘 */
+.mk-scroll--margin { --reader-column-width: 560px; }
+
+/* ===== 脚注 / wikilink 悬停卡（A1 / B1 / B2 共用容器语汇） ===== */
+.mk-card { position: absolute; z-index: 60; display: none; background: var(--ivory); border-radius: 6px; box-shadow: inset 0 0 0 1px var(--hairline), 0 1px 3px rgba(20,20,19,0.08); font-family: var(--serif); }
+.mk-card.is-on { display: block; animation: mk-pop 150ms ease; }
+.mk-card.is-below.is-on { animation-name: mk-pop-down; }
+@keyframes mk-pop { from { opacity: 0; transform: translateY(2px); } }
+@keyframes mk-pop-down { from { opacity: 0; transform: translateY(-2px); } }
+
+/* A1 浮笺：小卡片锚在脚注上标上方（没空间时翻到下方） */
+.mk-fncard { max-width: 320px; padding: 10px 14px; font-size: 13px; line-height: 1.65; color: var(--dark-warm); }
+.mk-fncard__tag { font: 500 10px/1.5 var(--mono); letter-spacing: 0.4px; color: var(--stone); margin-bottom: 4px; }
+.mk-fncard p { margin: 0; }
+.mk-fncard a { color: var(--brand); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--brand) 55%, transparent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.mk-fncard code { font: 400 11px/1.5 var(--mono); background: var(--inline-code-bg); border-radius: 3px; padding: 1px 5px; color: var(--dark-warm); }
+
+/* A2 页边旁注：脚注住进右页边（行高对齐所在行），宽框架限定 */
+.mk-snrow { position: relative; }
+.mk-sidenote { position: absolute; left: 100%; top: 3px; margin-left: 26px; width: 200px; font-size: 12px; line-height: 1.5; color: var(--olive); transition: color 150ms ease; }
+.mk-sidenote__n { font: 500 10px/1.5 var(--mono); color: var(--stone); margin-right: 6px; }
+.mk-sidenote a { color: var(--brand); }
+.mk-sidenote code { font: 400 10px/1.5 var(--mono); background: var(--inline-code-bg); border-radius: 3px; padding: 0 4px; }
+/* 悬停互照：上标或旁注任一被点亮，上标补实线靛青、旁注文字沉到近墨 */
+.mk-snrow:has([data-footnote-ref]:hover) .mk-sidenote,
+.mk-sidenote:hover { color: var(--near-black); }
+.mk-snrow:has(.mk-sidenote:hover) a[data-footnote-ref],
+.mk-frame a[data-footnote-ref]:hover { text-decoration-color: var(--brand); text-decoration-style: solid; }
+a[data-footnote-ref] { cursor: pointer; }
+/* 窄框架退回 A1 的悬停浮笺：旁注不渲染 */
+.mk-frame--narrow { max-width: 600px; }
+.mk-frame--narrow .mk-sidenote { display: none; }
+.mk-frame--narrow .markdown-body { max-width: 100%; }
+
+/* A3 行下展开：点击上标，脚注在段落后就地展开一条素带 */
+/* 收起时 -14px 顶距抵掉段落下边距：素带闭合不占版面；展开后贴在段落正下 */
+.mk-strip { display: grid; grid-template-rows: 0fr; opacity: 0; margin: -14px 0 14px; transition: grid-template-rows 200ms ease, opacity 200ms ease; }
+.mk-strip.is-open { grid-template-rows: 1fr; opacity: 1; }
+.mk-strip__in { overflow: hidden; min-height: 0; }
+.mk-strip__pad { padding: 10px 14px; background: var(--ivory); border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); }
+.mk-strip__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.mk-strip__tag { font: 500 10px/1.5 var(--mono); letter-spacing: 0.4px; color: var(--stone); }
+.mk-strip__x { border: 0; background: transparent; padding: 0; font: 500 10px/1.5 var(--mono); letter-spacing: 0.4px; color: var(--stone); cursor: pointer; transition: color 0.15s ease; }
+.mk-strip__x:hover { color: var(--brand); }
+.mk-strip__body { margin: 0; font-size: 12.5px; line-height: 1.65; color: var(--olive); }
+.mk-strip__body a { color: var(--brand); }
+.mk-strip__body code { font: 400 10px/1.5 var(--mono); background: var(--parchment); border-radius: 3px; padding: 0 4px; }
+
+/* B1 笺页卡：360px 宽，题头 + 路径 + 正文前几行，底缘 36px 渐隐进 ivory */
+.mk-wlcard { width: 360px; max-height: 240px; overflow: hidden; padding: 12px 16px; }
+.mk-wlcard__title { font: 500 15px/1.4 var(--serif); color: var(--near-black); }
+.mk-wlcard__path { font: 400 10px/1.5 var(--mono); color: var(--stone); margin: 3px 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk-wlcard__body { position: relative; font-size: 12.5px; line-height: 1.7; color: var(--olive); }
+.mk-wlcard__body p { margin: 0 0 6px; }
+.mk-wlcard__body h2 { font: 500 13px/1.4 var(--serif); color: var(--dark-warm); margin: 8px 0 4px; }
+.mk-wlcard__body ul { margin: 0 0 6px; padding-left: 18px; }
+.mk-wlcard__fade { position: absolute; left: 0; right: 0; bottom: 0; height: 36px; background: linear-gradient(to bottom, color-mix(in srgb, var(--ivory) 0%, transparent), var(--ivory)); pointer-events: none; }
+
+/* B2 题跋条：紧凑 280px，题 + 两三行摘 + mono 元信息行 */
+.mk-excerpt { width: 280px; padding: 10px 14px; }
+.mk-excerpt__title { font: 500 13.5px/1.4 var(--serif); color: var(--near-black); }
+.mk-excerpt__text { margin: 4px 0 6px; font-size: 12.5px; line-height: 1.6; color: var(--olive); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.mk-excerpt__meta { font: 400 10px/1.5 var(--mono); letter-spacing: 0.4px; color: var(--stone); }
+
+/* B3 按住 Ctrl 预读：480×360 大预览，自带内滚动与 mono 页脚 */
+.mk-bigpeek { width: 480px; height: 360px; display: none; flex-direction: column; }
+.mk-bigpeek.is-on { display: flex; }
+.mk-bigpeek__scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 22px; }
+.mk-bigpeek__scroll .markdown-body { font-size: 12.5px; max-width: none; padding: 0; }
+.mk-bigpeek__scroll .markdown-body h1 { font-size: 20px; margin: 0 0 10px; }
+.mk-bigpeek__scroll .markdown-body h2 { font-size: 15px; margin: 16px 0 6px; }
+.mk-bigpeek__foot { flex: none; padding: 7px 16px; border-top: 1px solid var(--hairline); font: 400 10px/1.5 var(--mono); letter-spacing: 0.4px; color: var(--stone); text-align: center; }
+.mk-ctrlsim { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--olive); cursor: pointer; user-select: none; }
+.mk-ctrlsim input { accent-color: var(--brand); }
+
+/* ===== 专注模式（C 段框架） ===== */
+.mk-cframe { position: relative; height: 610px; display: flex; flex-direction: column; }
+.mk-c-topbar { transition: margin-top 200ms ease, opacity 200ms ease; }
+.mk-c-body { flex: 1; min-height: 0; display: flex; }
+.mk-cframe.is-focus .mk-c-topbar { margin-top: -46px; opacity: 0; }
+.mk-cframe.is-focus.is-peek .mk-c-topbar { margin-top: 0; opacity: 1; }
+.mk-cframe.is-focus .mk-sidebar { margin-left: calc(-1 * var(--outline-width)); opacity: 0; }
+/* 顶缘 8px 感应条：只在专注态接管（平时不挡顶栏） */
+.mk-peekzone { position: absolute; top: 0; left: 0; right: 0; height: 8px; z-index: 40; display: none; }
+.mk-cframe.is-focus .mk-peekzone { display: block; }
+/* C2 的 2px 进度线：靛青在发丝轨上走 */
+.mk-progress { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--hairline); opacity: 0; transition: opacity 200ms ease; pointer-events: none; z-index: 42; }
+.mk-progress i { display: block; height: 100%; width: 0; background: var(--brand); }
+.mk-cframe.is-focus .mk-progress { opacity: 1; }
+/* 底部 2s 提示章 */
+.mk-hint { position: absolute; left: 0; right: 0; bottom: 14px; text-align: center; font: 500 10px/1.5 var(--mono); letter-spacing: 0.4px; color: var(--stone); opacity: 0; transition: opacity 300ms ease; pointer-events: none; }
+.mk-hint.is-show { opacity: 1; }
+/* 进出专注的开关：悬在框内右下角，读面不挪位 */
+.mk-focusbtn { position: absolute; right: 14px; bottom: 14px; z-index: 41; }
+/* C3 聚光段落：专注态下非居中的块淡到 0.35，最近的块保持全墨 */
+.mk-cframe.is-focus .markdown-body > *,
+.mk-cframe.is-focus .document-title { opacity: 0.35; transition: opacity 200ms ease; }
+.mk-cframe.is-focus .markdown-body > *.is-centre,
+.mk-cframe.is-focus .document-title.is-centre { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mk-card.is-on, .mk-c-topbar, .mk-sidebar, .mk-progress, .mk-hint, .mk-strip,
+  .mk-cframe.is-focus .markdown-body > *, .mk-cframe.is-focus .document-title {
+    animation: none; transition: none;
+  }
+}
+</style>
+</head>
+<body>
+<div class="doc">
+
+  <div class="doc-eyebrow">VELLUM 素笺 · 界面设计稿</div>
+  <h1 class="doc-title">第二批 · 悬停预览与专注模式（候选）</h1>
+  <div class="doc-meta">2026-09-26 · 三组候选 · 每组择一</div>
+  <div class="doc-meta">定稿：A1 浮笺 · B1 笺页卡 · C2 留一线（2026-09-26）</div>
+  <p class="doc-lede">三个待做功能各备三个候选：<strong>A · 脚注悬停预览</strong>、<strong>B · wikilink 悬停预览</strong>、<strong>C · 专注模式（F11）</strong>。每组任选其一；候选全部遵循 DESIGN.md——纸面层级、一笔靛青、动效 150–250ms。框架内是真实样式（kami.css + 仓耳今楷），交互全部是悬停/点击，可直接上手试。<strong>演示捷径：</strong>URL 加 <code>?demo=a1</code> / <code>?demo=b1</code> / <code>?demo=c3</code> 可直接摆出对应状态（用于截图与评审）。</p>
+
+  <!-- ================================================== A · 脚注悬停预览 -->
+  <h2 class="doc-h2">A · 脚注悬停预览</h2>
+  <p class="doc-sub">脚注 <code>[^n]</code> 在正文里是上标；悬停/点击后如何「读到它」的三条路子</p>
+
+  <div class="mk-variant">方案 A1 · 浮笺</div>
+  <div class="mk-tag">HOVER · 200ms 延迟 · 150ms 宽限</div>
+  <div class="frame mk-frame" id="frame-a1">
+    <div class="m-topbar"><div class="m-topbar__group">
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="15" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="12" y2="18"/><circle cx="19" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="18" r="1" fill="currentColor" stroke="none"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M8 14h5" opacity="0.5"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6" opacity="0.35"/><path d="M12 11v7"/><path d="M9 15l3 3 3-3"/></svg></span>
+      <span class="m-divider"></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1.82.33l.06.06a2 2 0 1 1-2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0-1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1 1.65 1.65 0 0 0-.33 1.82l-.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33L19.4 15z"/></svg></span>
+    </div><div></div><div class="m-topbar__group">
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="15" x2="18" y2="15"/><path d="M9 9h6" opacity="0.35"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M5 9h14" opacity="0.35"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6.5" y1="6.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="6.5" x2="6.5" y2="17.5"/></svg></span>
+    </div></div>
+    <div class="mk-shell">
+      <div class="mk-scroll mk-scroll--h">
+        <div class="document-scroll__content">
+          <div class="document-content">
+            <h1 class="document-title" title="D:/wisdom/随笔/纸与墨.md">纸与墨</h1>
+            <div class="markdown-body">
+              <p>「纸寿千年，墨韵万年。」写字的人总有一种执念：笔墨落到纸上的一刻，字就不再是字，而是时间本身<sup><a href="#user-content-fn-1" id="a1-fnref-1" data-footnote-ref data-fn="1" aria-describedby="footnote-label">1</a></sup>。我最初摸到这种执念，是在外祖父的书桌上——一张毛边纸，一方旧端砚，墨是前一天夜里磨好的，沉在砚池里，像一小片夜。</p>
+              <p>纸的来历说来话长，详见 <a class="wikilink" data-wikilink="纸的历史" href="wikilink:%E7%BA%B8%E7%9A%84%E5%8E%86%E5%8F%B2" title="[[纸的历史]]">纸的历史</a>；墨的故事也不短，<a class="wikilink" data-wikilink="墨的制作" href="wikilink:%E5%A2%A8%E7%9A%84%E5%88%B6%E4%BD%9C" title="[[墨的制作]]">墨的制作</a> 一篇里记过松烟与油烟的分野。至于外祖父那方端砚的出处，父亲说是从 <a class="wikilink wikilink--missing" data-wikilink="未名斋札记" href="#" title="[[未名斋札记]] · 库中未找到">未名斋札记</a> 里读来的掌故，可惜那篇笔记始终没有写完。</p>
+              <p>磨墨是件磨性子的事。墨锭在砚面上走圈，手要稳，心要静，快了出沫，慢了发滞<sup><a href="#user-content-fn-2" id="a1-fnref-2" data-footnote-ref data-fn="2" aria-describedby="footnote-label">2</a></sup>。小时候我总嫌这功夫白费，直到自己提笔，才知道墨色浓淡、行笔缓急，全都藏在那半盏墨里。</p>
+              <p>纸与墨相遇，才算落笔成书。古人说「运墨而五色具」<sup><a href="#user-content-fn-3" id="a1-fnref-3" data-footnote-ref data-fn="3" aria-describedby="footnote-label">3</a></sup>，焦浓重淡清，一锭墨里分出五等神采——这不是夸张，是纸纤维把墨里的碳粒一丝一丝咬住的结果。</p>
+              <section data-footnotes class="footnotes">
+                <h2 class="sr-only" id="footnote-label">Footnotes</h2>
+                <ol>
+                  <li id="user-content-fn-1"><p>「纸寿千年」语出《历代名画记》论装裱一节；一说见 <code>S096</code> 档案编目，<em>姑妄听之</em>。 <a href="#a1-fnref-1" data-footnote-backref aria-label="回到引用 1">↩</a></p></li>
+                  <li id="user-content-fn-2"><p>砚以发墨为上。详见 <a href="https://example.com/wenfang">《文房四谱》</a>墨谱一条；<em>沫起则墨燥</em>，行笔便涩。 <a href="#a1-fnref-2" data-footnote-backref aria-label="回到引用 2">↩</a></p></li>
+                  <li id="user-content-fn-3"><p>「运墨而五色具」语出张彦远《历代名画记 · 论画体工用拓写》，亦可参 <a href="https://example.com/mofa">墨法要略</a>。 <a href="#a1-fnref-3" data-footnote-backref aria-label="回到引用 3">↩</a></p></li>
+                </ol>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ul class="spec-list">
+    <li><strong>悬停 200ms</strong> 后浮出小卡片，锚在上标<strong>上方</strong>；上方放不下时翻到下方。</li>
+    <li>卡片 ivory 底 + <code>inset 0 0 0 1px hairline</code> + 6px 圆角，≤320px 宽；题头 mono 10px「注 n」，正文 13px 衬线。</li>
+    <li>离开上标给 <strong>150ms 宽限</strong>，指针可移入卡片继续读；150ms 淡入 + 2px 上浮。</li>
+    <li>滚动正文时卡片随上标走（它是正文的一部分），不强制定位悬停。</li>
+  </ul>
+
+  <div class="mk-variant">方案 A2 · 页边旁注</div>
+  <div class="mk-tag">ALWAYS-ON · 右页边 · 悬停互照</div>
+  <div class="frame mk-frame" id="frame-a2">
+    <div class="m-topbar"><div class="m-topbar__group">
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="15" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="12" y2="18"/><circle cx="19" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="18" r="1" fill="currentColor" stroke="none"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M8 14h5" opacity="0.5"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6" opacity="0.35"/><path d="M12 11v7"/><path d="M9 15l3 3 3-3"/></svg></span>
+      <span class="m-divider"></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1.82.33l.06.06a2 2 0 1 1-2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0-1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1 1.65 1.65 0 0 0-.33 1.82l-.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33L19.4 15z"/></svg></span>
+    </div><div></div><div class="m-topbar__group">
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="15" x2="18" y2="15"/><path d="M9 9h6" opacity="0.35"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M5 9h14" opacity="0.35"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6.5" y1="6.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="6.5" x2="6.5" y2="17.5"/></svg></span>
+    </div></div>
+    <div class="mk-shell">
+      <div class="mk-scroll mk-scroll--h mk-scroll--margin">
+        <div class="document-scroll__content">
+          <div class="document-content">
+            <h1 class="document-title" title="D:/wisdom/随笔/纸与墨.md">纸与墨</h1>
+            <div class="markdown-body">
+              <div class="mk-snrow">
+                <p>「纸寿千年，墨韵万年。」写字的人总有一种执念：笔墨落到纸上的一刻，字就不再是字，而是时间本身<sup><a href="#fn-a2-1" data-footnote-ref data-fn="1">1</a></sup>。我最初摸到这种执念，是在外祖父的书桌上——一张毛边纸，一方旧端砚。</p>
+                <aside class="mk-sidenote"><span class="mk-sidenote__n">1</span>「纸寿千年」语出《历代名画记》论装裱一节；一说见 <code>S096</code> 档案编目，<em>姑妄听之</em>。</aside>
+              </div>
+              <p>纸的来历说来话长，详见 <a class="wikilink" data-wikilink="纸的历史" href="#">纸的历史</a>；墨的故事也不短，<a class="wikilink" data-wikilink="墨的制作" href="#">墨的制作</a> 一篇里记过松烟与油烟的分野。</p>
+              <div class="mk-snrow">
+                <p>磨墨是件磨性子的事。墨锭在砚面上走圈，手要稳，心要静，快了出沫，慢了发滞<sup><a href="#fn-a2-2" data-footnote-ref data-fn="2">2</a></sup>。小时候我总嫌这功夫白费，直到自己提笔，才知道墨色浓淡、行笔缓急，全都藏在那半盏墨里。</p>
+                <aside class="mk-sidenote"><span class="mk-sidenote__n">2</span>砚以发墨为上。详见《文房四谱》墨谱一条；<em>沫起则墨燥</em>，行笔便涩。</aside>
+              </div>
+              <div class="mk-snrow">
+                <p>纸与墨相遇，才算落笔成书。古人说「运墨而五色具」<sup><a href="#fn-a2-3" data-footnote-ref data-fn="3">3</a></sup>，焦浓重淡清，一锭墨里分出五等神采。</p>
+                <aside class="mk-sidenote"><span class="mk-sidenote__n">3</span>「运墨而五色具」语出张彦远《历代名画记 · 论画体工用拓写》。</aside>
+              </div>
+              <section data-footnotes class="footnotes">
+                <h2 class="sr-only" id="footnote-label-a2">Footnotes</h2>
+                <ol>
+                  <li id="fn-a2-1"><p>「纸寿千年」语出《历代名画记》论装裱一节；一说见 <code>S096</code> 档案编目，<em>姑妄听之</em>。 <a href="#" data-footnote-backref>↩</a></p></li>
+                  <li id="fn-a2-2"><p>砚以发墨为上。详见《文房四谱》墨谱一条；<em>沫起则墨燥</em>，行笔便涩。 <a href="#" data-footnote-backref>↩</a></p></li>
+                  <li id="fn-a2-3"><p>「运墨而五色具」语出张彦远《历代名画记 · 论画体工用拓写》。 <a href="#" data-footnote-backref>↩</a></p></li>
+                </ol>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ul class="spec-list">
+    <li>宽版面里脚注<strong>常驻右页边</strong>（12px 橄榄、≤200px、mono 序号），读到哪里注在哪里，零等待。</li>
+    <li>悬停上标或旁注任一端，<strong>两端互照</strong>：上标补实线靛青下划线，旁注文字沉到近墨。无侧线。</li>
+    <li>栏宽收窄到装不下旁注时自动退回 A1 的悬停浮笺——下方 600px 窄框架可直接试。</li>
+  </ul>
+
+  <div class="mk-tag" style="margin-top:18px">窄框架（≈600px）· 旁注退让，退回浮笺</div>
+  <div class="frame mk-frame mk-frame--narrow" id="frame-a2-narrow">
+    <div class="mk-shell">
+      <div class="mk-scroll mk-scroll--h">
+        <div class="document-scroll__content">
+          <div class="document-content">
+            <h1 class="document-title" title="D:/wisdom/随笔/纸与墨.md">纸与墨</h1>
+            <div class="markdown-body">
+              <div class="mk-snrow">
+                <p>「纸寿千年，墨韵万年。」写字的人总有一种执念：笔墨落到纸上的一刻，字就不再是字，而是时间本身<sup><a href="#fn-a2n-1" data-footnote-ref data-fn="1">1</a></sup>。</p>
+                <aside class="mk-sidenote"><span class="mk-sidenote__n">1</span>「纸寿千年」语出《历代名画记》论装裱一节。</aside>
+              </div>
+              <div class="mk-snrow">
+                <p>磨墨是件磨性子的事。墨锭在砚面上走圈，手要稳，心要静，快了出沫，慢了发滞<sup><a href="#fn-a2n-2" data-footnote-ref data-fn="2">2</a></sup>。</p>
+                <aside class="mk-sidenote"><span class="mk-sidenote__n">2</span>砚以发墨为上；<em>沫起则墨燥</em>，行笔便涩。</aside>
+              </div>
+              <section data-footnotes class="footnotes">
+                <h2 class="sr-only">Footnotes</h2>
+                <ol>
+                  <li id="fn-a2n-1"><p>「纸寿千年」语出《历代名画记》论装裱一节；一说见 <code>S096</code> 档案编目，<em>姑妄听之</em>。</p></li>
+                  <li id="fn-a2n-2"><p>砚以发墨为上。详见《文房四谱》墨谱一条；<em>沫起则墨燥</em>，行笔便涩。</p></li>
+                </ol>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mk-variant">方案 A3 · 行下展开</div>
+  <div class="mk-tag">CLICK · 就地展开 · 再点收起</div>
+  <div class="frame mk-frame" id="frame-a3">
+    <div class="mk-shell">
+      <div class="mk-scroll mk-scroll--h">
+        <div class="document-scroll__content">
+          <div class="document-content">
+            <h1 class="document-title" title="D:/wisdom/随笔/纸与墨.md">纸与墨</h1>
+            <div class="markdown-body">
+              <p>「纸寿千年，墨韵万年。」写字的人总有一种执念：笔墨落到纸上的一刻，字就不再是字，而是时间本身<sup><a href="#fn-a3-1" data-footnote-ref data-fn="1">1</a></sup>。</p>
+              <div class="mk-strip" data-strip>
+                <div class="mk-strip__in"><div class="mk-strip__pad">
+                  <div class="mk-strip__head"><span class="mk-strip__tag">注 1</span><button type="button" class="mk-strip__x">收起 ×</button></div>
+                  <p class="mk-strip__body">「纸寿千年」语出《历代名画记》论装裱一节；一说见 <code>S096</code> 档案编目，<em>姑妄听之</em>。</p>
+                </div></div>
+              </div>
+              <p>磨墨是件磨性子的事。墨锭在砚面上走圈，手要稳，心要静，快了出沫，慢了发滞<sup><a href="#fn-a3-2" data-footnote-ref data-fn="2">2</a></sup>。小时候我总嫌这功夫白费，直到自己提笔，才知道墨色浓淡、行笔缓急，全都藏在那半盏墨里。</p>
+              <div class="mk-strip" data-strip>
+                <div class="mk-strip__in"><div class="mk-strip__pad">
+                  <div class="mk-strip__head"><span class="mk-strip__tag">注 2</span><button type="button" class="mk-strip__x">收起 ×</button></div>
+                  <p class="mk-strip__body">砚以发墨为上。详见《文房四谱》墨谱一条；<em>沫起则墨燥</em>，行笔便涩。</p>
+                </div></div>
+              </div>
+              <p>纸与墨相遇，才算落笔成书。古人说「运墨而五色具」<sup><a href="#fn-a3-3" data-footnote-ref data-fn="3">3</a></sup>。</p>
+              <div class="mk-strip" data-strip>
+                <div class="mk-strip__in"><div class="mk-strip__pad">
+                  <div class="mk-strip__head"><span class="mk-strip__tag">注 3</span><button type="button" class="mk-strip__x">收起 ×</button></div>
+                  <p class="mk-strip__body">「运墨而五色具」语出张彦远《历代名画记 · 论画体工用拓写》。</p>
+                </div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ul class="spec-list">
+    <li><strong>点击</strong>上标在所属段落之后就地展开一条素带：上下发丝线、ivory 底、12.5px 橄榄字。</li>
+    <li>带内题头 mono 10px「注 n · 收起 ×」；展开/收起都是 200ms 高度 + 透明度过渡。</li>
+    <li>悬停只给指针与靛青实线下划线，不弹任何东西——阅读节奏不被鼠标扫过打断。</li>
+  </ul>
+
+  <!-- ================================================== B · wikilink 悬停预览 -->
+  <h2 class="doc-h2">B · wikilink 悬停预览</h2>
+  <p class="doc-sub">已解析的库内链接悬停预览：「纸的历史」「墨的制作」两枚可预览；「未名斋札记」是未解析链接（<code>.wikilink--missing</code>），一律不出卡，只留原生 title 提示</p>
+
+  <div class="mk-variant">方案 B1 · 笺页卡</div>
+  <div class="mk-tag">HOVER · 350ms · 360px · 底缘渐隐</div>
+  <div class="frame mk-frame" id="frame-b1">
+    <div class="m-topbar"><div class="m-topbar__group">
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="15" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="12" y2="18"/><circle cx="19" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="18" r="1" fill="currentColor" stroke="none"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M8 14h5" opacity="0.5"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6" opacity="0.35"/><path d="M12 11v7"/><path d="M9 15l3 3 3-3"/></svg></span>
+      <span class="m-divider"></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1.82.33l.06.06a2 2 0 1 1-2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0-1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1 1.65 1.65 0 0 0-.33 1.82l-.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33L19.4 15z"/></svg></span>
+    </div><div></div><div class="m-topbar__group">
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="15" x2="18" y2="15"/><path d="M9 9h6" opacity="0.35"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M5 9h14" opacity="0.35"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6.5" y1="6.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="6.5" x2="6.5" y2="17.5"/></svg></span>
+    </div></div>
+    <div class="mk-shell">
+      <div class="mk-scroll mk-scroll--b">
+        <div class="document-scroll__content">
+          <div class="document-content">
+            <h1 class="document-title" title="D:/wisdom/随笔/纸与墨.md">纸与墨</h1>
+            <div class="markdown-body">
+              <p>「纸寿千年，墨韵万年。」写字的人总有一种执念：笔墨落到纸上的一刻，字就不再是字，而是时间本身。</p>
+              <p>纸的来历说来话长，详见 <a class="wikilink" data-wikilink="纸的历史" href="#" title="[[纸的历史]]">纸的历史</a>；墨的故事也不短，<a class="wikilink" data-wikilink="墨的制作" href="#" title="[[墨的制作]]">墨的制作</a> 一篇里记过松烟与油烟的分野。至于外祖父那方端砚的出处，父亲说是从 <a class="wikilink wikilink--missing" data-wikilink="未名斋札记" href="#" title="[[未名斋札记]] · 库中未找到">未名斋札记</a> 里读来的掌故，可惜那篇笔记始终没有写完。</p>
+              <p>磨墨是件磨性子的事。墨锭在砚面上走圈，手要稳，心要静，快了出沫，慢了发滞。小时候我总嫌这功夫白费，直到自己提笔，才知道墨色浓淡、行笔缓急，全都藏在那半盏墨里。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ul class="spec-list">
+    <li>悬停已解析 wikilink <strong>350ms</strong> 后出卡：360px 宽、≤240px 高——笔记题（serif 500 15px）、路径（mono 10px、超长省略）、正文前约 6 行（12.5px），底缘 36px 渐隐进 ivory。</li>
+    <li>卡片可悬停进入（点其中的链接即是「开这篇」的入口语义），离开 150ms 宽限后收起。</li>
+    <li>未解析链接（<code>.wikilink--missing</code>）不出卡，只留原生 title 提示。</li>
+  </ul>
+
+  <div class="mk-variant">方案 B2 · 题跋条</div>
+  <div class="mk-tag">HOVER · 350ms · 280px · 题 + 摘 + 元信息</div>
+  <div class="frame mk-frame" id="frame-b2">
+    <div class="m-topbar"><div class="m-topbar__group">
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="15" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="12" y2="18"/><circle cx="19" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="18" r="1" fill="currentColor" stroke="none"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M8 14h5" opacity="0.5"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6" opacity="0.35"/><path d="M12 11v7"/><path d="M9 15l3 3 3-3"/></svg></span>
+      <span class="m-divider"></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1.82.33l.06.06a2 2 0 1 1-2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0-1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1 1.65 1.65 0 0 0-.33 1.82l-.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33L19.4 15z"/></svg></span>
+    </div><div></div><div class="m-topbar__group">
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="15" x2="18" y2="15"/><path d="M9 9h6" opacity="0.35"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M5 9h14" opacity="0.35"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6.5" y1="6.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="6.5" x2="6.5" y2="17.5"/></svg></span>
+    </div></div>
+    <div class="mk-shell">
+      <div class="mk-scroll mk-scroll--b">
+        <div class="document-scroll__content">
+          <div class="document-content">
+            <h1 class="document-title" title="D:/wisdom/随笔/纸与墨.md">纸与墨</h1>
+            <div class="markdown-body">
+              <p>「纸寿千年，墨韵万年。」写字的人总有一种执念：笔墨落到纸上的一刻，字就不再是字，而是时间本身。</p>
+              <p>纸的来历说来话长，详见 <a class="wikilink" data-wikilink="纸的历史" href="#" title="[[纸的历史]]">纸的历史</a>；墨的故事也不短，<a class="wikilink" data-wikilink="墨的制作" href="#" title="[[墨的制作]]">墨的制作</a> 一篇里记过松烟与油烟的分野。至于那方端砚的出处，说是从 <a class="wikilink wikilink--missing" data-wikilink="未名斋札记" href="#" title="[[未名斋札记]] · 库中未找到">未名斋札记</a> 里读来的掌故。</p>
+              <p>磨墨是件磨性子的事。墨锭在砚面上走圈，手要稳，心要静，快了出沫，慢了发滞。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ul class="spec-list">
+    <li>紧凑题跋条 280px：笔记题 + 首段摘两三行（<code>line-clamp: 3</code>）+ mono 10px 元信息「3 节 · 1,240 字 · 9月20日」。</li>
+    <li>信息量压到「认得出是哪篇」为止——要读全文请点进去，预览不替代阅读。</li>
+    <li>未解析链接同样不出卡。</li>
+  </ul>
+
+  <div class="mk-variant">方案 B3 · 按住 Ctrl 预读</div>
+  <div class="mk-tag">CTRL+HOVER · 480×360 · 内滚动</div>
+  <p class="doc-sub"><label class="mk-ctrlsim"><input type="checkbox" id="mk-ctrl-sim"> 模拟按住 Ctrl（演示用：勾选后普通悬停即出大预览）</label></p>
+  <div class="frame mk-frame" id="frame-b3">
+    <div class="m-topbar"><div class="m-topbar__group">
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="15" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="12" y2="18"/><circle cx="19" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="18" r="1" fill="currentColor" stroke="none"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M8 14h5" opacity="0.5"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6" opacity="0.35"/><path d="M12 11v7"/><path d="M9 15l3 3 3-3"/></svg></span>
+      <span class="m-divider"></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1.82.33l.06.06a2 2 0 1 1-2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0-1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1 1.65 1.65 0 0 0-.33 1.82l-.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33L19.4 15z"/></svg></span>
+    </div><div></div><div class="m-topbar__group">
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="15" x2="18" y2="15"/><path d="M9 9h6" opacity="0.35"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M5 9h14" opacity="0.35"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6.5" y1="6.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="6.5" x2="6.5" y2="17.5"/></svg></span>
+    </div></div>
+    <div class="mk-shell">
+      <div class="mk-scroll mk-scroll--b3">
+        <div class="document-scroll__content">
+          <div class="document-content">
+            <h1 class="document-title" title="D:/wisdom/随笔/纸与墨.md">纸与墨</h1>
+            <div class="markdown-body">
+              <p>「纸寿千年，墨韵万年。」写字的人总有一种执念：笔墨落到纸上的一刻，字就不再是字，而是时间本身。</p>
+              <p>纸的来历说来话长，详见 <a class="wikilink" data-wikilink="纸的历史" href="#" title="[[纸的历史]]">纸的历史</a>；墨的故事也不短，<a class="wikilink" data-wikilink="墨的制作" href="#" title="[[墨的制作]]">墨的制作</a> 一篇里记过松烟与油烟的分野。至于那方端砚的出处，说是从 <a class="wikilink wikilink--missing" data-wikilink="未名斋札记" href="#" title="[[未名斋札记]] · 库中未找到">未名斋札记</a> 里读来的掌故。</p>
+              <p>磨墨是件磨性子的事。墨锭在砚面上走圈，手要稳，心要静，快了出沫，慢了发滞。小时候我总嫌这功夫白费，直到自己提笔，才知道墨色浓淡、行笔缓急，全都藏在那半盏墨里。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ul class="spec-list">
+    <li>普通悬停<strong>不弹任何东西</strong>（只有原生的链接悬停态）；<strong>按住 Ctrl</strong> 悬停才出 480×360 大预览。</li>
+    <li>预览自带内滚动，显示整篇笔记（题、节、列表俱全）；页脚 mono 10px 提示「单击打开 · ALT+← 返回」。</li>
+    <li>未解析链接不出卡。预览里 Ctrl 一松即收。</li>
+  </ul>
+
+  <!-- ================================================== C · 专注模式 -->
+  <h2 class="doc-h2">C · 专注模式（F11）</h2>
+  <p class="doc-sub">每个框架右下都有「进入专注」开关；指针悬在框架上时按 <kbd style="font:500 9px/1 var(--mono);padding:2px 4px;border:1px solid var(--border);border-radius:3px;">F11</kbd> 或 <kbd style="font:500 9px/1 var(--mono);padding:2px 4px;border:1px solid var(--border);border-radius:3px;">Esc</kbd> 同样进出（F11 已在本页吞掉系统行为）</p>
+
+  <div class="mk-variant">方案 C1 · 纯纸</div>
+  <div class="mk-tag">HIDE CHROME · 顶缘 8px 召回顶栏</div>
+  <div class="frame mk-cframe" id="frame-c1">
+    <div class="m-topbar mk-c-topbar"><div class="m-topbar__group">
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="15" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="12" y2="18"/><circle cx="19" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="18" r="1" fill="currentColor" stroke="none"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M8 14h5" opacity="0.5"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6" opacity="0.35"/><path d="M12 11v7"/><path d="M9 15l3 3 3-3"/></svg></span>
+      <span class="m-divider"></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1.82.33l.06.06a2 2 0 1 1-2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0-1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1 1.65 1.65 0 0 0-.33 1.82l-.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33L19.4 15z"/></svg></span>
+    </div><div></div><div class="m-topbar__group">
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="15" x2="18" y2="15"/><path d="M9 9h6" opacity="0.35"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M5 9h14" opacity="0.35"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6.5" y1="6.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="6.5" x2="6.5" y2="17.5"/></svg></span>
+    </div></div>
+    <div class="mk-c-body">
+      <aside class="mk-sidebar">
+        <nav class="outline-panel" aria-label="文档大纲">
+          <div class="outline-panel__header">目錄</div>
+          <div class="outline-panel__scroll">
+            <ul class="outline-panel__list">
+              <li class="outline-panel__item"><button type="button" class="outline-panel__link outline-panel__link--l1 outline-panel__link--active"><span class="outline-panel__num">一、</span>纸与墨</button>
+                <ul class="outline-panel__list">
+                  <li class="outline-panel__item"><button type="button" class="outline-panel__link outline-panel__link--l2">纸</button></li>
+                  <li class="outline-panel__item"><button type="button" class="outline-panel__link outline-panel__link--l2">墨</button></li>
+                  <li class="outline-panel__item"><button type="button" class="outline-panel__link outline-panel__link--l2">余论</button></li>
+                </ul>
+              </li>
+            </ul>
+          </div>
+        </nav>
+      </aside>
+      <div class="mk-scroll">
+        <div class="document-scroll__content">
+          <div class="document-content">
+            <h1 class="document-title" title="D:/wisdom/随笔/纸与墨.md">纸与墨</h1>
+            <div class="markdown-body">
+              <p>「纸寿千年，墨韵万年。」写字的人总有一种执念：笔墨落到纸上的一刻，字就不再是字，而是时间本身。我最初摸到这种执念，是在外祖父的书桌上——一张毛边纸，一方旧端砚，墨是前一天夜里磨好的，沉在砚池里，像一小片夜。</p>
+              <p>纸的来历说来话长：蔡伦以前，字写在竹帛上，帛贵而竹重，都不随身。等楮皮、竹料入槽成纸，书才轻得能进书箱、下江南。纸是文字的舟楫。</p>
+              <h2>纸</h2>
+              <p>好纸有筋骨。毛边松、宣纸韧、连史细，写字的人凭指尖就能分出高下。纸吸墨的那一口气若不对，笔锋里藏的力就泄了——太熟则滑，太生则洇。</p>
+              <p>纸色也不求白。微微泛黄的竹纸衬墨色最稳，白得晃眼的洋纸反而压不住笔。所谓「纸墨相发」，发的就是这点温润。</p>
+              <h2>墨</h2>
+              <p>墨分松烟与油烟。松烟乌而冷，油烟亮而润；前者宜抄经，后者宜作画。一锭好墨磨出来，黑里透着紫光，古人叫「墨有宝色」。</p>
+              <p>磨墨是件磨性子的事。墨锭在砚面上走圈，手要稳，心要静，快了出沫，慢了发滞。小时候我总嫌这功夫白费，直到自己提笔，才知道墨色浓淡、行笔缓急，全都藏在那半盏墨里。</p>
+              <h2>余论</h2>
+              <p>纸与墨相遇，才算落笔成书。古人说「运墨而五色具」，焦浓重淡清，一锭墨里分出五等神采——这不是夸张，是纸纤维把墨里的碳粒一丝一丝咬住的结果。</p>
+              <p>今人敲键盘，字从屏幕里长出来，不必等墨干。可每当我铺开一张毛边纸，仍能感到那种古老的郑重：写下的每一笔，都打算留下来。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="mk-peekzone"></div>
+    <div class="mk-hint">F11 · ESC 退出</div>
+    <button type="button" class="button button-ghost mk-focusbtn">进入专注</button>
+  </div>
+  <ul class="spec-list">
+    <li>进入专注：顶栏上滑 200ms 隐去、侧栏左收，正文原地居中——<strong>内容不位移</strong>。</li>
+    <li>指针进入框架顶缘 <strong>8px</strong> 感应条，顶栏滑回暂驻；移开即收回。</li>
+    <li>进入时底部居中浮出 mono 10px 提示「F11 · ESC 退出」，2s 后自隐。</li>
+  </ul>
+
+  <div class="mk-variant">方案 C2 · 留一线</div>
+  <div class="mk-tag">HIDE CHROME · 2px 进度线留在顶缘</div>
+  <div class="frame mk-cframe" id="frame-c2">
+    <div class="m-topbar mk-c-topbar"><div class="m-topbar__group">
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="15" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="12" y2="18"/><circle cx="19" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="18" r="1" fill="currentColor" stroke="none"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M8 14h5" opacity="0.5"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6" opacity="0.35"/><path d="M12 11v7"/><path d="M9 15l3 3 3-3"/></svg></span>
+      <span class="m-divider"></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1.82.33l.06.06a2 2 0 1 1-2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0-1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1 1.65 1.65 0 0 0-.33 1.82l-.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33L19.4 15z"/></svg></span>
+    </div><div></div><div class="m-topbar__group">
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="15" x2="18" y2="15"/><path d="M9 9h6" opacity="0.35"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M5 9h14" opacity="0.35"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6.5" y1="6.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="6.5" x2="6.5" y2="17.5"/></svg></span>
+    </div></div>
+    <div class="mk-c-body">
+      <aside class="mk-sidebar">
+        <nav class="outline-panel" aria-label="文档大纲">
+          <div class="outline-panel__header">目錄</div>
+          <div class="outline-panel__scroll">
+            <ul class="outline-panel__list">
+              <li class="outline-panel__item"><button type="button" class="outline-panel__link outline-panel__link--l1 outline-panel__link--active"><span class="outline-panel__num">一、</span>纸与墨</button>
+                <ul class="outline-panel__list">
+                  <li class="outline-panel__item"><button type="button" class="outline-panel__link outline-panel__link--l2">纸</button></li>
+                  <li class="outline-panel__item"><button type="button" class="outline-panel__link outline-panel__link--l2">墨</button></li>
+                  <li class="outline-panel__item"><button type="button" class="outline-panel__link outline-panel__link--l2">余论</button></li>
+                </ul>
+              </li>
+            </ul>
+          </div>
+        </nav>
+      </aside>
+      <div class="mk-scroll">
+        <div class="document-scroll__content">
+          <div class="document-content">
+            <h1 class="document-title" title="D:/wisdom/随笔/纸与墨.md">纸与墨</h1>
+            <div class="markdown-body">
+              <p>「纸寿千年，墨韵万年。」写字的人总有一种执念：笔墨落到纸上的一刻，字就不再是字，而是时间本身。我最初摸到这种执念，是在外祖父的书桌上——一张毛边纸，一方旧端砚。</p>
+              <p>纸的来历说来话长：蔡伦以前，字写在竹帛上，帛贵而竹重，都不随身。等楮皮、竹料入槽成纸，书才轻得能进书箱、下江南。纸是文字的舟楫。</p>
+              <h2>纸</h2>
+              <p>好纸有筋骨。毛边松、宣纸韧、连史细，写字的人凭指尖就能分出高下。纸吸墨的那一口气若不对，笔锋里藏的力就泄了——太熟则滑，太生则洇。</p>
+              <p>纸色也不求白。微微泛黄的竹纸衬墨色最稳，白得晃眼的洋纸反而压不住笔。所谓「纸墨相发」，发的就是这点温润。</p>
+              <h2>墨</h2>
+              <p>墨分松烟与油烟。松烟乌而冷，油烟亮而润；前者宜抄经，后者宜作画。一锭好墨磨出来，黑里透着紫光，古人叫「墨有宝色」。</p>
+              <p>磨墨是件磨性子的事。墨锭在砚面上走圈，手要稳，心要静，快了出沫，慢了发滞。小时候我总嫌这功夫白费，直到自己提笔，才知道墨色浓淡、行笔缓急，全都藏在那半盏墨里。</p>
+              <h2>余论</h2>
+              <p>纸与墨相遇，才算落笔成书。古人说「运墨而五色具」，焦浓重淡清，一锭墨里分出五等神采。</p>
+              <p>今人敲键盘，字从屏幕里长出来，不必等墨干。可每当我铺开一张毛边纸，仍能感到那种古老的郑重：写下的每一笔，都打算留下来。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="mk-peekzone"></div>
+    <div class="mk-progress"><i></i></div>
+    <div class="mk-hint">F11 · ESC 退出</div>
+    <button type="button" class="button button-ghost mk-focusbtn">进入专注</button>
+  </div>
+  <ul class="spec-list">
+    <li>同 C1 隐去顶栏与侧栏，但顶缘留一条 <strong>2px 进度线</strong>：靛青在发丝轨上走，宽度 = 已读比例。</li>
+    <li>悬停顶缘感应条，整条顶栏照常滑回（含进度线上方的原班按钮）。</li>
+    <li>进度线是唯一留下的「界面」——弱到几乎不算界面，却在翻长文时给一点坐标感。</li>
+  </ul>
+
+  <div class="mk-variant">方案 C3 · 聚光段落</div>
+  <div class="mk-tag">HIDE CHROME · 居中块全墨 / 余块 0.35</div>
+  <div class="frame mk-cframe" id="frame-c3">
+    <div class="m-topbar mk-c-topbar"><div class="m-topbar__group">
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="15" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="12" y2="18"/><circle cx="19" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="18" r="1" fill="currentColor" stroke="none"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M8 14h5" opacity="0.5"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6" opacity="0.35"/><path d="M12 11v7"/><path d="M9 15l3 3 3-3"/></svg></span>
+      <span class="m-divider"></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1.82.33l.06.06a2 2 0 1 1-2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0-1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1 1.65 1.65 0 0 0-.33 1.82l-.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33L19.4 15z"/></svg></span>
+    </div><div></div><div class="m-topbar__group">
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="15" x2="18" y2="15"/><path d="M9 9h6" opacity="0.35"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M5 9h14" opacity="0.35"/></svg></span>
+      <span class="m-iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6.5" y1="6.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="6.5" x2="6.5" y2="17.5"/></svg></span>
+    </div></div>
+    <div class="mk-c-body">
+      <aside class="mk-sidebar">
+        <nav class="outline-panel" aria-label="文档大纲">
+          <div class="outline-panel__header">目錄</div>
+          <div class="outline-panel__scroll">
+            <ul class="outline-panel__list">
+              <li class="outline-panel__item"><button type="button" class="outline-panel__link outline-panel__link--l1 outline-panel__link--active"><span class="outline-panel__num">一、</span>纸与墨</button>
+                <ul class="outline-panel__list">
+                  <li class="outline-panel__item"><button type="button" class="outline-panel__link outline-panel__link--l2">纸</button></li>
+                  <li class="outline-panel__item"><button type="button" class="outline-panel__link outline-panel__link--l2">墨</button></li>
+                  <li class="outline-panel__item"><button type="button" class="outline-panel__link outline-panel__link--l2">余论</button></li>
+                </ul>
+              </li>
+            </ul>
+          </div>
+        </nav>
+      </aside>
+      <div class="mk-scroll">
+        <div class="document-scroll__content">
+          <div class="document-content">
+            <h1 class="document-title" title="D:/wisdom/随笔/纸与墨.md">纸与墨</h1>
+            <div class="markdown-body">
+              <p>「纸寿千年，墨韵万年。」写字的人总有一种执念：笔墨落到纸上的一刻，字就不再是字，而是时间本身。我最初摸到这种执念，是在外祖父的书桌上——一张毛边纸，一方旧端砚。</p>
+              <p>纸的来历说来话长：蔡伦以前，字写在竹帛上，帛贵而竹重，都不随身。等楮皮、竹料入槽成纸，书才轻得能进书箱、下江南。纸是文字的舟楫。</p>
+              <h2>纸</h2>
+              <p>好纸有筋骨。毛边松、宣纸韧、连史细，写字的人凭指尖就能分出高下。纸吸墨的那一口气若不对，笔锋里藏的力就泄了——太熟则滑，太生则洇。</p>
+              <p>纸色也不求白。微微泛黄的竹纸衬墨色最稳，白得晃眼的洋纸反而压不住笔。所谓「纸墨相发」，发的就是这点温润。</p>
+              <h2>墨</h2>
+              <p>墨分松烟与油烟。松烟乌而冷，油烟亮而润；前者宜抄经，后者宜作画。一锭好墨磨出来，黑里透着紫光，古人叫「墨有宝色」。</p>
+              <p>磨墨是件磨性子的事。墨锭在砚面上走圈，手要稳，心要静，快了出沫，慢了发滞。小时候我总嫌这功夫白费，直到自己提笔，才知道墨色浓淡、行笔缓急，全都藏在那半盏墨里。</p>
+              <h2>余论</h2>
+              <p>纸与墨相遇，才算落笔成书。古人说「运墨而五色具」，焦浓重淡清，一锭墨里分出五等神采。</p>
+              <p>今人敲键盘，字从屏幕里长出来，不必等墨干。可每当我铺开一张毛边纸，仍能感到那种古老的郑重：写下的每一笔，都打算留下来。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="mk-peekzone"></div>
+    <div class="mk-hint">F11 · ESC 退出</div>
+    <button type="button" class="button button-ghost mk-focusbtn">进入专注</button>
+  </div>
+  <ul class="spec-list">
+    <li>C1 之上再加<strong>段落聚光</strong>：离滚动区纵向中心最近的那个块保持全墨，其余块淡到 0.35（200ms 过渡）。</li>
+    <li>随滚动实时换位——读到哪里，哪一段就是灯下墨。标题也算一个块。</li>
+    <li>退出专注即恢复原貌，不留残影。</li>
+  </ul>
+
+  <div class="doc-foot">
+    本页为候选择稿：每组三案只择其一。框架内全部类名与样式取自 <code>src/styles/kami.css</code>（正文用真实 <code>.markdown-body</code> / <code>.document-title</code> / <code>.wikilink</code> / footnotes markup；顶栏与侧栏因真件是 fixed 布局，用 <code>.m-topbar</code> / <code>.mk-sidebar</code> 复刻、图标逐字搬自 <code>TopBar.tsx</code>）。新增样式一律 <code>.mk-</code> 前缀，不回流源码。
+  </div>
+</div>
+
+<!-- wikilink 预览用的假笔记数据（B1/B2/B3 共用；B2 的元信息行另记） -->
+<div id="mk-notes" hidden>
+  <div data-note="纸的历史" data-path="D:/wisdom/读书/纸的历史.md" data-meta="3 节 · 1,240 字 · 9月20日">
+    <p>纸的出现比想象中晚。西汉已有絮纸、灞桥纸的实物，但直到东汉蔡伦「用树肤、麻头及敝布、鱼网以为纸」，纸才真正成为书写材料——便宜、轻、可卷，竹简与缣帛自此渐渐退出案头。</p>
+    <p>魏晋以后，纸的品种日繁：左伯纸匀细，剡藤纸滑，澄心堂纸「滑如春冰密如茧」，为南唐文房之冠。每一种纸的背后，都是一套就地取材的工艺。</p>
+    <h2>从抄本到刻本</h2>
+    <p>纸让抄书成为可能，而雕版让复制成为工业。唐末五代，刻本渐兴；到宋代，印本书取代写本，知识的流通从此换了速度。</p>
+    <ul>
+      <li>麻纸：唐以前最普遍，色黄而韧</li>
+      <li>皮纸：楮皮、桑皮所造，绵软耐折</li>
+      <li>竹纸：宋以后起于江南，价廉量大</li>
+    </ul>
+    <p>纸寿千年，并非虚言。敦煌遗书埋于洞窟近千年，展开时纸色如新——这是纸给自己的最好注脚。</p>
+  </div>
+  <div data-note="墨的制作" data-path="D:/wisdom/读书/墨的制作.md" data-meta="2 节 · 860 字 · 9月14日">
+    <p>墨的原料说来简单：烟炱与胶。松木不完全燃烧得松烟，桐油、麻油燃之得油烟——烟是墨的骨，胶是墨的肉，还有一点麝香、冰片，是墨的香。</p>
+    <p>和烟、杵捣、入模、阴干，一锭墨要经数万次捶打才紧实发亮。所谓「十万杵」，不是虚数，是耐烦。</p>
+    <h2>松烟与油烟</h2>
+    <p>松烟墨乌而冷，宜书；油烟墨亮而润，宜画。宋人尚松烟，明清以后油烟渐盛——好墨的评价标准，从来都是「落纸如漆，万载存真」。</p>
+  </div>
+</div>
+
+<script>
+/* ===== 通用浮卡（A1 浮笺 / A2 窄框架退化 / B1 笺页卡 / B2 题跋条 / B3 大预览共用） ===== */
+/* 卡片绝对定位在各自的 .mk-scroll 内，随正文一起滚动（锚在上标/链接上） */
+function qs(s, r) { return (r || document).querySelector(s); }
+function qsa(s, r) { return Array.from((r || document).querySelectorAll(s)); }
+
+function measure(el) {
+  el.style.display = "block";
+  el.style.visibility = "hidden";
+  var w = el.offsetWidth, h = el.offsetHeight;
+  el.style.display = "";
+  el.style.visibility = "";
+  return { w: w, h: h };
+}
+
+/* 卡片贴锚点：先走偏好的那一侧（脚注上浮笺向上、wikilink 向下），
+   该侧放不下且另一侧放得下就翻面；两侧都不够时住宽裕一侧并把卡片
+   夹回滚动视口内（宁可压住锚点也不被框架裁掉）；左右同样夹取。 */
+function positionCard(card, anchor, scroll, preferBelow) {
+  var size = measure(card);
+  var s = scroll.getBoundingClientRect();
+  var a = anchor.getBoundingClientRect();
+  var left = a.left - s.left + scroll.scrollLeft + a.width / 2 - size.w / 2;
+  left = Math.max(scroll.scrollLeft + 8, Math.min(left, scroll.scrollLeft + s.width - size.w - 8));
+  var aboveRoom = a.top - s.top - 8;       /* 视口内锚点上方的可用高度 */
+  var belowRoom = s.bottom - a.bottom - 8; /* 视口内锚点下方的可用高度 */
+  var below = preferBelow ? (belowRoom >= size.h || belowRoom >= aboveRoom)
+                          : !(aboveRoom >= size.h || aboveRoom >= belowRoom);
+  var top = below ? a.bottom - s.top + scroll.scrollTop + 8
+                  : a.top - s.top + scroll.scrollTop - size.h - 8;
+  var minTop = scroll.scrollTop + 8;
+  var maxTop = scroll.scrollTop + s.height - size.h - 8;
+  if (top > maxTop) top = Math.max(minTop, maxTop);
+  if (top < minTop) top = minTop;
+  card.style.left = left + "px";
+  card.style.top = top + "px";
+  card.classList.toggle("is-below", below);
+}
+
+/* hover 延迟进入、宽限退出；卡片自身可悬停（指针移进去不收） */
+function bindHoverCard(anchor, card, scroll, delay, grace, preferBelow) {
+  var showT = null, hideT = null;
+  function arm() {
+    clearTimeout(hideT);
+    showT = setTimeout(function () {
+      positionCard(card, anchor, scroll, preferBelow);
+      card.classList.add("is-on");
+    }, delay);
+  }
+  function disarm() {
+    clearTimeout(showT);
+    hideT = setTimeout(function () { card.classList.remove("is-on"); }, grace);
+  }
+  anchor.addEventListener("mouseenter", arm);
+  anchor.addEventListener("mouseleave", disarm);
+  card.addEventListener("mouseenter", function () { clearTimeout(hideT); clearTimeout(showT); });
+  card.addEventListener("mouseleave", disarm);
+}
+
+/* 脚注卡内容：抄同框架里对应 li 的正文（去掉回链 ↩） */
+function fnCardFor(frame, fn) {
+  var li = qs("li[id$='fn-" + fn + "'], li#fn-a2n-" + fn, frame);
+  var card = document.createElement("div");
+  card.className = "mk-card mk-fncard";
+  var body = li ? li.querySelector("p").cloneNode(true) : document.createElement("p");
+  qsa("[data-footnote-backref]", body).forEach(function (b) { b.remove(); });
+  card.innerHTML = '<div class="mk-fncard__tag">注 ' + fn + '</div>';
+  card.appendChild(body);
+  return card;
+}
+
+/* A1 + A2 窄框架：悬停上标出浮笺（200ms / 150ms 宽限） */
+["frame-a1", "frame-a2-narrow"].forEach(function (id) {
+  var frame = document.getElementById(id);
+  var scroll = qs(".mk-scroll", frame);
+  qsa("a[data-footnote-ref]", frame).forEach(function (ref) {
+    var card = fnCardFor(frame, ref.dataset.fn);
+    scroll.appendChild(card);
+    bindHoverCard(ref, card, scroll, 200, 150);
+  });
+});
+
+/* A3：点击上标就地展开/收起段落后那条素带 */
+qsa("#frame-a3 a[data-footnote-ref]").forEach(function (ref) {
+  ref.addEventListener("click", function (e) {
+    e.preventDefault();
+    var p = ref.closest("p");
+    var strip = p && p.nextElementSibling && p.nextElementSibling.matches("[data-strip]") ? p.nextElementSibling : null;
+    if (strip) strip.classList.toggle("is-open");
+  });
+});
+qsa("#frame-a3 .mk-strip__x").forEach(function (x) {
+  x.addEventListener("click", function () { x.closest("[data-strip]").classList.remove("is-open"); });
+});
+
+/* ===== B · wikilink 预览 ===== */
+var notes = {};
+qsa("#mk-notes [data-note]").forEach(function (n) {
+  notes[n.dataset.note] = { title: n.dataset.note, path: n.dataset.path, meta: n.dataset.meta, html: n.innerHTML };
+});
+/* 点击设计稿里的链接不真的跳走 */
+document.addEventListener("click", function (e) {
+  var a = e.target.closest("a.wikilink, .markdown-body a[href^='#'], .mk-card a, .mk-strip a");
+  if (a) e.preventDefault();
+});
+
+function wlCardB1(name) {
+  var n = notes[name]; if (!n) return null;
+  var card = document.createElement("div");
+  card.className = "mk-card mk-wlcard";
+  card.innerHTML =
+    '<div class="mk-wlcard__title">' + n.title + '</div>' +
+    '<div class="mk-wlcard__path">' + n.path + '</div>' +
+    '<div class="mk-wlcard__body">' + n.html + '</div>' +
+    '<div class="mk-wlcard__fade"></div>';
+  return card;
+}
+function wlCardB2(name) {
+  var n = notes[name]; if (!n) return null;
+  var tmp = document.createElement("div");
+  tmp.innerHTML = n.html;
+  var firstP = tmp.querySelector("p");
+  var card = document.createElement("div");
+  card.className = "mk-card mk-excerpt";
+  card.innerHTML =
+    '<div class="mk-excerpt__title">' + n.title + '</div>' +
+    '<p class="mk-excerpt__text">' + (firstP ? firstP.textContent : "") + '</p>' +
+    '<div class="mk-excerpt__meta">' + n.meta + '</div>';
+  return card;
+}
+function wlPeekB3(name) {
+  var n = notes[name]; if (!n) return null;
+  var card = document.createElement("div");
+  card.className = "mk-card mk-bigpeek";
+  card.innerHTML =
+    '<div class="mk-bigpeek__scroll"><div class="markdown-body"><h1>' + n.title + '</h1>' + n.html + '</div></div>' +
+    '<div class="mk-bigpeek__foot">单击打开 · ALT+← 返回</div>';
+  return card;
+}
+
+/* B1 / B2：普通悬停出卡（350ms / 150ms 宽限） */
+[["frame-b1", wlCardB1], ["frame-b2", wlCardB2]].forEach(function (pair) {
+  var frame = document.getElementById(pair[0]);
+  var scroll = qs(".mk-scroll", frame);
+  qsa("a.wikilink:not(.wikilink--missing)", frame).forEach(function (link) {
+    var card = pair[1](link.dataset.wikilink);
+    if (!card) return;
+    scroll.appendChild(card);
+    bindHoverCard(link, card, scroll, 350, 150, true);
+  });
+});
+
+/* B3：普通悬停无卡；按住 Ctrl（或勾选演示开关）悬停出 480×360 预读 */
+var ctrlHeld = false;
+var ctrlSim = document.getElementById("mk-ctrl-sim");
+function wantPeek() { return ctrlHeld || (ctrlSim && ctrlSim.checked); }
+
+(function () {
+  var frame = document.getElementById("frame-b3");
+  var scroll = qs(".mk-scroll", frame);
+  var hovered = null;
+  qsa("a.wikilink:not(.wikilink--missing)", frame).forEach(function (link) {
+    var peek = wlPeekB3(link.dataset.wikilink);
+    if (!peek) return;
+    scroll.appendChild(peek);
+    var hideT = null;
+    function show() {
+      clearTimeout(hideT);
+      positionCard(peek, link, scroll, true);
+      peek.classList.add("is-on");
+    }
+    function hide() {
+      hideT = setTimeout(function () { peek.classList.remove("is-on"); }, 150);
+    }
+    link.addEventListener("mouseenter", function () { hovered = { link: link, peek: peek, show: show }; if (wantPeek()) show(); });
+    link.addEventListener("mouseleave", function () { hovered = null; hide(); });
+    peek.addEventListener("mouseenter", function () { clearTimeout(hideT); });
+    peek.addEventListener("mouseleave", function () { if (!wantPeek()) hide(); });
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Control") {
+      ctrlHeld = true;
+      if (hovered) hovered.show();
+    }
+  });
+  document.addEventListener("keyup", function (e) {
+    if (e.key === "Control") {
+      ctrlHeld = false;
+      qsa(".mk-bigpeek.is-on", frame).forEach(function (p) { p.classList.remove("is-on"); });
+    }
+  });
+  if (ctrlSim) {
+    ctrlSim.addEventListener("change", function () {
+      if (!ctrlSim.checked) qsa(".mk-bigpeek.is-on", frame).forEach(function (p) { p.classList.remove("is-on"); });
+      else if (hovered) hovered.show();
+    });
+  }
+})();
+
+/* ===== C · 专注模式 ===== */
+var hotFrame = null;
+qsa(".mk-cframe").forEach(function (frame) {
+  var topbar = qs(".mk-c-topbar", frame);
+  var peekzone = qs(".mk-peekzone", frame);
+  var hint = qs(".mk-hint", frame);
+  var btn = qs(".mk-focusbtn", frame);
+  var scroll = qs(".mk-scroll", frame);
+  var progress = qs(".mk-progress i", frame);
+  var hintT = null;
+
+  frame.addEventListener("mouseenter", function () { hotFrame = frame; });
+  frame.addEventListener("mouseleave", function () { if (hotFrame === frame) hotFrame = null; });
+
+  function updateProgress() {
+    if (!progress) return;
+    var max = scroll.scrollHeight - scroll.clientHeight;
+    progress.style.width = (max > 0 ? (scroll.scrollTop / max) * 100 : 0) + "%";
+  }
+  /* C3 聚光：离滚动区纵向中心最近的块保持全墨 */
+  function updateSpotlight() {
+    if (frame.id !== "frame-c3") return;
+    if (!frame.classList.contains("is-focus")) return;
+    var blocks = qsa(".document-title, .markdown-body > *", scroll);
+    var mid = scroll.getBoundingClientRect().top + scroll.clientHeight / 2;
+    var best = null, bestD = Infinity;
+    blocks.forEach(function (b) {
+      var r = b.getBoundingClientRect();
+      var d = Math.abs(r.top + r.height / 2 - mid);
+      if (d < bestD) { bestD = d; best = b; }
+    });
+    blocks.forEach(function (b) { b.classList.toggle("is-centre", b === best); });
+  }
+  scroll.addEventListener("scroll", function () { updateProgress(); updateSpotlight(); });
+
+  function enterFocus() {
+    frame.classList.add("is-focus");
+    btn.textContent = "退出专注";
+    clearTimeout(hintT);
+    hint.classList.add("is-show");
+    hintT = setTimeout(function () { if (!hint.dataset.pin) hint.classList.remove("is-show"); }, 2000);
+    updateProgress();
+    updateSpotlight();
+  }
+  function exitFocus() {
+    frame.classList.remove("is-focus", "is-peek");
+    btn.textContent = "进入专注";
+    qsa(".is-centre", frame).forEach(function (b) { b.classList.remove("is-centre"); });
+  }
+  frame._mkToggle = function () { frame.classList.contains("is-focus") ? exitFocus() : enterFocus(); };
+  frame._mkExit = exitFocus;
+
+  btn.addEventListener("click", frame._mkToggle);
+  /* 顶缘 8px 感应条 / 顶栏本身：进入则暂驻，离开则收回 */
+  peekzone.addEventListener("mouseenter", function () { frame.classList.add("is-peek"); });
+  topbar.addEventListener("mouseenter", function () { frame.classList.add("is-peek"); });
+  topbar.addEventListener("mouseleave", function () { frame.classList.remove("is-peek"); });
+  peekzone.addEventListener("mouseleave", function () { frame.classList.remove("is-peek"); });
+});
+
+document.addEventListener("keydown", function (e) {
+  if (e.key === "F11") {
+    e.preventDefault();
+    if (hotFrame) hotFrame._mkToggle();
+  } else if (e.key === "Escape" && hotFrame && hotFrame.classList.contains("is-focus")) {
+    e.preventDefault();
+    hotFrame._mkExit();
+  }
+});
+
+/* ===== 演示态：?demo=a1 | a3 | b1 | b2 | b3 | c1 | c2 | c3（截图与评审用，见页首说明） =====
+   ?only=<frameId> 只留该框架（连同其方案标签）到页首：无头截图从文档原点拍，
+   锚点滚动对 --screenshot 无效，隔离是逐案截图的正解。两个参数可叠加。 */
+(function () {
+  var params = new URLSearchParams(location.search);
+  var only = params.get("only");
+  if (only) {
+    var target = document.getElementById(only);
+    if (target) {
+      var doc = qs(".doc");
+      qsa(".doc > *").forEach(function (el) {
+        var keep = el === target || el.contains(target);
+        /* 顺带保留紧邻前置的方案标签（.mk-variant / .mk-tag） */
+        var sib = el;
+        while (!keep && (sib = sib.nextElementSibling)) {
+          if (sib === target || sib.contains(target)) { keep = el.classList.contains("mk-variant") || el.classList.contains("mk-tag") || el.classList.contains("doc-sub"); break; }
+          if (!sib.classList.contains("mk-variant") && !sib.classList.contains("mk-tag") && !sib.classList.contains("doc-sub")) break;
+        }
+        if (!keep) el.style.display = "none";
+      });
+      doc.style.paddingTop = "24px";
+    }
+  }
+  var demo = params.get("demo");
+  if (!demo) return;
+  if (demo === "a1") {
+    var f = document.getElementById("frame-a1");
+    var ref = qs("a[data-footnote-ref]", f);
+    var card = qs(".mk-fncard", qs(".mk-scroll", f));
+    positionCard(card, ref, qs(".mk-scroll", f));
+    card.classList.add("is-on");
+  } else if (demo === "b1" || demo === "b2") {
+    var f2 = document.getElementById("frame-" + demo);
+    var link = qs("a.wikilink:not(.wikilink--missing)", f2);
+    var card2 = qs(".mk-card", qs(".mk-scroll", f2));
+    positionCard(card2, link, qs(".mk-scroll", f2), true);
+    card2.classList.add("is-on");
+  } else if (demo === "b3") {
+    var f3 = document.getElementById("frame-b3");
+    var link3 = qs("a.wikilink:not(.wikilink--missing)", f3);
+    var card3 = qs(".mk-bigpeek", qs(".mk-scroll", f3));
+    positionCard(card3, link3, qs(".mk-scroll", f3), true);
+    card3.classList.add("is-on");
+  } else if (demo === "a3") {
+    qs("#frame-a3 [data-strip]").classList.add("is-open");
+  } else if (demo === "c1" || demo === "c2" || demo === "c3") {
+    var cf = document.getElementById("frame-" + demo);
+    cf._mkToggle();
+    /* 演示态把提示章钉住（截图看得见），进度线推到 ~40% */
+    var h = qs(".mk-hint", cf); h.dataset.pin = "1"; h.classList.add("is-show");
+    var sc = qs(".mk-scroll", cf);
+    sc.scrollTop = (sc.scrollHeight - sc.clientHeight) * 0.4;
+    sc.dispatchEvent(new Event("scroll"));
+  }
+})();
+</script>
+</body>
+</html>

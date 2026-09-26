@@ -21,13 +21,15 @@ export type GlobalShortcutDeps = {
   /// 不进 effect 依赖表——经 searchNavRef 每渲染刷新后由固定监听读取
   handleNextMatch: () => void;
   handlePrevMatch: () => void;
+  /// F11 专注模式（C2「留一线」）进出；状态机在 usePinnedLayoutActions 收口
+  toggleFocusMode: () => void;
 };
 
 /**
  * 全局快捷键（原 App.tsx 的 keydown effect）：⌘K / Ctrl+K（及 Ctrl+F）聚焦搜索框，
  * Ctrl+O 打开文件对话框，Ctrl+B 切换侧栏，Ctrl+E 切换编辑视图，Ctrl+S 提交当前块，
  * Ctrl+P 导出为 PDF，Ctrl+= / Ctrl+- 步进正文字号、Ctrl+0 复位默认字号，
- * F3 / Shift+F3 下一个/上一个搜索匹配，Alt+← / Alt+→ 历史后退/前进。
+ * F3 / Shift+F3 下一个/上一个搜索匹配，F11 进出专注模式，Alt+← / Alt+→ 历史后退/前进。
  * 依赖是侧栏开关与引用恒定的回调（空依赖 useCallback 或经 ref 读取），
  * 热重载与每次按键都不重新订阅。
  */
@@ -35,7 +37,7 @@ export function useGlobalShortcuts(rt: AppRuntime, deps: GlobalShortcutDeps): vo
   const { editorRef } = rt.doc;
   const { isSettingsOpenRef, isExportOpenRef } = rt.views;
   const { searchInputRef } = rt.dom;
-  const { isOutlineOpen, setOutlineOpenPinned, toggleOutlinePinned, handleNavBack, handleNavForward, toggleExport, handleOpen, stepReaderFontSize, handleNextMatch, handlePrevMatch } = deps;
+  const { isOutlineOpen, setOutlineOpenPinned, toggleOutlinePinned, handleNavBack, handleNavForward, toggleExport, handleOpen, stepReaderFontSize, handleNextMatch, handlePrevMatch, toggleFocusMode } = deps;
 
   // 搜索匹配导航回调随 matchCount 换代（useCallback 依赖了它）：固定监听经 ref
   // 读最新一份，不为每次匹配计数变化重挂 window 监听
@@ -71,6 +73,21 @@ export function useGlobalShortcuts(rt: AppRuntime, deps: GlobalShortcutDeps): vo
           if (event.shiftKey) searchNavRef.current.prev();
           else searchNavRef.current.next();
         }
+        return;
+      }
+
+      // F11 专注模式：同 Alt/F3 组一样不带修饰键，必须在 Ctrl/Cmd 早退之前。
+      // 无条件吞键——F11 在浏览器里是整页全屏加速键；导出视图打开时静默忽略
+      // （键仍吞掉，不把按键让渡出去——导出视图有自家的 Esc / Ctrl+P 退出）
+      if (
+        event.key === "F11" &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !event.shiftKey
+      ) {
+        event.preventDefault();
+        if (!isExportOpenRef.current) toggleFocusMode();
         return;
       }
 
@@ -153,5 +170,5 @@ export function useGlobalShortcuts(rt: AppRuntime, deps: GlobalShortcutDeps): vo
     }
     window.addEventListener("keydown", handleGlobalShortcut);
     return () => window.removeEventListener("keydown", handleGlobalShortcut);
-  }, [isOutlineOpen, setOutlineOpenPinned, toggleOutlinePinned, handleNavBack, handleNavForward, toggleExport, handleOpen, stepReaderFontSize, editorRef, isSettingsOpenRef, isExportOpenRef, searchInputRef]);
+  }, [isOutlineOpen, setOutlineOpenPinned, toggleOutlinePinned, handleNavBack, handleNavForward, toggleExport, handleOpen, stepReaderFontSize, toggleFocusMode, editorRef, isSettingsOpenRef, isExportOpenRef, searchInputRef]);
 }

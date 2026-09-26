@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -461,4 +462,63 @@ pub fn resolve_wikilink_map(
     }
 
     resolved
+}
+
+/// `read_note_preview` 的返回契约（严格 camelCase）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotePreview {
+    pub path: String,
+    pub file_name: String,
+    pub markdown: String,
+    pub truncated: bool,
+}
+
+/// 悬停预览单篇笔记的读取上限：64 KiB 足够填满预览卡（卡片只展示开头几屏）。
+const NOTE_PREVIEW_MAX_BYTES: u64 = 64 * 1024;
+
+/// 读一篇已解析 wikilink 笔记的开头部分供悬停预览。
+///
+/// 三道闸门：dunce 规范化后必须在 `allow` 白名单内（`resolve_wikilinks` 写进
+/// `AppState.preview_allow` 的 canonical 路径）、必须是 Markdown 扩展名、必须是普通文件。
+/// 读至多 64 KiB；截断点回退到最后一个合法 UTF-8 边界，避免半截多字节字符出乱码。
+/// `truncated` 告知前端「还有下文」。
+pub fn read_note_preview_file(
+    path: &Path,
+    allow: &std::collections::HashSet<PathBuf>,
+) -> Result<NotePreview, String> {
+    let canonical = dunce::canonicalize(path)
+        .map_err(|error| format!("Cannot open file: {error}"))?;
+    if !allow.contains(&canonical) {
+        return Err("note is not in the preview allowlist".to_string());
+    }
+    if !is_markdown_extension(&canonical) {
+        return Err("not a markdown file".to_string());
+    }
+    let metadata = std::fs::metadata(&canonical)
+        .map_err(|error| format!("Cannot stat file: {error}"))?;
+    if !metadata.is_file() {
+        return Err("not a file".to_string());
+    }
+    let file_len = metadata.len();
+    let file = std::fs::File::open(&canonical)
+        .map_err(|error| format!("Cannot open file: {error}"))?;
+    let mut bytes = Vec::new();
+    file.take(NOTE_PREVIEW_MAX_BYTES)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("Cannot read file: {error}"))?;
+    let bytes_read = bytes.len() as u64;
+    let markdown = match std::str::from_utf8(&bytes) {
+        Ok(text) => text.to_owned(),
+        Err(error) => String::from_utf8_lossy(&bytes[..error.valid_up_to()]).into_owned(),
+    };
+    Ok(NotePreview {
+        path: canonical.to_string_lossy().to_string(),
+        file_name: canonical
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default(),
+        markdown,
+        truncated: file_len > bytes_read,
+    })
 }

@@ -46,6 +46,8 @@ const windowMock = vi.hoisted(() => {
     /// 按序记录的 setTitle 参数：窗口标题由 App 在多个 getCurrentWindow() 实例上写入，
     /// 逐实例断言会漏（每次调用都新建实例），故集中记在一个桶里
     titles: [] as string[],
+    /// 按序记录的 setFullscreen 参数（专注模式进出）
+    fullscreen: [] as boolean[],
     /// 关窗请求被处理的次数（>1 即「close 重试」）
     replays: 0,
     /// 窗口真正被销毁的次数（未拦截的关窗各计一次）
@@ -94,6 +96,7 @@ const windowMock = vi.hoisted(() => {
       mock.closeHandlers.length = 0;
       mock.instances.length = 0;
       mock.titles.length = 0;
+      mock.fullscreen.length = 0;
       mock.replays = 0;
       mock.destroyed = 0;
       mock.recursion = false;
@@ -116,6 +119,10 @@ vi.mock("@tauri-apps/api/window", () => ({
       show: vi.fn(() => Promise.resolve()),
       setTitle: vi.fn((title: string) => {
         windowMock.titles.push(title);
+        return Promise.resolve();
+      }),
+      setFullscreen: vi.fn((on: boolean) => {
+        windowMock.fullscreen.push(on);
         return Promise.resolve();
       }),
       onCloseRequested: vi.fn((handler: CloseHandler) => {
@@ -2809,6 +2816,52 @@ test("F3 / Shift+F3 在搜索匹配间前进/回退（末项再前进绕回首�
   expect(counter()?.textContent).toBe("1/3");
   expect(fireEvent.keyDown(window, { key: "F3", shiftKey: true })).toBe(false);
   expect(counter()?.textContent).toBe("3/3");
+});
+
+test("F11 进出专注模式（C2 留一线）：隐顶栏收侧栏、调 setFullscreen，退出时还原侧栏", async () => {
+  await loadDocument();
+  const shell = () => document.querySelector(".app-shell");
+
+  // 侧栏开着进入专注：经真开合收掉（app-shell__body 的 --outline-open 类一并退场）
+  fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
+  expect(document.querySelector(".outline-sidebar--open")).toBeInTheDocument();
+
+  expect(fireEvent.keyDown(window, { key: "F11" })).toBe(false);
+  expect(shell()).toHaveClass("app-shell--focus");
+  expect(windowMock.fullscreen).toEqual([true]);
+  expect(document.querySelector(".outline-sidebar--open")).toBeNull();
+  // C2 的「一线」与进出提示章都在
+  expect(document.querySelector(".focus-progress")).toBeInTheDocument();
+  expect(document.querySelector(".focus-hint")).toBeInTheDocument();
+
+  // 退出：F11 再按 → setFullscreen(false) + 侧栏还原成进入前的开合态
+  fireEvent.keyDown(window, { key: "F11" });
+  await waitFor(() => expect(shell()).not.toHaveClass("app-shell--focus"));
+  expect(windowMock.fullscreen).toEqual([true, false]);
+  expect(document.querySelector(".outline-sidebar--open")).toBeInTheDocument();
+});
+
+test("专注态下 Esc 退出专注；落在搜索框上的 Esc 归输入控件不退出", async () => {
+  await loadDocument();
+
+  fireEvent.keyDown(window, { key: "F11" });
+  expect(document.querySelector(".app-shell--focus")).toBeInTheDocument();
+
+  // Esc 落在 input 上：归输入控件自身（如清空/失焦语义），不退出专注
+  fireEvent.keyDown(screen.getByLabelText("搜索文档内容"), { key: "Escape" });
+  expect(document.querySelector(".app-shell--focus")).toBeInTheDocument();
+
+  fireEvent.keyDown(window, { key: "Escape" });
+  await waitFor(() => expect(document.querySelector(".app-shell--focus")).toBeNull());
+});
+
+test("导出视图打开时 F11 只吞不切（导出视图有自家的 Esc / Ctrl+P 退出）", async () => {
+  await loadDocument();
+  fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+  await screen.findByText("A4 · 边距 20/22mm · 宣纸");
+
+  expect(fireEvent.keyDown(window, { key: "F11" })).toBe(false);
+  expect(document.querySelector(".app-shell--focus")).toBeNull();
 });
 
 test("全局 Ctrl+S 拦截 WebView 默认保存并在有活动块时提交", async () => {

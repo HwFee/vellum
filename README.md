@@ -46,6 +46,12 @@ Markdown files directly from File Explorer.
 - **本地图片与 GIF。** 相对路径按文档位置解析，GIF 保持动画。
 - **图片点击查看器。** 点击正文图片就地放大：宣纸底色近全屏遮罩上滚轮 1–5 倍缩放、
   拖拽平移、双击 1↔2 倍切换，<kbd>Esc</kbd> 或点背底收起（链接里的图与编辑视图不受影响）。
+- **脚注浮笺。** 悬停脚注上标 200ms 就地出小卡读注文，卡片可移入续读；滚动、点按或
+  <kbd>Esc</kbd> 即收。
+- **wikilink 笺页卡。** 悬停已解析的 `[[wikilink]]` 350ms 出预览卡——题目、路径与笔记开头，
+  点卡片即打开这篇；未解析的链接不出卡。
+- **专注模式「留一线」。** <kbd>F11</kbd> 进入：顶栏隐去、侧栏收回、窗口全屏，顶缘留
+  2px 靛青阅读进度线；指针探入顶缘暂驻顶栏，<kbd>F11</kbd> / <kbd>Esc</kbd> 退出。
 - **安全 raw HTML。** 放行常见排版标签后再净化。
 - **6px 自定义滚动条**，平时透明、滚动时淡入；距底超过 300px 时右下角浮现跳底按钮。
 
@@ -94,7 +100,7 @@ Markdown files directly from File Explorer.
 - **自动更新。** 启动时静默检查新版本（可在设置页关掉，也可手动「立即检查」），有更新先提示再下载安装；失败一律不打扰。
 - **离线优先。** 除启动时的一次版本更新检查外不联网；没有云、没有账号。打开的是磁盘上的那个文件，写回的也是它。
 - **真机验收。** 数学 / 搜索 / 编辑 / 滚动这类热路径都有 CDP 真机探针与回归测试
-  （52 个测试文件 / 1013 个用例）。
+  （54 个测试文件 / 1032 个用例）。
 
 ## Usage
 
@@ -106,7 +112,7 @@ Markdown files directly from File Explorer.
    <kbd>Ctrl</kbd>+<kbd>F</kbd> to search (<kbd>F3</kbd> / <kbd>Shift</kbd>+<kbd>F3</kbd> steps
    through matches), <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> to adjust the
    type size, <kbd>Ctrl</kbd>+<kbd>E</kbd> to edit in place, <kbd>Ctrl</kbd>+<kbd>B</kbd> to
-   toggle the outline.
+   toggle the outline, <kbd>F11</kbd> for focus mode.
 5. Follow a `[[wikilink]]`, then <kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>Alt</kbd>+<kbd>→</kbd> to step
    back and forward through the notes you visited.
 6. Click a task list checkbox in the reading view to write the change straight back to the file.

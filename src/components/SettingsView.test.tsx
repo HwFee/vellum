@@ -197,7 +197,7 @@ describe("SettingsView", () => {
     expect(onClearRecent).toHaveBeenCalledTimes(1);
   });
 
-  it("快捷键一览：九行只读陈列，kbd 复用大纲搜索框的样式类", async () => {
+  it("快捷键一览：十行只读陈列，kbd 复用大纲搜索框的样式类", async () => {
     await setup();
 
     const rows: Array<[string, string[]]> = [
@@ -210,6 +210,7 @@ describe("SettingsView", () => {
       ["字号 大·小·复位", ["CTRL", "+", "−", "0"]],
       ["下一处·上一处匹配", ["F3", "SHIFT F3"]],
       ["后退·前进", ["ALT", "←", "→"]],
+      ["专注模式", ["F11"]],
     ];
     for (const [label, keys] of rows) {
       const row = screen.getByText(label).closest(".settings-view__row")!;

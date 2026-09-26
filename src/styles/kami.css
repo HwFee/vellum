@@ -99,6 +99,8 @@ textarea {
   background: color-mix(in srgb, var(--parchment) 94%, var(--ivory));
   -webkit-app-region: drag;
   app-region: drag;
+  /* 专注模式进出的滑出/滑回由这条负责（.app-shell--focus 只给位移目标值） */
+  transition: transform 200ms ease;
 }
 
 /* 中列留白（2026-09-20 顶栏纯工具栏化）：路径退出顶栏（归宿是正文标题 tooltip 与
@@ -496,6 +498,8 @@ textarea {
   min-height: 0;
   padding-top: 46px;
   overflow: hidden;
+  /* 专注模式把顶距收为 0：46px 的进出用这条过渡 */
+  transition: padding-top 200ms ease;
 }
 
 .outline-sidebar {
@@ -2073,6 +2077,271 @@ mark.search-match--current {
   }
 }
 
+/* ===== 悬停预览（脚注浮笺 / wikilink 笺页卡） ===== */
+/* 卡片 position:fixed 挂在 App 层，z-index 970：侧栏（960）之上、图片查看器（1000）之下。
+   浮层语汇走「纸张分层」：ivory 底 + inset 发丝描边 + 上限投影（0 1px 3px 8%）；
+   出现动效 150ms 淡入 + 2px 上浮，翻面时方向反过来。 */
+.hover-preview {
+  position: fixed;
+  z-index: 970;
+  background: var(--ivory);
+  border-radius: 6px;
+  box-shadow:
+    inset 0 0 0 1px var(--hairline),
+    0 1px 3px rgba(20, 20, 19, 0.08);
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--dark-warm);
+  animation: hover-preview-in 150ms ease;
+}
+
+.hover-preview--below {
+  animation-name: hover-preview-in-down;
+}
+
+@keyframes hover-preview-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
+@keyframes hover-preview-in-down {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+.hover-preview__eyebrow {
+  margin-bottom: 4px;
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 0.04em;
+  color: var(--stone);
+}
+
+/* 浮笺正文克隆自脚注 li（不在 .markdown-body 内）：链接与行内代码沿用正文语汇 */
+.hover-preview__body p {
+  margin: 0;
+}
+
+.hover-preview__body a {
+  color: var(--brand);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--brand) 55%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.hover-preview__body code {
+  font: 400 11px/1.5 var(--mono);
+  background: var(--inline-code-bg);
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: var(--dark-warm);
+}
+
+/* A1 浮笺：脚注悬停卡（≤320px） */
+.hover-preview--footnote {
+  max-width: 320px;
+  padding: 10px 14px;
+}
+
+/* B1 笺页卡：wikilink 预览（360px / ≤240px，底缘 36px 渐隐进 ivory）；整卡可点开这篇 */
+.hover-preview--note {
+  width: 360px;
+  max-height: 240px;
+  overflow: hidden;
+  padding: 12px 16px;
+  cursor: pointer;
+}
+
+.hover-preview__title {
+  font: 500 15px/1.4 var(--serif);
+  color: var(--near-black);
+}
+
+.hover-preview__path {
+  margin: 3px 0 8px;
+  font: 400 10px/1.5 var(--mono);
+  color: var(--stone);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hover-preview__fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 36px;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--ivory) 0%, transparent),
+    var(--ivory)
+  );
+  pointer-events: none;
+}
+
+/* 笺页卡正文小字号化（12.5px）：标题降档压扁、列表/段落收紧，预览不抢正文视觉 */
+.note-preview__body {
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--olive);
+}
+
+.note-preview__body p {
+  margin: 0 0 6px;
+}
+
+.note-preview__body ul {
+  margin: 0 0 6px;
+  padding-left: 18px;
+}
+
+.note-preview__body ol {
+  margin: 0 0 6px;
+  padding-left: 18px;
+}
+
+.note-preview__body li {
+  margin: 0;
+}
+
+.note-preview__body h1 {
+  margin: 8px 0 4px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--dark-warm);
+}
+
+.note-preview__body h2 {
+  margin: 8px 0 4px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--dark-warm);
+}
+
+.note-preview__body h3 {
+  margin: 8px 0 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dark-warm);
+}
+
+.note-preview__body blockquote {
+  margin: 0 0 6px;
+  padding-left: 12px;
+  border-left: 2px solid var(--hairline);
+}
+
+.note-preview__body pre {
+  margin: 0 0 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--inline-code-bg);
+  overflow: hidden;
+}
+
+.note-preview__body code {
+  font: 400 11px/1.5 var(--mono);
+  background: var(--inline-code-bg);
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: var(--dark-warm);
+}
+
+.note-preview__body pre code {
+  padding: 0;
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hover-preview {
+    animation: none;
+  }
+}
+
+/* ===== 专注模式（F11 · C2「留一线」） ===== */
+/* 进出：顶栏上滑 200ms 隐去（transform 过渡在 .top-bar 基座上）、body 的 46px
+   顶距归零；正文列宽不变，故内容在原地居中。侧栏收放走的是真开合（不是这里的障眼法）。 */
+.app-shell--focus .top-bar {
+  transform: translateY(-100%);
+}
+
+.app-shell--focus .app-shell__body {
+  padding-top: 0;
+}
+
+/* 顶缘 8px 感应带暂驻：指针探入时顶栏滑回（peek） */
+.app-shell--focus-peek .top-bar {
+  transform: none;
+}
+
+/* 专注态下顶缘留的「一线」：2px 阅读进度，靛青在发丝轨上走；peek 时随顶栏滑回藏起 */
+.focus-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 1001;
+  background: var(--hairline);
+  pointer-events: none;
+}
+
+.focus-progress__fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--brand);
+}
+
+.app-shell--focus-peek .focus-progress {
+  visibility: hidden;
+}
+
+/* 进出提示章：与 .editor-toast 同一视觉语汇（tag-bg 实底 + mono 10px 墨色）。
+   出现靠状态挂载、消失由 hook 的定时器负责（2s 后置 exit 态淡出 200ms，再卸载）——
+   与 F31 同一约定：CSS 不做永久隐藏机制 */
+.focus-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 40;
+  padding: 6px 14px;
+  border-radius: 3px;
+  background: var(--tag-bg);
+  color: var(--near-black);
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  animation: editor-toast-in 0.18s ease-out;
+  transition: opacity 200ms ease;
+}
+
+.focus-hint--exit {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .focus-hint {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* .top-bar 不进任何媒体查询（含本表）：顶栏全宽度共用一条基准规则，
+   媒体块里出现 `.top-bar` 会把定高网格行顶出底边（回归守卫见 kami.css.test.ts） */
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell__body {
+    transition: none;
+  }
+}
+
 /* ===== 属性卡（Obsidian frontmatter） ===== */
 /* 文首 YAML 由 rehypeObsidian 换成 .md-props：紧凑的键值表，尺寸与字重沿用 kami 的
    元信息语汇（mono、字重 ≤ 500），颜色一律走 :root 变量。
@@ -2638,6 +2907,9 @@ mark.search-match--current {
   .reload-note,
   .editor-toast,
   .editor-hint,
+  .hover-preview,
+  .focus-progress,
+  .focus-hint,
   .export-view__head,
   .export-view__stage {
     display: none;
