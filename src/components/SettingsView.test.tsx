@@ -197,15 +197,18 @@ describe("SettingsView", () => {
     expect(onClearRecent).toHaveBeenCalledTimes(1);
   });
 
-  it("快捷键一览：六行只读陈列，kbd 复用大纲搜索框的样式类", async () => {
+  it("快捷键一览：九行只读陈列，kbd 复用大纲搜索框的样式类", async () => {
     await setup();
 
     const rows: Array<[string, string[]]> = [
       ["切换大纲", ["CTRL", "B"]],
-      ["聚焦搜索", ["CTRL", "K"]],
+      ["聚焦搜索", ["CTRL", "K / F"]],
+      ["打开文件", ["CTRL", "O"]],
       ["就地编辑", ["CTRL", "E"]],
       ["提交保存", ["CTRL", "S"]],
       ["导出为 PDF", ["CTRL", "P"]],
+      ["字号 大·小·复位", ["CTRL", "+", "−", "0"]],
+      ["下一处·上一处匹配", ["F3", "SHIFT F3"]],
       ["后退·前进", ["ALT", "←", "→"]],
     ];
     for (const [label, keys] of rows) {

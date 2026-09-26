@@ -104,6 +104,7 @@ export default function App() {
     toggleOutlinePinned,
     setOutlineOpenPinned,
     handleReaderSettingsChange,
+    stepReaderFontSize,
     handleSidebarResizeStart,
     isSidebarResizing,
   } = usePinnedLayoutActions({
@@ -114,6 +115,7 @@ export default function App() {
     outlineWidth,
     setOutlineWidth,
     setReaderSettings,
+    readerFontSize: readerSettings.fontSize,
     beginWidthTransition,
     noteLayoutShift,
     isSettingsOpen,
@@ -211,6 +213,10 @@ export default function App() {
     handleNavBack,
     handleNavForward,
     toggleExport,
+    handleOpen,
+    stepReaderFontSize,
+    handleNextMatch,
+    handlePrevMatch,
   });
 
   return (

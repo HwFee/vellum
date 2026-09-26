@@ -203,6 +203,7 @@
 | `src/lib/scrollInput.ts` | 「用户滚动输入」的按键分类（快捷键不得误判；Alt 例外也归这里：`isScrollInputKey`） |
 | `src/lib/navHistory.ts` | wikilink 前进/后退历史两栈（栈条目 = 路径 + 三级位置记录） |
 | `src/components/JumpToBottom.tsx` | 跳转到底部浮钮 |
+| `src/components/ImageViewer.tsx` | 图片点击查看器（MarkdownImage 点击放大，portal 挂 `document.body`：滚轮 1–5× 缩放 / 拖拽平移 / Esc 捕获段与背底点击关闭） |
 | `src/components/CodeBlock.tsx` | 代码高亮（PrismLight，20 种语言） |
 | `src/hooks/useOutlineWidth.ts` | 侧边栏宽度（200–320px，持久化） |
 | `src/main.tsx` | 入口、字体加载 |

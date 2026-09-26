@@ -3,6 +3,7 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 import { Store } from "@tauri-apps/plugin-store";
 import {
   useReaderSettings,
+  stepFontSize,
   READER_SETTINGS_DEFAULT,
 } from "./useReaderSettings";
 import { __resetSettingsStoreForTest } from "../lib/settings";
@@ -154,5 +155,31 @@ describe("useReaderSettings", () => {
     expect(document.documentElement.style.getPropertyValue("--reader-column-width")).toBe("720px");
     unmount();
     expect(document.documentElement.style.getPropertyValue("--reader-column-width")).toBe("");
+  });
+});
+
+describe("stepFontSize（Ctrl+= / Ctrl+- / Ctrl+0 的字号步进）", () => {
+  it("+1 沿选项表进档，18 处夹取", () => {
+    expect(stepFontSize(14, 1)).toBe(16);
+    expect(stepFontSize(13, 1)).toBe(14);
+    expect(stepFontSize(18, 1)).toBe(18);
+  });
+
+  it("-1 沿选项表退档，13 处夹取", () => {
+    expect(stepFontSize(14, -1)).toBe(13);
+    expect(stepFontSize(18, -1)).toBe(16);
+    expect(stepFontSize(13, -1)).toBe(13);
+  });
+
+  it("direction 0 复位默认档", () => {
+    expect(stepFontSize(13, 0)).toBe(READER_SETTINGS_DEFAULT.fontSize);
+    expect(stepFontSize(18, 0)).toBe(READER_SETTINGS_DEFAULT.fontSize);
+    expect(stepFontSize(14, 0)).toBe(READER_SETTINGS_DEFAULT.fontSize);
+  });
+
+  it("当前值不在选项表内时按最近档定锚再步进", () => {
+    // 17 最近档是 16：+1 → 18、-1 → 14
+    expect(stepFontSize(17, 1)).toBe(18);
+    expect(stepFontSize(17, -1)).toBe(14);
   });
 });

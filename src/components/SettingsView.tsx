@@ -36,10 +36,13 @@ function formatLineHeight(value: number): string {
 /// 快捷键一览（只读陈列）：与 App 的全局快捷键处理器一一对应
 const SHORTCUTS = [
   { label: "切换大纲", keys: ["CTRL", "B"] },
-  { label: "聚焦搜索", keys: ["CTRL", "K"] },
+  { label: "聚焦搜索", keys: ["CTRL", "K / F"] },
+  { label: "打开文件", keys: ["CTRL", "O"] },
   { label: "就地编辑", keys: ["CTRL", "E"] },
   { label: "提交保存", keys: ["CTRL", "S"] },
   { label: "导出为 PDF", keys: ["CTRL", "P"] },
+  { label: "字号 大·小·复位", keys: ["CTRL", "+", "−", "0"] },
+  { label: "下一处·上一处匹配", keys: ["F3", "SHIFT F3"] },
   { label: "后退·前进", keys: ["ALT", "←", "→"] },
 ] as const;
 

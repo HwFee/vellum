@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadAppPreferences } from "../lib/appPreferences";
-import type { ReaderSettings } from "./useReaderSettings";
+import { stepFontSize, type ReaderSettings } from "./useReaderSettings";
 
 export type PinnedLayoutActions = {
   /// 侧栏开合的唯一入口（顶栏按钮 / Ctrl+B / 窄屏 Escape 与遮罩 / 窄屏选章都经它）
@@ -8,6 +8,8 @@ export type PinnedLayoutActions = {
   setOutlineOpenPinned: (open: boolean) => void;
   /// 阅读设置改值入口（与拖宽同属「整篇重排」，先钉视口）
   handleReaderSettingsChange: (patch: Partial<ReaderSettings>) => void;
+  /// Ctrl+= / Ctrl+- 步进、Ctrl+0 复位正文字号（与分段选择器同一条钉视口路径）
+  stepReaderFontSize: (direction: 1 | -1 | 0) => void;
   /// 侧栏右缘拖宽手柄的 pointerdown（JSX 直接用）
   handleSidebarResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
   isSidebarResizing: boolean;
@@ -22,6 +24,8 @@ export type PinnedLayoutDeps = {
   outlineWidth: number;
   setOutlineWidth: (width: number) => void;
   setReaderSettings: (patch: Partial<ReaderSettings>) => void;
+  /// 当前正文字号：Ctrl+= / - / 0 步进的基准值
+  readerFontSize: number;
   /// 布局过渡窗钩子（useLayoutShift 的稳定回调）
   beginWidthTransition: () => void;
   noteLayoutShift: (windowMs?: number) => void;
@@ -46,6 +50,7 @@ export function usePinnedLayoutActions(deps: PinnedLayoutDeps): PinnedLayoutActi
     outlineWidth,
     setOutlineWidth,
     setReaderSettings,
+    readerFontSize,
     beginWidthTransition,
     noteLayoutShift,
     isSettingsOpen,
@@ -78,6 +83,16 @@ export function usePinnedLayoutActions(deps: PinnedLayoutDeps): PinnedLayoutActi
       setReaderSettings(patch);
     },
     [beginWidthTransition, setReaderSettings]
+  );
+
+  // 快捷键字号步进：与分段选择器同一条「先钉视口」路径（字号改动同样是整篇重排）。
+  // 端点夹取后无实际变化时不触发钉视口——按下依旧吞键，但布局侧是空转
+  const stepReaderFontSize = useCallback(
+    (direction: 1 | -1 | 0) => {
+      const next = stepFontSize(readerFontSize, direction);
+      if (next !== readerFontSize) handleReaderSettingsChange({ fontSize: next });
+    },
+    [readerFontSize, handleReaderSettingsChange]
   );
 
   // 「启动时展开侧栏」（设置页「界面」节，出厂关）：偏好是异步读盘的，故启动时单独读一次
@@ -140,6 +155,7 @@ export function usePinnedLayoutActions(deps: PinnedLayoutDeps): PinnedLayoutActi
     toggleOutlinePinned,
     setOutlineOpenPinned,
     handleReaderSettingsChange,
+    stepReaderFontSize,
     handleSidebarResizeStart,
     isSidebarResizing,
   };

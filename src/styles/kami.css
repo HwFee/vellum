@@ -1559,6 +1559,68 @@ mark.search-match--current {
   border-radius: 6px;
 }
 
+/* 图片点击查看器（MarkdownImage 点击放大）：阅读视图的裸图呈 zoom-in 可点提示；
+   编辑视图（--editing）里的点击是块激活、链接包裹的图点击是导航，都不放大 */
+.document-scroll__content:not(.document-scroll__content--editing) .markdown-body img {
+  cursor: zoom-in;
+}
+
+.markdown-body a img {
+  cursor: pointer;
+}
+
+/* 查看器本体经 createPortal 贴在视口上：宣纸底而非深色灯箱——纸上读图，不做
+   「熄灯」效果。top 46px 让出顶栏拖动热区；z-index 1000 高于侧栏（960）与纱罩（950）。
+   背底 cursor: zoom-out 是「点纸面即收起」的提示 */
+@keyframes image-viewer-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.image-viewer {
+  position: fixed;
+  top: 46px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--parchment) 94%, transparent);
+  animation: image-viewer-fade 200ms ease;
+  outline: none;
+  overflow: hidden;
+  cursor: zoom-out;
+}
+
+.image-viewer__img {
+  max-width: 92%;
+  max-height: 92%;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--hairline);
+  transition: transform 150ms ease;
+  user-select: none;
+}
+
+/* 拖拽平移期间关掉 transform 过渡，否则位移永远滞后指针一帧 */
+.image-viewer__img--dragging {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .image-viewer {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .image-viewer__img {
+    transition: none;
+  }
+}
+
 .markdown-body hr {
   height: 1px;
   margin: 32px 0;

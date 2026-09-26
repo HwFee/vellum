@@ -19,6 +19,23 @@ export const READER_SETTINGS_DEFAULT: ReaderSettings = {
   lineHeight: 1.55,
 };
 
+/// Ctrl+= / Ctrl+- 的正文字号步进与 Ctrl+0 复位（快捷键侧用的纯函数）：
+/// direction 0 回默认档；±1 沿选项表走一档、端点处夹取；
+/// 当前值不在选项表内时先按最近一档定锚，再应用方向。
+export function stepFontSize(current: number, direction: 1 | -1 | 0): number {
+  if (direction === 0) return READER_SETTINGS_DEFAULT.fontSize;
+  let index = (READER_FONT_SIZE_OPTIONS as readonly number[]).indexOf(current);
+  if (index === -1) {
+    index = READER_FONT_SIZE_OPTIONS.reduce(
+      (best, option, i) =>
+        Math.abs(option - current) < Math.abs(READER_FONT_SIZE_OPTIONS[best] - current) ? i : best,
+      0
+    );
+  }
+  const next = Math.min(READER_FONT_SIZE_OPTIONS.length - 1, Math.max(0, index + direction));
+  return READER_FONT_SIZE_OPTIONS[next];
+}
+
 function pick<T extends number>(value: unknown, options: readonly T[], fallback: T): T {
   return typeof value === "number" && (options as readonly number[]).includes(value)
     ? (value as T)

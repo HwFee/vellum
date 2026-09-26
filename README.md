@@ -34,7 +34,8 @@ Markdown files directly from File Explorer.
 - **纸墨排版。** 正文 14px / 1.55 行高 / 0.4px 字距，列宽 `min(800px, 100%)` 居中；
   层级只靠字号、字重、留白与 ivory 填充承担——标题没有前导短线，引用没有侧线，表格默认没有斑马纹。
 - **阅读设置页。** 顶栏齿轮打开整页设置视图（正文区整块替换，侧栏换成「設定」分节导航）：
-  阅读一节调正文字号 13 / 14 / 16 / 18、栏宽 720 / 800 / 960、行高 1.5 / 1.55 / 1.7，
+  阅读一节调正文字号 13 / 14 / 16 / 18、栏宽 720 / 800 / 960、行高 1.5 / 1.55 / 1.7
+  （字号也可用 <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> 步进与复位），
   改动即时生效并记住（标题字号阶梯与版式不受影响，改栏宽时会先把视口钉在原来那一行上，
   不跳位）；界面一节设「启动时展开侧栏」；更新一节可关掉启动自动检查、看当前版本、
   手动「立即检查」；关于与数据一节显示当前文档路径、清空最近打开列表、列出快捷键。
@@ -43,13 +44,17 @@ Markdown files directly from File Explorer.
 - **数学公式。** KaTeX 行内与行间公式，含 Pandoc 式货币保护（`$5 和 $10` 不会被误判成公式）。
 - **代码高亮。** 20 种常用语言（PrismLight，不会为每种语言生成 chunk），带语言标签与复制按钮。
 - **本地图片与 GIF。** 相对路径按文档位置解析，GIF 保持动画。
+- **图片点击查看器。** 点击正文图片就地放大：宣纸底色近全屏遮罩上滚轮 1–5 倍缩放、
+  拖拽平移、双击 1↔2 倍切换，<kbd>Esc</kbd> 或点背底收起（链接里的图与编辑视图不受影响）。
 - **安全 raw HTML。** 放行常见排版标签后再净化。
 - **6px 自定义滚动条**，平时透明、滚动时淡入；距底超过 300px 时右下角浮现跳底按钮。
 
 ### 寻 · Finding
 
 - **大纲。** h1–h6 收成左侧目录（h4–h6 缩进更深、字号更小），随正文滚动实时高亮当前章节，点击缓动跳转。
-- **全文检索。** <kbd>Ctrl</kbd>+<kbd>K</kbd> 聚焦，匹配项在正文里就地高亮，上一个 / 下一个逐个跳。
+- **全文检索。** <kbd>Ctrl</kbd>+<kbd>K</kbd>（或 <kbd>Ctrl</kbd>+<kbd>F</kbd>）聚焦，
+  匹配项在正文里就地高亮，<kbd>F3</kbd> / <kbd>Shift</kbd>+<kbd>F3</kbd>（或搜索框内
+  Enter / Shift+Enter）逐个跳。
 - **可调侧栏。** 200–320px 拖拽调宽，双击手柄复位；窄屏自动收成浮层。
 - **文档内锚点。** `[文字](#id)` 由应用接管：缓动滚到目标并顺带点亮大纲，不改写 URL 与历史。
 - **前进 / 后退。** <kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>Alt</kbd>+<kbd>→</kbd>（或顶栏的 ‹ ›）
@@ -89,7 +94,7 @@ Markdown files directly from File Explorer.
 - **自动更新。** 启动时静默检查新版本（可在设置页关掉，也可手动「立即检查」），有更新先提示再下载安装；失败一律不打扰。
 - **离线优先。** 除启动时的一次版本更新检查外不联网；没有云、没有账号。打开的是磁盘上的那个文件，写回的也是它。
 - **真机验收。** 数学 / 搜索 / 编辑 / 滚动这类热路径都有 CDP 真机探针与回归测试
-  （51 个测试文件 / 988 个用例）。
+  （52 个测试文件 / 1013 个用例）。
 
 ## Usage
 
@@ -97,8 +102,11 @@ Markdown files directly from File Explorer.
 2. Double-click any `.md` or `.markdown` file in File Explorer.
 3. To open another file, click the folder icon in the top-left corner — or drag a `.md` file onto
    the window, or pick one from **最近打开** in the empty state.
-4. Press <kbd>Ctrl</kbd>+<kbd>E</kbd> to edit in place, <kbd>Ctrl</kbd>+<kbd>K</kbd> to search,
-   <kbd>Ctrl</kbd>+<kbd>B</kbd> to toggle the outline.
+4. Press <kbd>Ctrl</kbd>+<kbd>O</kbd> to open a file, <kbd>Ctrl</kbd>+<kbd>K</kbd> or
+   <kbd>Ctrl</kbd>+<kbd>F</kbd> to search (<kbd>F3</kbd> / <kbd>Shift</kbd>+<kbd>F3</kbd> steps
+   through matches), <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> to adjust the
+   type size, <kbd>Ctrl</kbd>+<kbd>E</kbd> to edit in place, <kbd>Ctrl</kbd>+<kbd>B</kbd> to
+   toggle the outline.
 5. Follow a `[[wikilink]]`, then <kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>Alt</kbd>+<kbd>→</kbd> to step
    back and forward through the notes you visited.
 6. Click a task list checkbox in the reading view to write the change straight back to the file.

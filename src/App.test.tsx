@@ -2720,6 +2720,97 @@ test("空文档时 Ctrl+P 吞键但不开导出视图（底稿取自阅读 DOM�
   expect(document.querySelector(".export-view")).toBeNull();
 });
 
+test("Ctrl+F 是 Ctrl+K 的别名：打开侧栏并聚焦搜索框", async () => {
+  render(<App />);
+  expect(document.querySelector(".outline-sidebar--open")).toBeNull();
+
+  expect(fireEvent.keyDown(window, { key: "f", ctrlKey: true })).toBe(false);
+  expect(document.querySelector(".outline-sidebar--open")).toBeInTheDocument();
+
+  // 聚焦在侧栏展开后延迟到位（60ms 定时器）
+  await waitFor(() => expect(screen.getByLabelText("搜索文档内容")).toHaveFocus());
+});
+
+test("Ctrl+O 走与顶栏同一「打开文件」对话框并吞键；按住 repeat 不重复弹出", async () => {
+  backendInvoke.mockResolvedValueOnce(loadedDoc);
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/readme.md");
+  render(<App />);
+
+  expect(fireEvent.keyDown(window, { key: "o", ctrlKey: true })).toBe(false);
+  expect(open).toHaveBeenCalledTimes(1);
+  // 选中的路径照常走完加载管线
+  await waitFor(() =>
+    expect(screen.getByRole("heading", { name: "Intro" })).toBeInTheDocument()
+  );
+
+  // 按住不放（event.repeat）：键仍吞掉，但不再弹第二次对话框
+  expect(fireEvent.keyDown(window, { key: "o", ctrlKey: true, repeat: true })).toBe(false);
+  expect(open).toHaveBeenCalledTimes(1);
+});
+
+test("Ctrl+= / Ctrl+- 步进正文字号、Ctrl+0 复位，全程吞键（WebView 缩放加速键不让渡）", () => {
+  render(<App />);
+  const root = document.documentElement.style;
+  // 出厂档 14px：useReaderSettings 挂载即写根变量
+  expect(root.getPropertyValue("--reader-font-size")).toBe("14px");
+
+  expect(fireEvent.keyDown(window, { key: "=", ctrlKey: true })).toBe(false);
+  expect(root.getPropertyValue("--reader-font-size")).toBe("16px");
+
+  // 16 → 14 → 13，端点处夹取不再降
+  expect(fireEvent.keyDown(window, { key: "-", ctrlKey: true })).toBe(false);
+  expect(root.getPropertyValue("--reader-font-size")).toBe("14px");
+  expect(fireEvent.keyDown(window, { key: "-", ctrlKey: true })).toBe(false);
+  expect(root.getPropertyValue("--reader-font-size")).toBe("13px");
+  expect(fireEvent.keyDown(window, { key: "-", ctrlKey: true })).toBe(false);
+  expect(root.getPropertyValue("--reader-font-size")).toBe("13px");
+
+  // Ctrl+0 复位默认档（13 → 14）
+  expect(fireEvent.keyDown(window, { key: "0", ctrlKey: true })).toBe(false);
+  expect(root.getPropertyValue("--reader-font-size")).toBe("14px");
+});
+
+test("导出视图打开时 Ctrl+= 只吞不改（预览分页按当前字号排定，改了就失同步）", async () => {
+  await loadDocument();
+  const root = document.documentElement.style;
+  expect(root.getPropertyValue("--reader-font-size")).toBe("14px");
+
+  fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+  expect(await screen.findByText("A4 · 边距 20/22mm · 宣纸")).toBeInTheDocument();
+
+  expect(fireEvent.keyDown(window, { key: "=", ctrlKey: true })).toBe(false);
+  expect(root.getPropertyValue("--reader-font-size")).toBe("14px");
+});
+
+test("F3 / Shift+F3 在搜索匹配间前进/回退（末项再前进绕回首项），键被吞掉", async () => {
+  backendInvoke.mockResolvedValueOnce({
+    ...loadedDoc,
+    markdown: "# Title\n\nneedle one.\n\nneedle two.\n\nneedle three.",
+  });
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/needles.md");
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+  await waitFor(() =>
+    expect(screen.getByRole("heading", { name: "Title" })).toBeInTheDocument()
+  );
+
+  // 侧栏开着才能看到计数；输入搜索词等匹配高亮提交
+  fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
+  fireEvent.change(screen.getByLabelText("搜索文档内容"), { target: { value: "needle" } });
+  const counter = () => document.querySelector(".outline-search__count");
+  await waitFor(() => expect(counter()?.textContent).toBe("1/3"));
+
+  // F3 前进到下一处；Shift+F3 回退，首项再回退绕到末项
+  expect(fireEvent.keyDown(window, { key: "F3" })).toBe(false);
+  expect(counter()?.textContent).toBe("2/3");
+  expect(fireEvent.keyDown(window, { key: "F3" })).toBe(false);
+  expect(counter()?.textContent).toBe("3/3");
+  expect(fireEvent.keyDown(window, { key: "F3" })).toBe(false);
+  expect(counter()?.textContent).toBe("1/3");
+  expect(fireEvent.keyDown(window, { key: "F3", shiftKey: true })).toBe(false);
+  expect(counter()?.textContent).toBe("3/3");
+});
+
 test("全局 Ctrl+S 拦截 WebView 默认保存并在有活动块时提交", async () => {
   await loadDocument();
 

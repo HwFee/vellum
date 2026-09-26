@@ -190,7 +190,7 @@ node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/ex
   - **必须先派一次 wheel 再等 6s**，否则阅读位置落位守护的缓动动画会污染测量。
 - 真机锚定规则对照：`scripts/cdp-anchor-synthetic.mjs`——纯合成滚动容器里「改宽度 vs 改字号」的锚定矩阵，确认「行内尺寸变化不补偿」是**浏览器规则**（同一容器改字号正常补偿、改宽度恒为 0），与项目结构无关。
 - 真机 Obsidian 验收：`scripts/cdp-obsidian-verify.mjs`——完整说明（断言清单、定稿形态三条真机证据、边框宽度按区间判、实测数字）见 `docs/agents/obsidian.md`。
-- **待办真机项：`Ctrl+P` 打印**（2026-09-20 起挂起，未验证）。WebView2 有 `ShowPrintUI` / `Print` / `PrintToPdf` 三条 API，微软反馈 #42 也确认 `window.print()` 经 `ExecuteScript` 可用，但本机从未真的弹过一次打印对话框。验证方式：先 `taskkill /IM vellum.exe /F` → `npm run tauri build` → 以 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` 起 release exe → 按 `scripts/cdp-verify.mjs` 的模式连 CDP，`Runtime.evaluate` 里看 `typeof window.print`，再用 `Input.dispatchKeyEvent` 派一次真实 `Ctrl+P` 看对话框是否弹出（**别**在无头/自动化里直接调 `window.print()`：原生打印对话框是模态的，脚本侧关不掉）。确认通过后 README 的 Usage 才能补这条快捷键（`docs/agents/rendering.md` 打印一节同理）。
+- ~~待办真机项：`Ctrl+P` 打印~~ —— **已退役（v1.10）**：`window.print()` 与系统打印对话框下线，`Ctrl+P` 改绑「导出为 PDF」纸张舞台（后端 CDP `Page.printToPDF` 落盘），机制与验收见 `docs/agents/rendering.md` 的「导出为 PDF」一节。
 
 ### `tauri/custom-protocol` feature
 
