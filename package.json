@@ -10,6 +10,7 @@
     "test:watch": "vitest",
     "perf:scroll": "node scripts/cdp-perf-scroll.mjs",
     "verify:cdp": "node scripts/cdp-verify.mjs",
+    "verify:reader-fonts": "node scripts/cdp-reader-fonts.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

@@ -34,7 +34,9 @@ export const kamiSchema: RehypeSanitizeOptions = {
   ],
   attributes: {
     ...defaultSchema.attributes,
-    "*": ["className", "ariaDescribedBy", "ariaLabel", "ariaLabelledBy"],
+    // id 必须在通配表里：GFM 脚注的上标锚点与文尾 li 靠 href↔id 对接，
+    // 浮笺层以 getElementById 取回脚注正文——id 被剥掉浮笺永远不触发
+    "*": ["className", "ariaDescribedBy", "ariaLabel", "ariaLabelledBy", "id"],
     a: [...(defaultSchema.attributes?.a ?? []), "target", "rel"],
     img: [...(defaultSchema.attributes?.img ?? []), "alt", "title", "width", "height", "loading"],
     div: ["align"],

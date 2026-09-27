@@ -44,9 +44,17 @@ export function useMarkdownComponents(deps: MarkdownComponentsDeps): Components 
       },
       h2: ({ children, ...props }) => {
         const mark = unitMarkProps(props);
+        // footnotes 区段的 "Footnotes" 题头是 hast 生成的（带 sr-only 与
+        // id=footnote-label，sanitize clobber 后实为 user-content-footnote-label）：
+        // 只有它沿用自带 id（aria-describedby 指着它），className 也透传——剥掉会把
+        // 屏幕阅读器标签变成正文里裸漏的标题。其余自带 id（如原始 HTML <h2 id>）
+        // 不沿用：分配器无条件照调，大纲跳转按它的序列定位标题
+        const { className, id } = props as Record<string, unknown>;
+        const resolvedId = resolveHeadingId(2, extractText(children));
         return (
           <h2
-            id={resolveHeadingId(2, extractText(children))}
+            id={typeof id === "string" && id.endsWith("footnote-label") ? id : resolvedId}
+            className={typeof className === "string" ? className : undefined}
             data-vellum-unit={mark.unit}
             data-vellum-locked={mark.locked}
           >
@@ -191,7 +199,11 @@ export function useMarkdownComponents(deps: MarkdownComponentsDeps): Components 
             </a>
           );
         }
-        return <a href={href}>{children}</a>;
+        // 页内锚点与相对路径：sanitize 白名单放过来的属性（脚注的
+        // data-footnote-ref / id / data-footnote-backref、aria-*）必须透传，
+        // 否则悬停浮笺永远找不到锚点与正文 li
+        const { node: _node, ...anchorProps } = props;
+        return <a href={href} {...anchorProps}>{children}</a>;
       },
       img: ({ src, alt, title }) => <MarkdownImage src={src} alt={alt} title={title} />,
       pre: ({ children }) => {

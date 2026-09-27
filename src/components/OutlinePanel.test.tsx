@@ -31,6 +31,18 @@ const searchDefaults = {
 };
 
 describe("OutlinePanel", () => {
+  it("默认题头随 headerScript 换字形（繁体出厂 / 简体目录）", () => {
+    const { unmount } = render(<OutlinePanel headings={sampleHeadings} {...searchDefaults} />);
+    expect(document.querySelector(".outline-panel__header")).toHaveTextContent("目錄");
+    unmount();
+
+    render(
+      <OutlinePanel headings={sampleHeadings} headerScript="simplified" {...searchDefaults} />
+    );
+    expect(document.querySelector(".outline-panel__header")).toHaveTextContent("目录");
+    expect(document.querySelector(".outline-panel__header")).not.toHaveTextContent("目錄");
+  });
+
   it("renders headings with indentation", () => {
     render(<OutlinePanel headings={sampleHeadings} {...searchDefaults} />);
 

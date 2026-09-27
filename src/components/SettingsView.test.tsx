@@ -1,13 +1,27 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
 import { SettingsView, settingsSectionElementId } from "./SettingsView";
 import { READER_SETTINGS_DEFAULT, type ReaderSettings } from "../hooks/useReaderSettings";
 import { APP_PREFERENCES_DEFAULT, type AppPreferences } from "../lib/appPreferences";
 import { checkForUpdates } from "../lib/updater";
+import { __resetSystemFontsForTest } from "../lib/fonts";
 
 vi.mock("@tauri-apps/api/app", () => ({
   getVersion: vi.fn(() => Promise.resolve("1.8.1")),
+}));
+
+/// 本机字体表是本命令给的：用例里固定三款（中文 / 西文 / 等宽各一），
+/// 免得断言跟着真机装了什么字体跑
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(() =>
+    Promise.resolve([
+      { name: "SimSun", cjk: true, mono: false },
+      { name: "Georgia", cjk: false, mono: false },
+      { name: "Consolas", cjk: false, mono: true },
+    ])
+  ),
 }));
 
 vi.mock("../lib/updater", () => ({
@@ -47,6 +61,9 @@ beforeEach(() => {
   vi.mocked(getVersion).mockClear();
   vi.mocked(getVersion).mockResolvedValue("1.8.1");
   vi.mocked(checkForUpdates).mockClear();
+  // 字体表是模块级缓存的：每个用例都从随包两款重启，断言才不互相串
+  __resetSystemFontsForTest();
+  vi.mocked(invoke).mockClear();
 });
 
 describe("SettingsView", () => {
@@ -98,13 +115,48 @@ describe("SettingsView", () => {
   });
 
   it("样张消费同一组 CSS 变量，恢复默认回写整套默认值", async () => {
-    const { onSettingsChange } = await setup({ settings: { fontSize: 18, columnWidth: 960, lineHeight: 1.7 } });
+    const { onSettingsChange } = await setup({
+      settings: { ...READER_SETTINGS_DEFAULT, fontSize: 18, columnWidth: 960, lineHeight: 1.7 },
+    });
 
     expect(screen.getByText("样张")).toBeInTheDocument();
     expect(document.querySelector(".settings-view__proof-sheet")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "恢复默认" }));
     expect(onSettingsChange).toHaveBeenCalledWith(READER_SETTINGS_DEFAULT);
+  });
+
+  it("「外观」分段选择器：三档陈列，出厂高亮「跟随系统」，点击回写 theme", async () => {
+    const { onPreferencesChange } = await setup();
+
+    const appearance = screen.getByRole("group", { name: "外观" });
+    expect(
+      within(appearance).getByRole("button", { name: "跟随系统" })
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(within(appearance).getByRole("button", { name: "浅色" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+
+    fireEvent.click(within(appearance).getByRole("button", { name: "深色" }));
+    expect(onPreferencesChange).toHaveBeenCalledWith({ theme: "dark" });
+  });
+
+  it("「侧栏题头字形」分段器：出厂繁体，点「简体」回写 headingScript", async () => {
+    const { onPreferencesChange } = await setup();
+
+    const row = screen.getByRole("group", { name: "侧栏题头字形" });
+    expect(within(row).getByRole("button", { name: "繁体" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(within(row).getByRole("button", { name: "简体" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+
+    fireEvent.click(within(row).getByRole("button", { name: "简体" }));
+    expect(onPreferencesChange).toHaveBeenCalledWith({ headingScript: "simplified" });
   });
 
   it("界面与更新两态开关：开 / 关回写布尔偏好，出厂值分别是关与开", async () => {
@@ -222,5 +274,143 @@ describe("SettingsView", () => {
         expect(kbd).toHaveClass("outline-search__kbd");
       }
     }
+  });
+
+  it("字体三槽各一行，出厂都显示「默认」字样（中文随包楷体 / 西文跟随中文 / 代码 JetBrains Mono）", async () => {
+    await setup();
+
+    expect(screen.getByText("中文字体")).toBeInTheDocument();
+    expect(screen.getByText("西文字体")).toBeInTheDocument();
+    expect(screen.getByText("代码字体")).toBeInTheDocument();
+
+    expect(screen.getByRole("button", { name: /中文字体（当前：默认 · 倉頡楷體）/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /西文字体（当前：默认 · 跟随中文）/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /代码字体（当前：默认 · JetBrains Mono）/ })).toBeInTheDocument();
+  });
+
+  it("候选项渐进预览：滚进视口才换自己的字面，滚出后不再摘下", async () => {
+    // 接管 IntersectionObserver：记下每次 observe 的目标与回调，手动「滚进视口」
+    const registry: Array<{ el: Element; cb: IntersectionObserverCallback }> = [];
+    const RealIO = globalThis.IntersectionObserver;
+    globalThis.IntersectionObserver = class {
+      private cb: IntersectionObserverCallback;
+      constructor(cb: IntersectionObserverCallback, _init?: IntersectionObserverInit) {
+        this.cb = cb;
+      }
+      observe(el: Element) {
+        registry.push({ el, cb: this.cb });
+      }
+      unobserve() {}
+      disconnect() {}
+      takeRecords() {
+        return [];
+      }
+    } as unknown as typeof IntersectionObserver;
+
+    try {
+      await setup();
+      fireEvent.click(screen.getByRole("button", { name: /中文字体（当前/ }));
+      const panel = await screen.findByRole("listbox", { name: "中文字体候选表" });
+      await waitFor(() => expect(within(panel).getByText("SimSun")).toBeInTheDocument());
+
+      // 候选项此刻仍用界面字体渲染——打开面板不再让几百款字体同步整形
+      const names = [...panel.querySelectorAll<HTMLElement>(".font-picker__option-name")];
+      const optionNames = names.filter((el) => !el.textContent?.startsWith("默认"));
+      expect(optionNames.length).toBeGreaterThan(0);
+      for (const el of optionNames) expect(el.style.fontFamily).toBe("");
+
+      // 「滚进视口」SimSun → 该行换上自己的字面
+      const target = registry.find((entry) => entry.el.textContent === "SimSun");
+      expect(target).toBeTruthy();
+      act(() => {
+        target!.cb(
+          [{ isIntersecting: true, target: target!.el } as IntersectionObserverEntry],
+          {} as IntersectionObserver
+        );
+      });
+      const simsunName = optionNames.find((el) => el.textContent === "SimSun")!;
+      expect(simsunName.style.fontFamily).toBe('"SimSun"');
+
+      // 未相交的行照旧是界面字体
+      for (const el of optionNames.filter((e) => e !== simsunName)) {
+        expect(el.style.fontFamily).toBe("");
+      }
+
+      // 「滚出视口」再相交一次负例：字面一旦应用就不再摘下
+      act(() => {
+        target!.cb(
+          [{ isIntersecting: false, target: target!.el } as IntersectionObserverEntry],
+          {} as IntersectionObserver
+        );
+      });
+      expect(simsunName.style.fontFamily).toBe('"SimSun"');
+    } finally {
+      globalThis.IntersectionObserver = RealIO;
+    }
+  });
+
+  it("点开中文字体：列出本机字体（含随包两款与系统字体），选中即回写 cjkFont", async () => {
+    const { onSettingsChange } = await setup();
+
+    fireEvent.click(screen.getByRole("button", { name: /中文字体（当前/ }));
+    const panel = await screen.findByRole("listbox", { name: "中文字体候选表" });
+
+    // 系统字体是异步拉回来的：等它进列表
+    await waitFor(() => expect(within(panel).getByText("SimSun")).toBeInTheDocument());
+    expect(within(panel).getByText("TsangerJinKai02")).toBeInTheDocument();
+    expect(within(panel).getByText("默认 · 倉頡楷體")).toBeInTheDocument();
+
+    fireEvent.click(within(panel).getByText("SimSun"));
+    expect(onSettingsChange).toHaveBeenCalledWith({ cjkFont: "SimSun" });
+    // 选完就关面板
+    expect(screen.queryByRole("listbox", { name: "中文字体候选表" })).toBeNull();
+  });
+
+  it("搜索框过滤候选表；选「默认」回写空串", async () => {
+    const { onSettingsChange } = await setup({
+      settings: { ...READER_SETTINGS_DEFAULT, latinFont: "Georgia" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /西文字体（当前：Georgia）/ }));
+    const panel = await screen.findByRole("listbox", { name: "西文字体候选表" });
+    await waitFor(() => expect(within(panel).getByText("SimSun")).toBeInTheDocument());
+
+    fireEvent.change(within(panel).getByRole("searchbox", { name: "搜索西文字体" }), {
+      target: { value: "cons" },
+    });
+    expect(within(panel).queryByText("SimSun")).toBeNull();
+    expect(within(panel).getByText("Consolas")).toBeInTheDocument();
+
+    fireEvent.change(within(panel).getByRole("searchbox", { name: "搜索西文字体" }), {
+      target: { value: "" },
+    });
+    fireEvent.click(within(panel).getByText("默认 · 跟随中文"));
+    expect(onSettingsChange).toHaveBeenCalledWith({ latinFont: "" });
+  });
+
+  it("面板里按 Esc 只关面板，不退设置视图（设置视图的 Esc 监听在 window 上）", async () => {
+    const { onExit } = await setup();
+
+    fireEvent.click(screen.getByRole("button", { name: /代码字体（当前/ }));
+    const panel = await screen.findByRole("listbox", { name: "代码字体候选表" });
+
+    fireEvent.keyDown(within(panel).getByRole("searchbox", { name: "搜索代码字体" }), {
+      key: "Escape",
+    });
+    expect(screen.queryByRole("listbox", { name: "代码字体候选表" })).toBeNull();
+    expect(onExit).not.toHaveBeenCalled();
+  });
+
+  it("Ctrl + 滚轮改字号：开关反映偏好、点击回写 ctrlWheelFontSize", async () => {
+    const { onPreferencesChange } = await setup();
+
+    const group = screen.getByRole("group", { name: "Ctrl + 滚轮改字号" });
+    expect(within(group).getByRole("button", { name: "开" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+
+    fireEvent.click(within(group).getByRole("button", { name: "关" }));
+    expect(onPreferencesChange).toHaveBeenCalledWith({ ctrlWheelFontSize: false });
   });
 });

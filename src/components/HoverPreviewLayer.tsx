@@ -149,7 +149,11 @@ export default function HoverPreviewLayer({
         if (!href.startsWith("#")) return;
         let li: HTMLLIElement | null = null;
         try {
-          const found = document.getElementById(decodeURIComponent(href.slice(1)));
+          const id = decodeURIComponent(href.slice(1));
+          // sanitize 的 clobber 会给 id 再加一层 user-content- 前缀
+          //（href 不在 clobber 清单里）：先按原样找，落空再试加前缀的
+          const found =
+            document.getElementById(id) ?? document.getElementById(`user-content-${id}`);
           if (found instanceof HTMLLIElement && content.contains(found)) li = found;
         } catch {
           li = null;

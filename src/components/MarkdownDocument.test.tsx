@@ -101,6 +101,43 @@ describe("MarkdownDocument", () => {
     expect(screen.getByText("cell")).toBeInTheDocument();
   });
 
+  it("脚注链路保留悬停浮笺所需的属性：上标锚点、文尾 li id、回链标记", () => {
+    // A1 浮笺端到端依赖三处 DOM 事实：锚点 data-footnote-ref、文尾 li 的 id
+    // 可被 href 指到（sanitize clobber 会再加一层 user-content- 前缀）、
+    // 回链上的 data-footnote-backref（克隆进卡前要剥 ↩）
+    const markdown = ["正文一句。[^1]", "", "[^1]: 注脚正文。"].join("\n");
+    const { container } = render(<MarkdownDocument markdown={markdown} />);
+
+    const ref = container.querySelector<HTMLAnchorElement>("a[data-footnote-ref]");
+    expect(ref).not.toBeNull();
+    const href = ref!.getAttribute("href")!;
+    expect(href.startsWith("#")).toBe(true);
+
+    const id = decodeURIComponent(href.slice(1));
+    const li =
+      document.getElementById(id) ?? document.getElementById(`user-content-${id}`);
+    expect(li).not.toBeNull();
+    expect(li!.tagName).toBe("LI");
+    expect(container.contains(li)).toBe(true);
+
+    expect(li!.querySelector("[data-footnote-backref]")).not.toBeNull();
+    // 「Footnotes」题头保持 sr-only：不得作为可见标题漏在正文末尾
+    const label = container.querySelector("h2.sr-only");
+    expect(label).toHaveTextContent("Footnotes");
+    expect(label!.id).toBe("user-content-footnote-label");
+  });
+
+  it("原始 HTML 标题的自带 id 不顶掉分配器结果（sanitize 放行的 user-content- 前缀 id 只有脚注题头沿用）", () => {
+    // kamiSchema 放行 id 后，<h2 id="x"> 会以 user-content-x 抵达组件——沿用它会
+    // 让大纲跳转锚点对不上分配器序列；分配器仍按 slug 给 id（脚注题头是唯一例外）
+    const { container } = render(
+      <MarkdownDocument markdown={'<h2 id="x">Title</h2>'} />
+    );
+    const h2 = container.querySelector("h2");
+    expect(h2).toHaveTextContent("Title");
+    expect(h2!.id).toBe("title");
+  });
+
   it("renders inline and display math with KaTeX", () => {
     const markdown = [
       "输入向量 $\\mathbf{z}=(z_1,\\dots,z_n)$ 后解码。",

@@ -6,6 +6,18 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **字体三槽（设置页「阅读」节）：** 中文字体 / 西文字体 / 代码字体各占一槽，候选表 = 随包两款（倉頡楷體、JetBrains Mono）+ **本机已装字体**（新增 Rust 命令 `list_system_fonts`：Windows 走 GDI `EnumFontFamiliesExW` 多趟按字符集枚举并判 FIXED_PITCH，Linux 走 `fc-list`；枚举失败静默回退到随包两款），面板里每行用它自己的字面渲染，带搜索框。`kami.css` 把原先混装的两条栈拆成 `--font-cjk` / `--font-latin` / `--font-mono` 三个基变量（+ `--font-cjk-tail` / `--font-mono-tail` 兜底尾巴），`--serif` / `--mono` 改为合成栈，消费处一处未动。**西文槽出厂跟随中文槽**（`--font-latin: var(--font-cjk)`），所以不动设置时渲染与拆分前逐字相同；选中字面后 JS 只写「字面 + 尾巴」，尾巴留给 CSS。设置页样张补一行拉丁文与行内 `code`，三槽各有的样字。
+- **Ctrl + 滚轮改正文字号（设置页「阅读」节开关，出厂开）：** 沿 13 / 14 / 16 / 18 步进，走与 `Ctrl+=` / `Ctrl+-` 同一条「先钉视口再改字号」路径（`stepReaderFontSize`）；`window` 捕获段非被动监听并 `preventDefault`，不按 Ctrl 的普通滚轮一概不碰（照常滚动），导出为 PDF 视图打开时只吞不改（预览分页已按当前字号排定）。一格滚轮 = 一档（deltaY 阈值 100，触控板靠累计；反向清零累计；单次事件最多一档）。偏好 `ctrlWheelFontSize` 落 `settings.json`。
+- **侧栏题头字形（设置页「界面」节）：** 分段选择器「繁体 / 简体」，出厂繁体。侧栏页签（目錄 / 文件 / 檢索 / 反鏈）、大纲默认题头与设置导航的「設定」题头同换简体（目录 / 文件 / 检索 / 反链 / 设置）——标签对照表收敛在 `src/lib/headingLabels.ts`，只动题头字形，界面其余简体文案照旧。
+- **外观主题（设置页「界面」节）：** 分段选择器「跟随系统 / 浅色 / 深色」，出厂跟随系统。`useTheme` 把解算结果写到 `documentElement` 的 `data-theme` 与 `colorScheme` 并订阅 `prefers-color-scheme`；kami.css 新增 `:root[data-theme="dark"]` 深色令牌块（同一套暖纸语汇的暗色倒影），滚动条 / 遮罩 / 浮层投影 / 页边淡色标记 / 靛青悬停 tint 等散件色同步收成深浅双份令牌，任务对勾的 data-URI 描边单独覆写。偏好镜像 `localStorage["vellum-theme"]`，`main.tsx` 在首帧渲染前同步解出，不闪错主题。**导出为 PDF 期间强制浅色**——printToPDF 打的是实时页面，纸面不落深色。
+- **Linux 支持（WebKitGTK 4.1）**：`src-tauri` 跨平台化——Windows 专用依赖（webview2-com / windows-core / windows-sys）与注册表文件关联收进 `cfg(windows)`；widget 沙箱协议 URL 按平台取 `vellum-widget://localhost`（Linux）或 `http://vellum-widget.localhost`（Windows），CSP `frame-src` 两形并收；`is_pid_alive` 在 Linux 判 `/proc/<pid>`，残留 `.mdlog` sidecar 照常清理；导出为 PDF 走 WebKitGTK `PrintOperation`（Print to File 静默无对话框），A4 + 20mm/22mm 与 Windows 一致——**已知差异：WebKitGTK 不渲染 @page 边盒，页码/页脚行缺席**。新增 `tauri.linux.conf.json`（deb + AppImage），deb 的 .desktop 经 `bundle.fileAssociations` 声明 `text/markdown`；自动更新在 Linux 静默失败。原生滚动条在 WebKitGTK 下由全域 `::-webkit-scrollbar` 收零。已知限制：顶栏拖拽（`-webkit-app-region`）WebKitGTK 不支持，窗口移动走 WM。
+
+### 修复
+
+- **GFM 脚注链路**：`kamiSchema` 放行 `id`（sanitize clobber 后落 `user-content-*`），`<a>` 透传 `data-footnote-ref` / `data-footnote-backref` / `aria-*`，悬停浮笺的 `getElementById` 兜底加 `user-content-` 前缀；footnotes 题头保留 `sr-only` 不裸漏到正文。原始 HTML `<h2 id>` 的自带 id 不顶掉标题 id 分配器——只有以 `footnote-label` 结尾的 id 沿用。
+
 ## [1.12.0] - 2026-09-26
 
 ### 新增

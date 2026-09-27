@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { SETTINGS_SECTIONS, type SettingsSectionId } from "./SettingsView";
+import { HEADING_LABELS, type HeadingScript } from "../lib/headingLabels";
 
 type SettingsNavProps = {
   activeSectionId: SettingsSectionId;
   onSelectSection: (id: SettingsSectionId) => void;
   /// 与大纲搜索框共用同一枚 ref：Ctrl+K 在设置视图里聚焦的也是这枚输入框
   searchInputRef: React.RefObject<HTMLInputElement | null>;
+  /// 题头「設定」的字形（繁体出厂 / 简体）
+  headerScript?: HeadingScript;
 };
 
 /// 描边入场的笔顺（kami.css `.icon-draw` 按 --i 依次描出）
@@ -36,7 +39,12 @@ function ClearIcon() {
  *
  * 搜索框的行为与大纲一致：输入即过滤下方条目，idle 态右侧是 kbd「Ctrl K」。
  */
-export function SettingsNav({ activeSectionId, onSelectSection, searchInputRef }: SettingsNavProps) {
+export function SettingsNav({
+  activeSectionId,
+  onSelectSection,
+  searchInputRef,
+  headerScript = "traditional",
+}: SettingsNavProps) {
   const [query, setQuery] = useState("");
   const trimmed = query.trim();
   const visibleSections =
@@ -46,7 +54,7 @@ export function SettingsNav({ activeSectionId, onSelectSection, searchInputRef }
 
   return (
     <nav className="outline-panel" aria-label="设置分节">
-      <div className="outline-panel__header">設定</div>
+      <div className="outline-panel__header">{HEADING_LABELS.settings[headerScript]}</div>
 
       <div className={`outline-search ${trimmed !== "" ? "outline-search--active" : ""}`}>
         <span className="outline-search__icon" aria-hidden="true">

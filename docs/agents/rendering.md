@@ -38,7 +38,7 @@
 
 - 目錄 header + 搜索框固定在滚动区外，只有大纲列表在 `.outline-panel__scroll` 内滚动，跟随滚动以它为参照容器。
 - **不要**把搜索框改回 sticky 或放回滚动容器内——会重新引入「搜索框遮挡激活项」和「连点导航按钮时搜索框上浮误点」。
-- **设置视图打开时侧栏只换内容**（`SettingsNav`，2026-09-20 第二批）：`App.tsx` 里仍是同一枚 `<aside className="outline-sidebar">`，`isSettingsOpen ? <SettingsNav/> : <OutlinePanel/>`——宽度变量、开合（`--open` + `beginWidthTransition()`）、拖宽手柄、窄屏浮层与纱罩、默认关全部自动跟随，**别为设置页另写一套侧栏**。题头复用 `.outline-panel__header`（「設定」，唯一繁体，与「目錄」同例），搜索框与条目复用 `.outline-search*` / `.outline-panel__link*`；`Ctrl+K` 聚焦的是同一枚 `searchInputRef`（两枚面板不会同时在 DOM 里）。
+- **设置视图打开时侧栏只换内容**（`SettingsNav`，2026-09-20 第二批）：`App.tsx` 里仍是同一枚 `<aside className="outline-sidebar">`，`isSettingsOpen ? <SettingsNav/> : <OutlinePanel/>`——宽度变量、开合（`--open` + `beginWidthTransition()`）、拖宽手柄、窄屏浮层与纱罩、默认关全部自动跟随，**别为设置页另写一套侧栏**。题头复用 `.outline-panel__header`（「設定」，与「目錄」同例；字形随偏好 `headingScript`，出厂繁体、可选简体，标签对照表在 `src/lib/headingLabels.ts`），搜索框与条目复用 `.outline-search*` / `.outline-panel__link*`；`Ctrl+K` 聚焦的是同一枚 `searchInputRef`（两枚面板不会同时在 DOM 里）。
 - 侧边栏宽度可调：`useOutlineWidth`（200–320px，默认 240，双击手柄复位）覆写根 `--outline-width` 变量，`--outline-shift` 由 calc 派生自动跟随。
 - 启动时侧边栏**出厂恒为关闭**：`App.tsx` 必须传 `useOutlineOpen(false)`，该 hook 启动时不读取持久化状态（用户交互后的状态仍照写，只是不回读）。改回 `true` 会让侧栏每次启动都自行展开——这是产品决定，不是待修项。**唯一的例外是「界面 · 启动时展开侧栏」偏好**（2026-09-20 第二批）：`usePinnedLayoutActions` 挂载时单独读一次 `loadAppPreferences()`，为开则经 `setOutlineOpenPinned(true)` 展开（与其它入口同一条宽度过渡路径，仍走 `beginWidthTransition()`）——偏好是「启动时读一次」，不是让 hook 去回读持久化状态，两者别混为一谈。
 - 手柄 `.outline-resize-handle` 必须作 aside 的**兄弟节点**外置（aside 有 `overflow:hidden`）。
@@ -55,6 +55,20 @@
 - 分节清单单一来源：`SETTINGS_SECTIONS` / `settingsSectionElementId()` 从 `SettingsView.tsx` 导出，侧栏导航据此生成；点条目 → `handleSelectSettingsSection` 切激活态并用与大纲同一条 `animateContainerTo` 缓动滚到 `#settings-section-*`（设置页与正文**共用同一个滚动容器**，不另开滚动区）。
 - 「界面」与「更新」两节的开关是**启动偏好**，不是当场动作：两者都落 `src/lib/appPreferences.ts`（与 `outlineWidth` / `readerSettings` 同一个 settings Store，读盘失败一律回退出厂值），且只在启动时被读一次——`sidebarOpenOnLaunch`（出厂关）为开则 `usePinnedLayoutActions` 挂载后经 `setOutlineOpenPinned(true)` 展开侧栏（同一条 `beginWidthTransition()` 路径），在设置页里拨它**不会当场开合侧栏**（开合只由顶栏按钮 / `Ctrl+B` 决定），只影响下一次启动；`autoCheckUpdates`（出厂开）同理，只在 `main.tsx` 的启动静默检查那一步被读（设置页「立即检查」不看它）。
 - 打印：设置视图**不在**主打印段的隐藏清单里——它打开时正文整块不在 DOM，藏掉只会印出一张白纸（弹层时代 `.settings-popover` 浮在正文上，藏掉才印得着正文）。`kami.css.test.ts` 显式断言主段清单**不含** `.settings-view`。
+
+### 字体三槽与滚轮改字号（2026-09-27）
+
+- **字体三槽**：中文 / 西文 / 代码各一槽，落 `useReaderSettings` 的三个字符串字段（`cjkFont` / `latinFont` / `monoFont`，空串 = 默认），与字号同一条 Store 与同一个 `handleReaderSettingsChange` 入口（换字面同样改度量、同样要钉视口）。
+- CSS 侧：`kami.css` 的 `:root` 拆出 `--font-cjk` / `--font-latin` / `--font-mono` 三个**基变量**与 `--font-cjk-tail` / `--font-mono-tail` 两条**兜底尾巴**，`--serif: var(--font-latin), var(--font-cjk), serif`、`--mono: var(--font-mono), monospace`——消费处（二十来处 `var(--serif)` / `var(--mono)`）一处未动。
+- **红线：`--font-latin` 出厂必须 `var(--font-cjk)`**。拆栈前中西文挤在同一条 `--serif` 里（`TsangerJinKai02 → Songti → Charter → Georgia`），西文字形由楷体给；若把西文槽写成独立默认值（如 `Georgia`），拆分当天西文就换脸。西文槽的「默认」语义只能是**跟随中文**。
+- **红线：空槽一律 `removeProperty`，不得写空值**。`--font-cjk: ;` 会让 `var(--font-cjk)` 在计算值阶段整条失效，`font-family` 掉到初始值——正文直接变成默认衬线。
+- 用户选了字面时 JS 只写 `"字面", var(--font-*-tail)`（西文槽写 `var(--font-cjk)`）——尾巴留给 CSS，两边不各维护一份；字体名经 `sanitizeFontName` 剔掉 `" \ ; { }` 与控制字符、截到 96 字，再在 `quoteFontFamily` 里转义。
+- 候选表来自 Rust 命令 `list_system_fonts`（`src-tauri/src/fonts.rs`）：Windows 走 GDI `EnumFontFamiliesExW`，DEFAULT_CHARSET 收全表 + GB2312 / CHINESEBIG5 / SHIFTJIS / HANGUL / JOHAB 各趟标 `cjk`，`lfPitchAndFamily & FIXED_PITCH` 标 `mono`，跳过 `@` 竖排变体；Linux 走 `fc-list : family`。**标记只用于排序与标签，不做过滤**——过滤掉的那款往往正是用户要找的。枚举失败静默回退到随包两款（`loadSystemFonts` 缓存一次，失败只告警）。
+- 选择器是**fixed 定位**的面板（`.font-picker__panel`，z-index 965）：设置视图活在 `overflow-y: scroll` 的容器里，绝对定位的面板会在容器底部被裁；`position: fixed` 不被祖先 `overflow` 裁剪——前提是祖先链上没有 `transform` / `filter` / `will-change`（`viewportPin` 只写 `scrollTop`，不构成新的包含块）。面板随滚动 / 缩放重算位置，下方放不下就翻到上方；点面板外（pointerdown）或面板内 `Esc` 关闭——**`Esc` 必须在行节点的 keydown 上 `stopPropagation`**，设置视图的 `Esc` 监听挂在 `window` 上，不拦就会连带退出设置视图（同 `SettingsNav` 搜索框那套栈式语义）。
+- 面板里的候选行用它**自己的字面**渲染（`style={{ fontFamily }}`）：CJK 与西文字体光看名字选不出来。样张补了第二行（拉丁文 + 行内 `code`），三槽各有的样字。
+- **`Ctrl` + 滚轮改字号**（`useWheelFontSize`，偏好 `ctrlWheelFontSize`，出厂开）：挂在 `window` 的**捕获段、passive: false**——捕获是为了压在滚动容器与自定义滚动条之前，非被动是为了 `preventDefault`（不吞这一下，WebView2 会在正文缩放之外再叠一层整页缩放，与 `Ctrl+=` 必须吞键同理）。不按 `Ctrl` 的普通滚轮 `return` 之前**不碰任何东西**（照常滚动）；导出视图打开时**只吞不改**（预览分页已按当前字号排定，与快捷键那条同规矩）；设置视图里照常生效（样张实时跟着变）。
+- 步进靠累计（`accumulateWheelStep`）：阈值 100（Chromium 一格标准滚轮 = 100，触控板是每帧个位数的小 delta）、反向清零累计、单次事件最多发一档（否则甩一下会连跳三四档）、停手 350ms 算新手势。方向：向下滚 = 缩小。发步走的仍是 `stepReaderFontSize`（先钉视口，与 `Ctrl+=` 同一条路）。
+- 真机验收：`node scripts/cdp-reader-fonts.mjs`（前置 `npm run build`——本仓库 `tauri dev` 跑的是嵌入的 `dist`，详见 `docs/agents/tooling.md`）。2026-09-27 实测：357 款本机字体（102 标 cjk / 75 标 mono，竖排变体 0 条）；三槽首条分别是「默认 · 倉頡楷體 / 默认 · 跟随中文 / 默认 · JetBrains Mono」；面板 360 项、`insideViewport` 成立；Ctrl+滚轮 14→16→14 而 `devicePixelRatio` 恒 1.5（没叠整页缩放）。
 
 ## 阅读位置记忆与恢复
 
@@ -193,6 +207,15 @@
 - **库根与锚点都在 Rust 侧**：三个命令 `list_library` / `search_library` / `find_backlinks`（`src-tauri/src/library.rs`）一律读 `AppState.current`——前端不传路径；库根 = 含 `.obsidian` 的最近祖先目录（复用 `find_vault_root`），否则文档所在目录；遍历与 wikilink 解析共享 `collect_markdown_files`（限深 12 / 限项 50 000 / 跳点目录与 node_modules），重活都在 `spawn_blocking`。
 - **检索的 char 索引契约**：`matchStart`/`matchLen` 是 **char** 索引（非 UTF-16 code unit 也非字节），前端必须经 `Array.from(snippet)` 的码点序列切片（`src/lib/library.ts` 的 `snippetParts`），CJK 扩展区与代理对不会错位；大小写不敏感是逐字符 `to_lowercase` 比对（`ß` 不折叠成 `ss`，与 `String.toLowerCase` 同语义）。库检索词提升到 App 的 `librarySearchQuery`，切页签回来不丢；`LibrarySearchPanel` 300ms 防抖 + 请求号守卫丢过期回包，点命中行 `onOpenHit` = 打开该篇 + `handleSearchChange(query)`（文内检索接着高亮）。
 - **快捷键三通道**：`Ctrl+Shift+F` 判定在 Ctrl+K/F 别名之前（Shift+F 的 `key.toLowerCase()` 也是 `"f"`）——开侧栏、切「檢索」、60ms 后聚焦 `librarySearchInputRef`；`Ctrl+K`/`Ctrl+F` 聚焦前先 `setSidebarTab("outline")`；两键共用 `focusTimerRef`，连按不会留下过期聚焦。
+- **题头字形可换**：Store key `headingScript`（`traditional | simplified`，出厂 `traditional`，读盘非法值回退繁体）。页签四枚 + `OutlinePanel` 默认题头 + `SettingsNav` 的「設定」共享 `src/lib/headingLabels.ts` 的对照表——换的是题头标签字形，界面其余简体文案不动。App 经 props 把 `preferences.headingScript` 递给三处。
+
+## 外观主题（浅色 / 深色 / 跟随系统）
+
+- Store key `theme`（`system | light | dark`，出厂 `system`，读盘非三值回退 `system`）；`useTheme(preferences.theme, isExportOpen)` 把解算结果写到 `documentElement.dataset.theme` 与 `style.colorScheme`，「跟随系统」期间订阅 `prefers-color-scheme` 变化。
+- kami.css 颜色一律走 `:root` 令牌；深色令牌块 `:root[data-theme="dark"]` 紧跟 `:root` 之后（散件令牌 `--scrollbar-thumb` / `--scrim` / `--shadow-soft` / `--faint-text` / `--faint-mark` / `--brand-hover-tint` 深浅各一份）。新颜色先想令牌，不落字面量；data-URI 里用不了变量（任务对勾 SVG），只能整条 `:root[data-theme="dark"] …` 覆写。
+- 导出为 PDF 期间 `useTheme` 强制 `light`——printToPDF 打的是实时页面，纸面不落深色；`exportDocument.ts` 的页眉页脚色值是印刷专用字面量，不跟着换。
+- 首帧防闪：`useTheme` 把**偏好**镜像到 `localStorage["vellum-theme"]`，`main.tsx` 在 `root.render` 前按同一规则（`parseThemePreference` + `resolveTheme`，`src/lib/theme.ts`）同步解出 `data-theme`——CSP 禁内联脚本，`index.html` 放不了早期脚本，入口模块是最早的可执行点。
+- `CodeBlock.tsx` 的 Prism 配色（`KAMI_PRISM_STYLE`）只写 `var(--*)`；oneLight 基座选择器（`code/pre[class*="language-"]`）的 hsl 字面量已覆写成令牌（近白底改 transparent）。
 
 ## 文件索引
 
@@ -207,7 +230,9 @@
 | `src/lib/exportLayout.ts` | 导出页面几何常量（A4 / 20mm/22mm，96dpi 换算唯一来源） |
 | `src/lib/exportPagination.ts` | 预览分页：段落按行拆分 / 标题随块 / 页首边距截断（DOM 耦合） |
 | `src/components/SettingsNav.tsx` | 设置视图的侧栏内容（「設定」题头 + 分节导航，复用 `.outline-panel*` 语汇） |
-| `src/lib/appPreferences.ts` | 界面行为偏好（Store key `sidebarOpenOnLaunch` / `autoCheckUpdates`，与 `outlineWidth` 同一 settings Store） |
+| `src/lib/appPreferences.ts` | 界面行为偏好（Store key `sidebarOpenOnLaunch` / `autoCheckUpdates` / `theme` / `ctrlWheelFontSize` / `headingScript`，与 `outlineWidth` 同一 settings Store） |
+| `src/lib/theme.ts` | 「外观」主题类型与解算（`parseThemePreference` / `resolveTheme` / `THEME_STORAGE_KEY` localStorage 镜像键） |
+| `src/hooks/useTheme.ts` | 主题应用 hook：写 `data-theme` / `colorScheme`，订阅系统变化，导出视图期间强制 light，镜像偏好到 localStorage |
 | `src/lib/updater.ts` | 更新检查（启动静默 + 设置页「立即检查」，`Update` 句柄归还） |
 | `src/components/BlockEditor.tsx` | 就地编辑面（隐藏原块锁高、自增高推流、Esc/失焦提交） |
 | `src/hooks/useDocumentEditor.ts` | 编辑会话状态机（视图门禁、草稿、提交即落盘、提示条） |

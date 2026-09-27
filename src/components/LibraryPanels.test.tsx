@@ -42,6 +42,16 @@ describe("SidebarTabs", () => {
     fireEvent.click(screen.getByRole("tab", { name: "反鏈" }));
     expect(onSelect).toHaveBeenCalledWith("backlinks");
   });
+
+  it("script=simplified 时题头换简体字形（目录 / 检索 / 反链）", () => {
+    render(<SidebarTabs active="outline" onSelect={vi.fn()} script="simplified" />);
+
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((t) => t.textContent)).toEqual(["目录", "文件", "检索", "反链"]);
+    // 繁体原样不在场——换的是字形不是别名共存
+    expect(screen.queryByRole("tab", { name: "目錄" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "檢索" })).toBeNull();
+  });
 });
 
 describe("FilesPanel", () => {

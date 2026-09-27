@@ -267,7 +267,7 @@ pub fn cleanup_stale_sidecar_if_dead(sidecar_path: &Path, now: u64) -> bool {
     let Ok(data) = serde_json::from_str::<MdlogSidecarData>(&content) else {
         return false;
     };
-    if !should_cleanup_stale_sidecar(&data, now, &is_pid_alive_win32) {
+    if !should_cleanup_stale_sidecar(&data, now, &is_pid_alive) {
         return false;
     }
     std::fs::remove_file(sidecar_path).is_ok()
@@ -278,7 +278,7 @@ pub fn cleanup_stale_sidecar_if_dead(sidecar_path: &Path, now: u64) -> bool {
 /// 2. 成功获取句柄后调用 GetExitCodeProcess 复核，并在返回前必须 CloseHandle 释放（G2）；
 /// 3. 若 OpenProcess 失败：仅在权限不足（ERROR_ACCESS_DENIED）或共享冲突时降级为 true；进程不存在时返回 false（A1）。
 #[cfg(windows)]
-pub fn is_pid_alive_win32(pid: u32) -> bool {
+pub fn is_pid_alive(pid: u32) -> bool {
     use windows_sys::Win32::Foundation::{
         CloseHandle, GetLastError, ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, STILL_ACTIVE,
     };
@@ -313,8 +313,18 @@ pub fn is_pid_alive_win32(pid: u32) -> bool {
     }
 }
 
-#[cfg(not(windows))]
-pub fn is_pid_alive_win32(_pid: u32) -> bool {
+/// Linux 进程存活检查：/proc/<pid> 目录存在即存活。
+///（未被回收的 zombie 仍有 /proc 项会短暂判活——pi 进程终止后由父进程回收，
+/// 误判窗口很短；不引 libc 依赖的 kill(pid, 0)，/proc 探测已够用）
+#[cfg(target_os = "linux")]
+pub fn is_pid_alive(pid: u32) -> bool {
+    pid != 0 && std::path::PathBuf::from(format!("/proc/{pid}")).is_dir()
+}
+
+/// 其余平台（macOS 等）：保守降级为「存活」——宁可留残留 sidecar 等心跳超时兜底清理，
+/// 也不因误报「已死」删掉活会话的状态文件。
+#[cfg(all(not(windows), not(target_os = "linux")))]
+pub fn is_pid_alive(_pid: u32) -> bool {
     true
 }
 
@@ -371,7 +381,13 @@ pub async fn register_widget(
     }
 
     let id = uuid::Uuid::new_v4().to_string();
+    // 自定义协议的渲染 URL 形态按平台分：Windows / Android 走
+    // http://<scheme>.localhost（WebView2/WebKit 定制映射），Linux WebKitGTK 与
+    // macOS WKWebView 走 <scheme>://localhost。extract_widget_id 两种形态都认。
+    #[cfg(any(windows, target_os = "android"))]
     let url = format!("http://vellum-widget.localhost/{id}");
+    #[cfg(not(any(windows, target_os = "android")))]
+    let url = format!("vellum-widget://localhost/{id}");
 
     // S2: WidgetRegistry 为纯内存 LRU 表，即使先前操作 panic 导致 Mutex 中毒，
     // 获取 inner 引用后最坏情况仅存在 LRU 顺序轻微偏差，恢复后 insert 仍安全有效，
@@ -408,7 +424,7 @@ pub async fn read_mdlog_state(
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
 
-    let result = read_mdlog_state_from_path(current.as_deref(), &is_pid_alive_win32, now);
+    let result = read_mdlog_state_from_path(current.as_deref(), &is_pid_alive, now);
     if result.is_none() {
         if let Some(path) = current.as_deref() {
             // 残留清理：pi 进程被强杀 / 崩溃时扩展的 session_shutdown 不会执行，

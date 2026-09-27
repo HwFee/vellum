@@ -5,6 +5,7 @@ import {
   saveAppPreference,
   type AppPreferences,
 } from "../lib/appPreferences";
+import { parseThemePreference, THEME_STORAGE_KEY } from "../lib/theme";
 
 /**
  * 界面行为偏好（启动时展开侧栏 / 启动时自动检查更新）。
@@ -12,7 +13,20 @@ import {
  * 注意两者都只是**启动偏好**——改它不改当前会话的界面（侧栏的开合只由顶栏 / Ctrl+B 决定）。
  */
 export function useAppPreferences(): [AppPreferences, (patch: Partial<AppPreferences>) => void] {
-  const [preferences, setPreferencesState] = useState<AppPreferences>(APP_PREFERENCES_DEFAULT);
+  const [preferences, setPreferencesState] = useState<AppPreferences>(() => {
+    // theme 的初始值取自 localStorage 镜像（main.tsx 首帧解算读的同一键）：
+    // Store 读盘是异步的，若从出厂「跟随系统」起跑，useTheme 会在读盘落地前
+    // 覆盖掉首帧已写好的 data-theme 并把镜像回写成 system（深色用户闪一帧浅色）。
+    // 其余字段不读镜像——它们不参与首帧视觉
+    try {
+      return {
+        ...APP_PREFERENCES_DEFAULT,
+        theme: parseThemePreference(localStorage.getItem(THEME_STORAGE_KEY)),
+      };
+    } catch {
+      return APP_PREFERENCES_DEFAULT;
+    }
+  });
   /// 本次改动涉及哪些 key（启动时那次异步读盘不是改动，不该回写）
   const pendingKeysRef = useRef<Set<keyof AppPreferences>>(new Set());
   /// 最新一份偏好：异步读盘落地时据此比对，读到的与当前一致就不触发渲染
@@ -27,10 +41,8 @@ export function useAppPreferences(): [AppPreferences, (patch: Partial<AppPrefere
     void loadAppPreferences().then((loaded) => {
       if (cancelled) return;
       const prev = preferencesRef.current;
-      if (
-        prev.sidebarOpenOnLaunch === loaded.sidebarOpenOnLaunch &&
-        prev.autoCheckUpdates === loaded.autoCheckUpdates
-      ) {
+      const keys = Object.keys(loaded) as (keyof AppPreferences)[];
+      if (keys.every((key) => prev[key] === loaded[key])) {
         return;
       }
       setPreferencesState(loaded);

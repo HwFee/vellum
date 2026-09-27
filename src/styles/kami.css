@@ -37,6 +37,15 @@
   --border: #e8e6dc;
   --border-soft: #e5e3d8;
   --hairline: #dddacc;
+  /* 无法用上层令牌组合出的散件颜色也收成变量：滚动条、遮罩、浮层投影、
+     编辑态页边淡色标记、靛青悬停 tint——深浅两套色板各给一份 */
+  --scrollbar-thumb: rgba(80, 78, 73, 0.5);
+  --scrollbar-thumb-hover: rgba(80, 78, 73, 0.7);
+  --scrim: rgba(20, 20, 19, 0.15);
+  --shadow-soft: rgba(20, 20, 19, 0.08);
+  --faint-text: #a5a294;
+  --faint-mark: #b9b6a9;
+  --brand-hover-tint: rgba(27, 54, 93, 0.08);
   --outline-width: 240px;
   /* 阅读设置三变量：useReaderSettings 在 documentElement 上覆写，消费处一律带默认值回退 */
   --reader-font-size: 14px;
@@ -44,12 +53,61 @@
   --reader-line-height: 1.55;
   --outline-gutter: 20px;
   --outline-shift: calc(var(--outline-width) + var(--outline-gutter));
-  --serif: "TsangerJinKai02", "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", Charter, Georgia, Palatino, serif;
-  --mono: "JetBrains Mono", "SF Mono", "Fira Code", Consolas, Monaco, "TsangerJinKai02", "Source Han Serif SC", monospace;
+  /* 字体三槽（中文 / 西文 / 代码）：前两行是**基础字面表**，useReaderSettings 在
+     documentElement 上覆写 --font-cjk / --font-latin / --font-mono 三变量换字面，
+     消费处一律只认 --serif / --mono。
+     红线：--font-latin 出厂**跟随中文槽**（var(--font-cjk)），所以不指定西文字面时
+     它的解析结果与拆分前的单一栈逐字相同（西文字形仍由中文槽那款字体给）。若把
+     西文槽写成一个独立默认值（如 Georgia），拆完当天西文字形就会换脸——这不是
+     本功能的本意，西文槽的默认语义只能是「跟随中文」。
+     --font-cjk-tail / --font-mono-tail 是**兜底尾巴**：用户选了字面时，JS 写进来的
+     值形如 `"思源宋体", var(--font-cjk-tail)`，换字面的同时这一段尾巴原样保留。 */
+  --font-cjk-tail: "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", Charter, Georgia, Palatino;
+  --font-cjk: "TsangerJinKai02", var(--font-cjk-tail);
+  --font-latin: var(--font-cjk);
+  --font-mono-tail: "SF Mono", "Fira Code", Consolas, Monaco, "TsangerJinKai02", "Source Han Serif SC";
+  --font-mono: "JetBrains Mono", var(--font-mono-tail);
+  --serif: var(--font-latin), var(--font-cjk), serif;
+  --mono: var(--font-mono), monospace;
+}
+
+/* 深色令牌（设置页「外观」→ useTheme 写 documentElement.dataset.theme；导出为 PDF
+   期间 useTheme 强制 light，纸面永远不落深色）：同一套暖纸语汇的暗色倒影——纸面
+   沉为墨黑暖灰、墨色反成暖白，靛青提亮成雾蓝；朱红章点等强调色照旧不落变量 */
+:root[data-theme="dark"] {
+  --parchment: #1c1b19;
+  --ivory: #242320;
+  --inline-code-bg: #2a2926;
+  --warm-sand: #33312c;
+  --near-black: #e8e6dc;
+  --dark-warm: #cfccc0;
+  --olive: #b3b0a4;
+  --stone: #8f8c82;
+  --brand: #8fb0d9;
+  --tag-bg: #25303f;
+  --brand-tint: #1f2733;
+  --border: #34322d;
+  --border-soft: #2f2d29;
+  --hairline: #3d3b35;
+  --scrollbar-thumb: rgba(232, 230, 220, 0.28);
+  --scrollbar-thumb-hover: rgba(232, 230, 220, 0.45);
+  --scrim: rgba(0, 0, 0, 0.4);
+  --shadow-soft: rgba(0, 0, 0, 0.35);
+  --faint-text: #6a675c;
+  --faint-mark: #57544b;
+  --brand-hover-tint: rgba(143, 176, 217, 0.14);
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* WebKitGTK（Linux）没有 WebView2 的 --hide-scrollbars 启动参数，原生滚动条会
+   与自定义滚动条并存——全域收掉；Windows 上这条规则无害（Chromium 同样认
+   ::-webkit-scrollbar，而 --hide-scrollbars 本就不画） */
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 html,
@@ -1046,7 +1104,7 @@ mark.search-match--current {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(20, 20, 19, 0.15);
+  background: var(--scrim);
   /* 950：高于自定义滚动条（900）与重载印章（900），低于侧栏（960）——
      窄屏浮层时侧栏外一律不可交互，侧栏本身仍可用 */
   z-index: 950;
@@ -1303,14 +1361,14 @@ mark.search-match--current {
   left: 0;
   width: 6px;
   border-radius: 3px;
-  background: rgba(80, 78, 73, 0.5);
+  background: var(--scrollbar-thumb);
   cursor: default;
   transition: background 0.15s ease;
 }
 
 .custom-scrollbar:hover .custom-scrollbar__thumb,
 .custom-scrollbar__thumb:hover {
-  background: rgba(80, 78, 73, 0.7);
+  background: var(--scrollbar-thumb-hover);
 }
 
 .markdown-body,
@@ -1861,6 +1919,20 @@ mark.search-match--current {
   background: var(--border-soft);
 }
 
+/* 屏幕阅读器专用（GFM footnotes 区段的 "Footnotes" 题头等）：不占版面，
+   只在可访问树里留名 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .markdown-body input[type="checkbox"] {
   accent-color: var(--brand);
 }
@@ -1909,6 +1981,13 @@ mark.search-match--current {
   background-repeat: no-repeat;
   background-position: center;
   background-size: 10px;
+}
+
+/* 深色的对勾描边：data-URI 里用不了 CSS 变量，只能整条 background-image 覆写
+   （%238fb0d9 = 深色色板的 --brand 雾蓝；选择器带 :root[data-theme] 前缀，特异度
+   已高于上一条，来源序无关） */
+:root[data-theme="dark"] .markdown-body .task-list-item input[type="checkbox"]:not(:disabled):checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 5.4 L4.2 7.6 L8 2.6' fill='none' stroke='%238fb0d9' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 /* 已勾同行的任务文字（划线）：灰化 + 1px 删除线。GFM 任务项里文字是复选框的兄弟**文本
@@ -2041,7 +2120,7 @@ mark.search-match--current {
 }
 
 .code-block .code-block__copy:hover {
-  background-color: rgba(27, 54, 93, 0.08);
+  background-color: var(--brand-hover-tint);
   color: var(--brand);
 }
 
@@ -2219,7 +2298,7 @@ mark.search-match--current {
 }
 .markdown-body--editing > [data-vellum-unit]:not([data-vellum-locked]):not(.vellum-unit-wrap):hover::before,
 .markdown-body--editing > .vellum-unit-wrap[data-vellum-unit]:not([data-vellum-locked]) > :first-child:hover::before {
-  color: #a5a294;
+  color: var(--faint-text);
 }
 
 /* 只读块（HTML / 交互块）在编辑视图里的提示（A2 定稿）：**not-allowed 指针 +
@@ -2239,7 +2318,7 @@ mark.search-match--current {
   width: 20px;
   text-align: center;
   font-size: 13px;
-  color: #b9b6a9;
+  color: var(--faint-mark);
   pointer-events: none;
   user-select: none;
 }
@@ -2317,7 +2396,7 @@ mark.search-match--current {
   border-radius: 6px;
   box-shadow:
     inset 0 0 0 1px var(--hairline),
-    0 1px 3px rgba(20, 20, 19, 0.08);
+    0 1px 3px var(--shadow-soft);
   font-size: 13px;
   line-height: 1.65;
   color: var(--dark-warm);
@@ -2836,6 +2915,160 @@ mark.search-match--current {
   transition: font-size 0.18s ease, max-width 0.18s ease;
 }
 
+/* 样张第二行：西文槽与代码槽的样字（第一行看的是中文槽） */
+.settings-view__proof-latin {
+  margin-top: 6px;
+  color: var(--olive);
+}
+
+.settings-view__proof-sheet code {
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--inline-code-bg);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* 字体选择器（中文字体 / 西文字体 / 代码字体）：当前值是一枚与 .seg 同语汇的
+   幽灵按钮，点开在下方浮出一张可选列表。面板用 position: fixed —— 设置视图活在
+   overflow-y: scroll 的滚动容器里，绝对定位的面板会被容器在底部裁掉；fixed 元素
+   不被祖先的 overflow 裁剪（祖先链上没有 transform / filter / will-change，
+   viewportPin 也只写 scrollTop，不构成新的包含块）。 */
+.font-picker {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.font-picker__value {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 12px/1.5 var(--mono);
+  letter-spacing: 0.2px;
+  color: var(--olive);
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.font-picker__value:hover {
+  background: var(--warm-sand);
+  color: var(--near-black);
+}
+
+.font-picker__value:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+
+.font-picker__value--default {
+  color: var(--stone);
+}
+
+/* 字面预热中（选中 → document.fonts.load 就绪之间）的淡态提示 */
+.font-picker__value--pending {
+  opacity: 0.62;
+}
+
+.font-picker__panel {
+  position: fixed;
+  /* 965：压在侧栏（960）之上、悬停预览（970）与顶栏（1000）之下——面板是设置页里
+     的一枚部件，不该越过这两层 */
+  z-index: 965;
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  max-height: 340px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--ivory);
+  box-shadow: 0 8px 24px var(--shadow-soft);
+}
+
+.font-picker__search {
+  flex: none;
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--parchment);
+  color: var(--near-black);
+  font: 12px/1.5 var(--serif);
+}
+
+.font-picker__search:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 0;
+}
+
+.font-picker__list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+/* 视口外行整行跳布局（行高固定，contain-intrinsic-size 只估高度）——
+   打开面板时几百行候选项不一次全排，渐进预览的 IntersectionObserver 仍照常触发 */
+.font-picker__list > li {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 30px;
+}
+
+.font-picker__option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--near-black);
+  text-align: left;
+  cursor: pointer;
+}
+
+.font-picker__option:hover {
+  background: var(--brand-tint);
+}
+
+.font-picker__option[aria-selected="true"] {
+  color: var(--brand);
+}
+
+.font-picker__option-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.font-picker__option-tag {
+  flex: none;
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 0.4px;
+  color: var(--stone);
+}
+
+.font-picker__empty {
+  padding: 10px 8px;
+  color: var(--stone);
+  font-size: 12px;
+}
+
 /* 快捷键那一行：左标签贴顶，右列是双列网格（网格里每一格自己又是一个 set 行） */
 .settings-view__row--keys {
   align-items: flex-start;
@@ -3021,7 +3254,7 @@ mark.search-match--current {
   padding: 75.6px 83.2px;
   background: var(--parchment);
   border: 1px solid var(--hairline);
-  box-shadow: 0 1px 3px rgba(20, 20, 19, 0.08);
+  box-shadow: 0 1px 3px var(--shadow-soft);
   overflow: hidden;
 }
 

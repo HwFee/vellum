@@ -1,5 +1,6 @@
 pub mod association;
 pub mod document;
+pub mod fonts;
 pub mod library;
 pub mod state;
 pub mod watcher;
@@ -7,6 +8,8 @@ pub mod widget;
 
 #[cfg(test)]
 mod document_tests;
+#[cfg(test)]
+mod fonts_tests;
 #[cfg(test)]
 mod library_tests;
 #[cfg(test)]

@@ -41,3 +41,18 @@ globalThis.IntersectionObserver = IntersectionObserverMock as unknown as typeof 
 if (typeof Element.prototype.scrollIntoView !== "function") {
   Element.prototype.scrollIntoView = () => {};
 }
+
+// jsdom 未实现 matchMedia（useTheme 用它解「跟随系统」）：桩成恒不匹配的单查询
+//（需要模拟深浅翻面的用例自行用 Object.defineProperty 覆写 window.matchMedia）
+if (typeof window.matchMedia !== "function") {
+  window.matchMedia = ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })) as typeof window.matchMedia;
+}

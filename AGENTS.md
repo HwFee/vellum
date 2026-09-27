@@ -1,6 +1,6 @@
 # Vellum · 素笺 — Agent 说明
 
-Tauri 2 + React 19 桌面 Markdown 阅读器，Windows 10/11 x64。
+Tauri 2 + React 19 桌面 Markdown 阅读器，Windows 10/11 x64 与 Linux（WebKitGTK 4.1 / GTK 3）。
 
 本文件只留定位、仓库结构、命令、红线速查与文档导航；细节按主题拆进 `docs/agents/` 四个分册，动手前按「文档导航」找对应分册。
 
@@ -82,17 +82,18 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 19. **打印覆写要压过屏幕态规则时，屏幕态规则不能写成逗号列表**：构建期 minifier 会把列表包进 `:is()` 并取参数里最高特异度，只在产物里静默失效；屏幕态拆成单选择器、打印覆写与它逐字同选择器靠来源序取胜（勾选划线踩过）。 → `docs/agents/rendering.md`
 20. 设置视图打开时侧栏只换内容（`SettingsNav`，「設定」题头 + 分节导航），**仍是同一枚 `.outline-sidebar`**：宽度、开合与拖宽的全部入口照旧走 `beginWidthTransition()`，别为设置页另写一套侧栏。 → `docs/agents/rendering.md`
 21. 导出为 PDF（Ctrl+P，打印对话框已退役）：纸面底色必须刷在 `@page` 上——`body` 背景分页时不传播满页边区（会漏白，真机像素取证）；页眉页脚走导出视图运行时注入的 `@page` 边盒，不落 kami.css；预览测量流必须与打印底稿逐块同构（注入题目在则是第一块，「原文」模式不注入）；正文自带同题 h1 时按题目样式去重——同一题目不排两次。 → `docs/agents/rendering.md`
+22. 字体三槽：`--font-latin` 出厂必须是 `var(--font-cjk)`（西文槽写成独立默认值等于拆分当天给西文换脸）；空槽一律 `removeProperty`、**不得写空值**（`--font-cjk: ;` 会让 `font-family` 在计算值阶段整条失效）；用户选中的字面只写「字面 + `var(--font-*-tail)`」，尾巴留在 CSS；字体候选表只排序、不过滤。 → `docs/agents/rendering.md`
 
 ## 关键路径
 
-- 应用字体资源：`public/fonts/`（~17MB）。
-- 前端状态与持久化：`src/lib/recentFiles.ts`（最近 8 篇，Store key `recentFiles`，含 `lastOpenedPath` 迁移）、`src/lib/navHistory.ts`（wikilink 前进/后退两栈，条目自带三级位置记录）、`src/lib/taskList.ts`（任务标记定位与翻转，绝对偏移纯函数）、`src/hooks/useReaderSettings.ts`（字号/栏宽/行高，覆写根 CSS 变量，改值前须走 `beginWidthTransition()`）。
+- 应用字体资源：`public/fonts/`（~17MB，只随包倉頡楷體与 JetBrains Mono）；本机字体候选表由 Rust 命令 `list_system_fonts` 提供（`src-tauri/src/fonts.rs`），字体名清洗与栈合成在 `src/lib/fonts.ts`。
+- 前端状态与持久化：`src/lib/recentFiles.ts`（最近 8 篇，Store key `recentFiles`，含 `lastOpenedPath` 迁移）、`src/lib/navHistory.ts`（wikilink 前进/后退两栈，条目自带三级位置记录）、`src/lib/taskList.ts`（任务标记定位与翻转，绝对偏移纯函数）、`src/hooks/useReaderSettings.ts`（字号/栏宽/行高 + 中文/西文/代码三槽字体，覆写根 CSS 变量，改值前须走 `beginWidthTransition()`）。
 - 应用编排：`src/App.tsx` 只做「`useAppRuntime` 共享 ref 总线 → 领域 hooks 接线 → JSX」，全部职责域在 `src/hooks/`（文档加载 `useDocumentLoader`、平台绑定 `usePlatformBindings`、滚动记忆 `useScrollMemory`/`useScrollPosition`、布局过渡 `useLayoutShift`、钉视口入口 `usePinnedLayoutActions`、整页视图 `useFullScreenViews`、mdlog `useMdlog`、导航 `useNavHistory`/`useSmoothNav`/`useOutline`、搜索 `useSearchState`、快捷键 `useGlobalShortcuts`、编辑会话 `useDocumentEditor` 等）。
-- 设置页与界面偏好：`src/components/SettingsView.tsx`（四节内容栏；`SETTINGS_SECTIONS` / `settingsSectionElementId` 是分节清单的唯一来源，侧栏导航据此生成）、`src/components/SettingsNav.tsx`（设置视图的侧栏内容）、`src/lib/appPreferences.ts`（Store key `sidebarOpenOnLaunch` / `autoCheckUpdates`，读盘失败回退出厂值）、`src/lib/updater.ts`（`checkForUpdates(manual?)`：启动静默检查 + 设置页「立即检查」）。
+- 设置页与界面偏好：`src/components/SettingsView.tsx`（四节内容栏；`SETTINGS_SECTIONS` / `settingsSectionElementId` 是分节清单的唯一来源，侧栏导航据此生成）、`src/components/SettingsNav.tsx`（设置视图的侧栏内容）、`src/lib/appPreferences.ts`（Store key `sidebarOpenOnLaunch` / `autoCheckUpdates` / `theme` / `ctrlWheelFontSize` / `headingScript`，读盘失败回退出厂值）、`src/hooks/useTheme.ts` 与 `src/lib/theme.ts`（外观主题：写 `data-theme`/`colorScheme`，导出视图强制 light，偏好镜像 localStorage `vellum-theme` 供 main.tsx 首帧同步解算）、`src/hooks/useWheelFontSize.ts`（Ctrl+滚轮改字号：window 捕获段非被动监听，导出视图只吞不改）、`src/lib/updater.ts`（`checkForUpdates(manual?)`：启动静默检查 + 设置页「立即检查」）。
 - 导出为 PDF：`src/components/ExportPdfView.tsx`（纸张舞台）、`src/lib/exportDocument.ts`（消毒后的正文底稿）、`src/lib/exportLayout.ts`（模板常量）、`src/lib/exportPagination.ts`（按行摹 Chromium 分页）、Rust 侧 `export_pdf` 命令（对主窗口 WebView2 调 CDP `Page.printToPDF`）。
 - 库面板：`src-tauri/src/library.rs`（`list_library` / `search_library` / `find_backlinks`，锚定 `AppState.current`）、`src/components/SidebarTabs.tsx` 与 `FilesPanel` / `LibrarySearchPanel` / `BacklinksPanel`（同一枚 `.outline-sidebar` 内换内容）、`src/lib/library.ts`（契约类型 + `buildFileTree` + `snippetParts`）。
 - pi 扩展实体：`extensions/mdlog/`（pi 的加载位 `~/.pi/agent/extensions/mdlog` 是指向它的目录联接）。
-- 真机探针：`scripts/cdp-*.mjs`（`cdp-verify` / `cdp-perf-scroll` / `cdp-sidebar-jump` / `cdp-anchor-synthetic` / `cdp-obsidian-verify`）。
+- 真机探针：`scripts/cdp-*.mjs`（`cdp-verify` / `cdp-perf-scroll` / `cdp-sidebar-jump` / `cdp-anchor-synthetic` / `cdp-obsidian-verify` / `cdp-reader-fonts`）。
 - 设计语言：`DESIGN.md`；变更记录：`CHANGELOG.md`。
 
 ## 文档导航

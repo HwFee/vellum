@@ -2,7 +2,7 @@
 
 # Vellum · 素笺
 
-_A warm, parchment-toned Markdown viewer for Windows._
+_A warm, parchment-toned Markdown viewer for Windows and Linux._
 
 **给 Markdown 一张纸。** 暖纸底色、今楷正文、一笔靛青 —— 一个把长文档认真排出来的窗口。
 
@@ -25,7 +25,11 @@ A single Windows installer is provided:
 The installer automatically registers `.md` and `.markdown` file associations, so you can open
 Markdown files directly from File Explorer.
 
-> **Platform note:** Vellum · 素笺 is currently built and tested for **Windows 10/11 x64** only.
+On Linux, `.deb` and `.AppImage` packages are provided. The `.deb` declares `text/markdown`
+in its desktop entry, so `.md` files can open with Vellum from the file manager.
+
+> **Platform note:** Vellum · 素笺 is built and tested for **Windows 10/11 x64** and
+> **Linux** (WebKitGTK 4.1 / GTK 3). Auto-update is Windows-only for now.
 
 ## Features
 
@@ -35,11 +39,14 @@ Markdown files directly from File Explorer.
   层级只靠字号、字重、留白与 ivory 填充承担——标题没有前导短线，引用没有侧线，表格默认没有斑马纹。
 - **阅读设置页。** 顶栏齿轮打开整页设置视图（正文区整块替换，侧栏换成「設定」分节导航）：
   阅读一节调正文字号 13 / 14 / 16 / 18、栏宽 720 / 800 / 960、行高 1.5 / 1.55 / 1.7
-  （字号也可用 <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> 步进与复位），
-  改动即时生效并记住（标题字号阶梯与版式不受影响，改栏宽时会先把视口钉在原来那一行上，
-  不跳位）；界面一节设「启动时展开侧栏」；更新一节可关掉启动自动检查、看当前版本、
-  手动「立即检查」；关于与数据一节显示当前文档路径、清空最近打开列表、列出快捷键。
-  <kbd>Esc</kbd> 或「‹ 返回阅读」退出，退出后回到进入前的阅读位置。
+  （字号也可用 <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> 步进与复位，
+  或拨开「<kbd>Ctrl</kbd> + 滚轮改字号」直接滚，出厂即开），
+  以及**中文字体 / 西文字体 / 代码字体**三槽——候选项是本机已装字体（随包楷体与
+  JetBrains Mono 排在最前），列表可搜索、每行用它自己的字面渲染；出厂不动时正文
+  仍是原来那套字（西文跟随中文），改动即时生效并记住（标题字号阶梯与版式不受影响，
+  改栏宽时会先把视口钉在原来那一行上，不跳位）；界面一节设「启动时展开侧栏」；
+  更新一节可关掉启动自动检查、看当前版本、手动「立即检查」；关于与数据一节显示当前
+  文档路径、清空最近打开列表、列出快捷键。<kbd>Esc</kbd> 或「‹ 返回阅读」退出，退出后回到进入前的阅读位置。
 - **GitHub Flavored Markdown。** 表格、任务列表、删除线、引用、围栏代码，以及脚注。
 - **数学公式。** KaTeX 行内与行间公式，含 Pandoc 式货币保护（`$5 和 $10` 不会被误判成公式）。
 - **代码高亮。** 20 种常用语言（PrismLight，不会为每种语言生成 chunk），带语言标签与复制按钮。
@@ -137,6 +144,7 @@ Markdown files directly from File Explorer.
 - Windows 10 version 1809+ or Windows 11
 - 64-bit (x64) processor
 - WebView2 runtime (pre-installed on most modern Windows systems)
+- Linux: WebKitGTK 4.1 + GTK 3 (declared as dependencies of the `.deb`)
 
 ## Tech Stack
 

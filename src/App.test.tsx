@@ -3893,6 +3893,9 @@ describe("设置视图", () => {
         fontSize: 16,
         columnWidth: 800,
         lineHeight: 1.55,
+        cjkFont: "",
+        latinFont: "",
+        monoFont: "",
       })
     );
   });

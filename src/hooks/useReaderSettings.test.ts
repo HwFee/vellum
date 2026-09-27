@@ -24,7 +24,14 @@ vi.mock("@tauri-apps/plugin-store", () => ({
   },
 }));
 
-const READER_VARS = ["--reader-font-size", "--reader-column-width", "--reader-line-height"];
+const READER_VARS = [
+  "--reader-font-size",
+  "--reader-column-width",
+  "--reader-line-height",
+  "--font-cjk",
+  "--font-latin",
+  "--font-mono",
+];
 
 function clearReaderVars() {
   for (const name of READER_VARS) {
@@ -57,7 +64,14 @@ describe("useReaderSettings", () => {
   it("启动时恢复持久化设置", async () => {
     mockGet.mockResolvedValue({ fontSize: 16, columnWidth: 960, lineHeight: 1.7 });
     const { result } = renderHook(() => useReaderSettings());
-    await waitFor(() => expect(result.current[0]).toEqual({ fontSize: 16, columnWidth: 960, lineHeight: 1.7 }));
+    await waitFor(() =>
+      expect(result.current[0]).toEqual({
+        ...READER_SETTINGS_DEFAULT,
+        fontSize: 16,
+        columnWidth: 960,
+        lineHeight: 1.7,
+      })
+    );
     expect(document.documentElement.style.getPropertyValue("--reader-font-size")).toBe("16px");
   });
 
@@ -65,7 +79,10 @@ describe("useReaderSettings", () => {
     mockGet.mockResolvedValue({ fontSize: 99, columnWidth: 720, lineHeight: "loose" });
     const { result } = renderHook(() => useReaderSettings());
     await waitFor(() =>
-      expect(result.current[0]).toEqual({ fontSize: 14, columnWidth: 720, lineHeight: 1.55 })
+      expect(result.current[0]).toEqual({
+        ...READER_SETTINGS_DEFAULT,
+        columnWidth: 720,
+      })
     );
   });
 
@@ -139,6 +156,7 @@ describe("useReaderSettings", () => {
     });
     await waitFor(() =>
       expect(mockSet).toHaveBeenCalledWith("readerSettings", {
+        ...READER_SETTINGS_DEFAULT,
         fontSize: 18,
         columnWidth: 960,
         lineHeight: 1.7,
@@ -155,6 +173,166 @@ describe("useReaderSettings", () => {
     expect(document.documentElement.style.getPropertyValue("--reader-column-width")).toBe("720px");
     unmount();
     expect(document.documentElement.style.getPropertyValue("--reader-column-width")).toBe("");
+  });
+});
+
+describe("useReaderSettings 字体三槽（中文 / 西文 / 代码）", () => {
+  beforeEach(() => {
+    mockGet.mockReset();
+    mockSet.mockReset();
+    mockSave.mockReset();
+    __resetSettingsStoreForTest();
+    clearReaderVars();
+  });
+
+  afterEach(() => {
+    clearReaderVars();
+  });
+
+  it("出厂不覆写字体变量：三个槽都走 kami.css 的回退", () => {
+    renderHook(() => useReaderSettings());
+    const root = document.documentElement.style;
+    expect(root.getPropertyValue("--font-cjk")).toBe("");
+    expect(root.getPropertyValue("--font-latin")).toBe("");
+    expect(root.getPropertyValue("--font-mono")).toBe("");
+  });
+
+  it("选字面后写「字面 + 兜底尾巴」，尾巴交给 CSS 端着", () => {
+    const { result } = renderHook(() => useReaderSettings());
+    act(() => {
+      result.current[1]({ cjkFont: "SimSun", latinFont: "Georgia", monoFont: "Consolas" });
+    });
+
+    const root = document.documentElement.style;
+    expect(root.getPropertyValue("--font-cjk")).toBe('"SimSun", var(--font-cjk-tail)');
+    // 西文槽的尾巴接回中文槽：汉字必须落回中文槽那款字体
+    expect(root.getPropertyValue("--font-latin")).toBe('"Georgia", var(--font-cjk)');
+    expect(root.getPropertyValue("--font-mono")).toBe('"Consolas", var(--font-mono-tail)');
+  });
+
+  it("改回默认（空串）时移除变量，而不是写空值（空值会让 font-family 在计算值阶段失效）", () => {
+    const { result } = renderHook(() => useReaderSettings());
+    act(() => {
+      result.current[1]({ cjkFont: "SimSun" });
+    });
+    expect(document.documentElement.style.getPropertyValue("--font-cjk")).not.toBe("");
+
+    act(() => {
+      result.current[1]({ cjkFont: "" });
+    });
+    expect(document.documentElement.style.getPropertyValue("--font-cjk")).toBe("");
+    // 不是写了空值充数：整段 style 里不该再出现这个变量
+    expect(document.documentElement.getAttribute("style") ?? "").not.toContain("--font-cjk");
+  });
+
+  it("持久化的字体名逐字段清洗：脏值落回默认、合法值原样恢复", async () => {
+    mockGet.mockResolvedValue({
+      fontSize: 16,
+      columnWidth: 800,
+      lineHeight: 1.55,
+      cjkFont: "  Source Han Serif SC  ",
+      latinFont: 42,
+      monoFont: '";{}',
+    });
+    const { result } = renderHook(() => useReaderSettings());
+
+    await waitFor(() => expect(result.current[0].cjkFont).toBe("Source Han Serif SC"));
+    expect(result.current[0].latinFont).toBe("");
+    expect(result.current[0].monoFont).toBe("");
+    expect(document.documentElement.style.getPropertyValue("--font-cjk")).toBe(
+      '"Source Han Serif SC", var(--font-cjk-tail)'
+    );
+  });
+
+  it("字体槽随卸载一并清掉", () => {
+    const { result, unmount } = renderHook(() => useReaderSettings());
+    act(() => {
+      result.current[1]({ monoFont: "Consolas" });
+    });
+    expect(document.documentElement.style.getPropertyValue("--font-mono")).not.toBe("");
+
+    unmount();
+    expect(document.documentElement.style.getPropertyValue("--font-mono")).toBe("");
+  });
+
+  it("冷字面先经 document.fonts.load 预热再写变量——load 返回前不落笔", async () => {
+    let resolveLoad: (faces: FontFace[]) => void = () => {};
+    const fontsStub = {
+      load: vi.fn(
+        (_spec: string, _text: string) =>
+          new Promise<FontFace[]>((resolve) => {
+            resolveLoad = resolve;
+          })
+      ),
+      check: vi.fn(() => false),
+    };
+    Object.defineProperty(document, "fonts", { value: fontsStub, configurable: true });
+    try {
+      const { result } = renderHook(() => useReaderSettings());
+      act(() => {
+        result.current[1]({ cjkFont: "SimSun" });
+      });
+
+      // 预热在途：load 已发起，变量还没写——正文不会先按回退排一遍
+      expect(fontsStub.load).toHaveBeenCalledWith('16px "SimSun"', "素笺字体预览样张");
+      expect(document.documentElement.style.getPropertyValue("--font-cjk")).toBe("");
+
+      await act(async () => {
+        resolveLoad([]);
+      });
+      expect(document.documentElement.style.getPropertyValue("--font-cjk")).toBe(
+        '"SimSun", var(--font-cjk-tail)'
+      );
+    } finally {
+      delete (document as unknown as { fonts?: unknown }).fonts;
+    }
+  });
+
+  it("预热超 300ms 封顶仍落笔——慢机器不饿着等", async () => {
+    const fontsStub = {
+      load: vi.fn(() => new Promise<FontFace[]>(() => {})),
+      check: vi.fn(() => false),
+    };
+    Object.defineProperty(document, "fonts", { value: fontsStub, configurable: true });
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useReaderSettings());
+      act(() => {
+        result.current[1]({ cjkFont: "SimSun" });
+      });
+      expect(document.documentElement.style.getPropertyValue("--font-cjk")).toBe("");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(350);
+      });
+      expect(document.documentElement.style.getPropertyValue("--font-cjk")).toBe(
+        '"SimSun", var(--font-cjk-tail)'
+      );
+    } finally {
+      vi.useRealTimers();
+      delete (document as unknown as { fonts?: unknown }).fonts;
+    }
+  });
+
+  it("已载入的字面（fonts.check 为 true）同步落笔，不绕一圈异步", () => {
+    const fontsStub = {
+      load: vi.fn(() => Promise.resolve([] as FontFace[])),
+      check: vi.fn(() => true),
+    };
+    Object.defineProperty(document, "fonts", { value: fontsStub, configurable: true });
+    try {
+      const { result } = renderHook(() => useReaderSettings());
+      act(() => {
+        result.current[1]({ cjkFont: "SimSun" });
+      });
+      // check 命中即跳过预热：变量同步就位
+      expect(fontsStub.load).not.toHaveBeenCalled();
+      expect(document.documentElement.style.getPropertyValue("--font-cjk")).toBe(
+        '"SimSun", var(--font-cjk-tail)'
+      );
+    } finally {
+      delete (document as unknown as { fonts?: unknown }).fonts;
+    }
   });
 });
 

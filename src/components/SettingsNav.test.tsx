@@ -3,7 +3,10 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { SettingsNav } from "./SettingsNav";
 import { SETTINGS_SECTIONS, type SettingsSectionId } from "./SettingsView";
 
-function setup(activeSectionId: SettingsSectionId = "reading") {
+function setup(
+  activeSectionId: SettingsSectionId = "reading",
+  headerScript?: "traditional" | "simplified"
+) {
   const onSelectSection = vi.fn();
   const searchInputRef = { current: null };
   const view = render(
@@ -11,6 +14,7 @@ function setup(activeSectionId: SettingsSectionId = "reading") {
       activeSectionId={activeSectionId}
       onSelectSection={onSelectSection}
       searchInputRef={searchInputRef}
+      headerScript={headerScript}
     />
   );
   return { onSelectSection, searchInputRef, view };
@@ -30,6 +34,14 @@ describe("SettingsNav", () => {
       expect(screen.getByRole("button", { name: section.label })).toBeInTheDocument();
     }
     expect(document.querySelector("nav")).toHaveAttribute("aria-label", "设置分节");
+  });
+
+  it("headerScript=simplified 时题头换简体「设置」", () => {
+    setup("reading", "simplified");
+
+    const header = document.querySelector(".outline-panel__header");
+    expect(header).toHaveTextContent("设置");
+    expect(header).not.toHaveTextContent("設定");
   });
 
   it("激活条目复用 --active 语汇（brand + 500 + 左缘靛青轨）", () => {

@@ -30,11 +30,13 @@ import { OUTLINE_WIDTH_DEFAULT, useOutlineWidth } from "./hooks/useOutlineWidth"
 import { usePinnedLayoutActions } from "./hooks/usePinnedLayoutActions";
 import { usePlatformBindings } from "./hooks/usePlatformBindings";
 import { useReaderSettings } from "./hooks/useReaderSettings";
+import { useWheelFontSize } from "./hooks/useWheelFontSize";
 import { useRecentFiles } from "./hooks/useRecentFiles";
 import { useScrollMemory } from "./hooks/useScrollMemory";
 import { useScrollPosition } from "./hooks/useScrollPosition";
 import { useSearchState } from "./hooks/useSearchState";
 import { useSmoothNav } from "./hooks/useSmoothNav";
+import { useTheme } from "./hooks/useTheme";
 import { fileNameToTitle } from "./lib/path";
 import type { SidebarTab } from "./lib/library";
 
@@ -114,6 +116,9 @@ export default function App() {
     toggleExport,
   } = useFullScreenViews(rt, { getScrollRecord: currentScrollRecord });
 
+  // 外观主题（跟随系统 / 浅色 / 深色）：导出视图打开期间强制浅色——印出的是纸
+  useTheme(preferences.theme, isExportOpen);
+
   // 「先钉视口再改布局」的全部入口（红线 8 收口）
   const {
     toggleOutlinePinned,
@@ -145,6 +150,12 @@ export default function App() {
   // 程序化滚动与文档内导航
   const { scrollHeadingIntoView, handleSelectSettingsSection } = useSmoothNav(rt, {
     setSettingsSectionId,
+  });
+
+  // Ctrl + 滚轮改正文字号（设置「阅读」节可关）：与 Ctrl+= / Ctrl+- 同一条步进入口
+  useWheelFontSize(rt, {
+    enabled: preferences.ctrlWheelFontSize,
+    stepFontSize: (direction) => stepReaderFontSize(direction),
   });
 
   // mdlog 现场日志
@@ -261,8 +272,15 @@ export default function App() {
     [openLibraryPath, handleSearchChange]
   );
 
-  // 侧栏页签题头：目錄 / 文件 / 檢索 / 反鏈——同一枚 .outline-sidebar 只换内容
-  const sidebarTabs = <SidebarTabs active={sidebarTab} onSelect={setSidebarTab} />;
+  // 侧栏页签题头：目錄 / 文件 / 檢索 / 反鏈——同一枚 .outline-sidebar 只换内容；
+  // 题头字形随「侧栏题头字形」偏好（出厂繁体）
+  const sidebarTabs = (
+    <SidebarTabs
+      active={sidebarTab}
+      onSelect={setSidebarTab}
+      script={preferences.headingScript}
+    />
+  );
 
   return (
     <main
@@ -322,6 +340,7 @@ export default function App() {
               activeSectionId={settingsSectionId}
               onSelectSection={handleSelectSettingsSection}
               searchInputRef={searchInputRef}
+              headerScript={preferences.headingScript}
             />
           ) : (
             sidebarTab === "files" ? (
@@ -348,6 +367,7 @@ export default function App() {
             ) : (
             <OutlinePanel
               header={sidebarTabs}
+              headerScript={preferences.headingScript}
               headings={headings}
               activeHeadingId={activeHeadingId}
               onSelectHeading={handleSelectHeading}

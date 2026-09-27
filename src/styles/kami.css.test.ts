@@ -445,7 +445,8 @@ describe("kami.css editing view (block-level inline editing)", () => {
     expect(hoverGlyph).toMatch(/content:\s*"¶"/);
     const hoverShow = css.match(/:not\(\.vellum-unit-wrap\):hover::before[^{]*\{[^}]*\}/s)?.[0] ?? "";
     expect(hoverShow).not.toBe("");
-    expect(hoverShow).toMatch(/color:\s*#a5a294/);
+    // 淡色页边字符走 --faint-text 令牌（深浅两套色板各给一份，不落字面量）
+    expect(hoverShow).toMatch(/color:\s*var\(--faint-text\)/);
 
     // 只读页边 ×：块自身（HTML 块）与包裹层首子元素（交互块）两路并列
     expect(css).toMatch(/\.markdown-body--editing\s*>\s*\[data-vellum-locked\]::before[^{]*\{[^}]*content:\s*"×"/s);
@@ -1211,5 +1212,47 @@ describe("kami.css reader-polish task-9 打印样式（2026-09-20）", () => {
     // 位置断言（jsdom 不套用 print 媒体，只能按顺序钉）：打印覆写在屏幕态规则之后
     expect(css.lastIndexOf(".mdlog-live {")).toBeGreaterThan(screenLive);
     expect(css.lastIndexOf(".mdlog-live {")).toBeGreaterThan(mdlogIndex);
+  });
+});
+
+/// 字体三槽（2026-09-27）：中文 / 西文 / 代码拆成三个基变量 + 两条兜底尾巴，
+/// --serif / --mono 改为合成栈；消费处一处未动。这里的断言钉的是两条红线。
+describe("kami.css 字体三槽变量", () => {
+  it(":root 声明三槽基变量与两条兜底尾巴，--serif / --mono 由它们合成", () => {
+    const root = css.match(/:root\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(root).toMatch(/--font-cjk-tail:\s*"Source Han Serif SC"/);
+    expect(root).toMatch(/--font-cjk:\s*"TsangerJinKai02",\s*var\(--font-cjk-tail\)/);
+    expect(root).toMatch(/--font-mono-tail:\s*"SF Mono"/);
+    expect(root).toMatch(/--font-mono:\s*"JetBrains Mono",\s*var\(--font-mono-tail\)/);
+    expect(root).toMatch(/--serif:\s*var\(--font-latin\),\s*var\(--font-cjk\),\s*serif/);
+    expect(root).toMatch(/--mono:\s*var\(--font-mono\),\s*monospace/);
+  });
+
+  it("红线：--font-latin 出厂跟随中文槽（写成独立默认值等于当天给西文换脸）", () => {
+    const root = css.match(/:root\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(root).toMatch(/--font-latin:\s*var\(--font-cjk\)\s*;/);
+    // 西文槽不得出现任何具体字面（Georgia / Charter / Palatino 只能待在 --font-cjk-tail 里）
+    const latinDecl = root.match(/--font-latin:\s*([^;]+);/)?.[1] ?? "";
+    expect(latinDecl).toBe("var(--font-cjk)");
+  });
+
+  it("消费处仍只认 --serif / --mono（二十来处不因拆槽改动）", () => {
+    // 拆槽后不该有任何规则直接消费 --font-cjk / --font-latin / --font-mono
+    const consumers = css.match(/font-family:[^;]*var\(--font-(?:cjk|latin|mono)\)[^;]*;/g) ?? [];
+    expect(consumers).toEqual([]);
+  });
+
+  it("字体选择器面板用 fixed 定位（滚动容器里绝对定位会被裁），且排在首个 .mdlog-widget 之前", () => {
+    const panel = css.match(/\.font-picker__panel\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(panel).toMatch(/position:\s*fixed/);
+    expect(css.indexOf(".font-picker")).toBeGreaterThan(-1);
+    expect(css.indexOf(".font-picker")).toBeLessThan(css.indexOf(".mdlog-widget"));
+  });
+
+  it("样张补了西文/代码槽的第二行（三槽各有的样字）", () => {
+    const latin = css.match(/\.settings-view__proof-latin\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(latin).not.toBe("");
+    const code = css.match(/\.settings-view__proof-sheet code\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(code).toMatch(/font-family:\s*var\(--mono\)/);
   });
 });

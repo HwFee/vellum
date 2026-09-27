@@ -4541,6 +4541,7 @@ version = "1.12.0"
 dependencies = [
  "base64 0.22.1",
  "dunce",
+ "gtk",
  "notify",
  "serde",
  "serde_json",
@@ -4552,6 +4553,7 @@ dependencies = [
  "tauri-plugin-updater",
  "urlencoding",
  "uuid",
+ "webkit2gtk",
  "webview2-com",
  "windows-core 0.61.2",
  "windows-sys 0.61.2",

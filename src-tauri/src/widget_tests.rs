@@ -275,11 +275,12 @@ fn judge_mdlog_alive_matrix_and_pid_fallback_evaluation() {
     let clock_rollback = judge_mdlog_alive(&sidecar, 90_000, &|pid| pid == 9999);
     assert!(!clock_rollback);
 
-    // 6. 原生 Win32 进程存活检查：自身 pid 必须为 true（正例 W3）；不存在的 pid 必须返回 false（A1）
-    #[cfg(windows)]
+    // 6. 原生进程存活检查：自身 pid 必须为 true（正例 W3）；不存在的 pid 必须返回 false（A1）。
+    //    Windows 走 Win32 OpenProcess，Linux 走 /proc/<pid>；其余平台是恒 true 存根，不测。
+    #[cfg(any(windows, target_os = "linux"))]
     {
-        assert!(crate::widget::is_pid_alive_win32(std::process::id()));
-        assert!(!crate::widget::is_pid_alive_win32(u32::MAX));
+        assert!(crate::widget::is_pid_alive(std::process::id()));
+        assert!(!crate::widget::is_pid_alive(u32::MAX));
     }
 }
 
@@ -526,12 +527,13 @@ fn cleanup_stale_sidecar_removes_heartbeat_expired_file_and_keeps_live_one() {
 }
 
 #[test]
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn cleanup_stale_sidecar_removes_dead_pid_file_even_with_fresh_heartbeat() {
-    // 仅 Windows 有意义：非 Windows 分支的 is_pid_alive_win32 是恒 true 存根。
+    // Windows（Win32 OpenProcess）与 Linux（/proc/<pid>）都有真实存活判定；
+    // 其余 Unix 分支的 is_pid_alive 是恒 true 存根，此用例对它们无意义。
     let now = 1_700_000_000_000_u64;
     let dead_pid = u32::MAX - 1;
-    assert!(!crate::widget::is_pid_alive_win32(dead_pid));
+    assert!(!crate::widget::is_pid_alive(dead_pid));
 
     let (doc, sidecar) = temp_doc_and_sidecar("deadpid");
     fs::write(&doc, "# deadpid").unwrap();

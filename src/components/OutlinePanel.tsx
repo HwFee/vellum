@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { buildOutlineTree, type OutlineNode } from "../lib/outline";
 import { animateScrollTo } from "../lib/smoothScroll";
+import { HEADING_LABELS, type HeadingScript } from "../lib/headingLabels";
 import type { OutlineHeading } from "../types";
 
 type OutlinePanelProps = {
@@ -19,6 +20,8 @@ type OutlinePanelProps = {
   searchInputRef: React.RefObject<HTMLInputElement | null>;
   /// 题头槽位：默认渲染「目錄」题头；侧栏页签接管时传进来
   header?: React.ReactNode;
+  /// 默认题头的字形（繁体出厂 / 简体）；页签题头接管时此 prop 不起作用
+  headerScript?: HeadingScript;
 };
 
 const CN_NUMS = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
@@ -125,6 +128,7 @@ export function OutlinePanel({
   onPrevMatch,
   searchInputRef,
   header,
+  headerScript = "traditional",
 }: OutlinePanelProps) {
   const navRef = useRef<HTMLElement>(null);
   const scrollCancelRef = useRef<(() => void) | null>(null);
@@ -161,7 +165,9 @@ export function OutlinePanel({
 
   return (
     <nav ref={navRef} className="outline-panel" aria-label="文档大纲">
-      {header ?? <div className="outline-panel__header">目錄</div>}
+      {header ?? (
+        <div className="outline-panel__header">{HEADING_LABELS.outline[headerScript]}</div>
+      )}
 
       {/* 搜索框 — 样式 C 描边式 */}
       <div className={`outline-search ${isSearching ? "outline-search--active" : ""}`}>

@@ -111,7 +111,7 @@ async fn save_document(
         .unwrap_or(0);
     let mdlog_active = vellum_lib::widget::read_mdlog_state_from_path(
         Some(&canonical),
-        &vellum_lib::widget::is_pid_alive_win32,
+        &vellum_lib::widget::is_pid_alive,
         now,
     )
     .is_some();
@@ -348,9 +348,82 @@ fn export_pdf_blocking(window: &tauri::WebviewWindow, path: &str) -> Result<(), 
     std::fs::write(target, bytes).map_err(|error| format!("write {path} failed: {error}"))
 }
 
-#[cfg(not(windows))]
+/// 导出为 PDF（Linux）：对主窗口的 WebKitGTK WebView 跑 `PrintOperation`——
+/// 「Print to File」虚拟打印机 + output-uri 指向目标文件、format=pdf，`print()` 静默
+/// 无对话框。页设置对齐 Windows CDP 参数（A4、边距 20mm/22mm，与前端 @page 常量同值）。
+/// 已知差异：WebKitGTK 不渲染 CSS @page 边盒——页码 / 页脚行在 Linux 导出的 PDF 里
+/// 缺席（正文与底色一致）；详见 docs/agents/tooling.md「Linux」节。
+/// with_webview 闭包派发到 GTK 主线程；finished/failed 信号经 mpsc 送回本线程，
+/// 与 Windows 路径同一形状（spawn_blocking 等回执，主事件循环保持转动）。
+#[cfg(target_os = "linux")]
+fn export_pdf_blocking(window: &tauri::WebviewWindow, path: &str) -> Result<(), String> {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    use webkit2gtk::PrintOperationExt;
+
+    // 闸门：只收 .pdf 绝对路径（前端系统保存对话框之外的服务端兜底，与 Windows 同校验）。
+    let target = Path::new(path);
+    let is_pdf = target
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"));
+    if !target.is_absolute() || !is_pdf {
+        return Err(format!("invalid export path: {path}"));
+    }
+
+    // output-uri 收 URI 不收裸路径；filename_to_uri 负责空白与非 ASCII 的转义
+    let output_uri = gtk::glib::filename_to_uri(target, None)
+        .map_err(|error| format!("invalid export path as URI: {error}"))?
+        .to_string();
+
+    let (tx, rx) = mpsc::channel::<Result<(), String>>();
+    window
+        .with_webview(move |webview| {
+            let tx_fallback = tx.clone();
+            let dispatch = move || -> Result<(), String> {
+                let operation = webkit2gtk::PrintOperation::new(&webview.inner());
+                let settings = gtk::PrintSettings::new();
+                settings.set_printer("Print to File");
+                settings.set(
+                    gtk::PRINT_SETTINGS_OUTPUT_FILE_FORMAT.as_str(),
+                    Some("pdf"),
+                );
+                settings.set(gtk::PRINT_SETTINGS_OUTPUT_URI.as_str(), Some(&output_uri));
+                operation.set_print_settings(&settings);
+
+                // A4 + 20mm/22mm 边距：与 Windows CDP 参数、前端 @page 常量同值
+                let setup = gtk::PageSetup::new();
+                setup.set_paper_size(&gtk::PaperSize::new(Some("iso_a4")));
+                setup.set_top_margin(20.0, gtk::Unit::Mm);
+                setup.set_bottom_margin(20.0, gtk::Unit::Mm);
+                setup.set_left_margin(22.0, gtk::Unit::Mm);
+                setup.set_right_margin(22.0, gtk::Unit::Mm);
+                operation.set_page_setup(&setup);
+
+                let tx_done = tx.clone();
+                operation.connect_finished(move |_| {
+                    let _ = tx_done.send(Ok(()));
+                });
+                operation.connect_failed(move |_operation, error| {
+                    let _ = tx.send(Err(format!("print operation failed: {error}")));
+                });
+                // Print to File：静默打印，不弹对话框
+                operation.print();
+                Ok(())
+            };
+            // 派发失败（主线程退出等）不能让 rx 空等：错误同样走通道回传
+            if let Err(error) = dispatch() {
+                let _ = tx_fallback.send(Err(error));
+            }
+        })
+        .map_err(|error| format!("with_webview dispatch failed: {error}"))?;
+
+    rx.recv_timeout(Duration::from_secs(30))
+        .map_err(|error| format!("print operation timed out: {error}"))?
+}
+
+#[cfg(all(not(windows), not(target_os = "linux")))]
 fn export_pdf_blocking(_window: &tauri::WebviewWindow, _path: &str) -> Result<(), String> {
-    Err("export_pdf is only supported on Windows".to_string())
+    Err("export_pdf is only supported on Windows and Linux".to_string())
 }
 
 /// 从一组命令行参数中提取第一个 .md / .markdown 文件路径。
@@ -415,7 +488,7 @@ mod tests {
             .as_str()
             .expect("security.csp must be a string");
 
-        let expected_csp = "default-src 'self'; connect-src ipc: http://ipc.localhost https://github.com; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self' data:; frame-src http://vellum-widget.localhost";
+        let expected_csp = "default-src 'self'; connect-src ipc: http://ipc.localhost https://github.com; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self' data:; frame-src http://vellum-widget.localhost vellum-widget://localhost";
         assert_eq!(csp, expected_csp);
     }
 
@@ -621,6 +694,7 @@ fn main() {
             vellum_lib::widget::register_widget,
             vellum_lib::widget::unregister_widget,
             vellum_lib::widget::read_mdlog_state,
+            vellum_lib::fonts::list_system_fonts,
         ])
         .setup(|app| {
             // 兜底：3 秒后强制显示窗口，防止前端 JS 加载失败导致窗口永久隐藏。

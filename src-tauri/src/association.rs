@@ -9,19 +9,27 @@
 //! Tauri 安装器声明），但 ProgID 键缺失导致悬空；这里在用户级补回 ProgID，悬空
 //! 引用即解析到本应用。
 
+#[cfg(windows)]
 use std::env;
+#[cfg(windows)]
 use std::os::windows::process::CommandExt;
+#[cfg(windows)]
 use std::process::Command;
 
 /// Windows 进程创建标志：不创建可见的控制台窗口。
 /// 防止 `reg.exe` 在 Windows 11 上弹出 Windows Terminal 窗口。
+#[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+#[cfg(windows)]
 const PROG_ID: &str = "Markdown Document";
+#[cfg(windows)]
 const PROG_ID_DESC: &str = "Markdown document";
+#[cfg(windows)]
 const EXTENSIONS: &[&str] = &[".md", ".markdown"];
 
 /// 创建一个带有 `CREATE_NO_WINDOW` 标志的 `reg` 命令，避免弹出终端窗口。
+#[cfg(windows)]
 fn reg_command(args: &[&str]) -> Command {
     let mut cmd = Command::new("reg");
     cmd.creation_flags(CREATE_NO_WINDOW);
@@ -30,16 +38,19 @@ fn reg_command(args: &[&str]) -> Command {
 }
 
 /// 设置注册表项的默认（无名）值为 REG_SZ。`reg add` 会在项不存在时一并创建。
+#[cfg(windows)]
 fn reg_set_default(key: &str, data: &str) {
     let _ = reg_command(&["add", key, "/ve", "/t", "REG_SZ", "/d", data, "/f"]).status();
 }
 
 /// 在注册表项下写入一个 REG_NONE 零长值（OpenWithProgids 条目约定为该类型）。
+#[cfg(windows)]
 fn reg_set_none(key: &str, name: &str) {
     let _ = reg_command(&["add", key, "/v", name, "/t", "REG_NONE", "/f"]).status();
 }
 
 /// 读取注册表项的默认值。项或值不存在时返回 `None`。
+#[cfg(windows)]
 fn reg_query_default(key: &str) -> Option<String> {
     let out = reg_command(&["query", key, "/ve"]).output().ok()?;
     if !out.status.success() {
@@ -54,6 +65,7 @@ fn reg_query_default(key: &str) -> Option<String> {
 
 /// 注册 `Markdown Document` ProgID 指向当前可执行文件，并把该 ProgID 登记到
 /// `.md` / `.markdown` 的 OpenWithProgids。幂等：已指向当前 exe 时跳过。
+#[cfg(windows)]
 pub fn register_markdown_association() {
     let exe = match env::current_exe() {
         Ok(p) => p,
@@ -88,3 +100,8 @@ pub fn register_markdown_association() {
         );
     }
 }
+
+/// 非 Windows：文件关联由打包产物声明（deb 的 .desktop 走 `bundle.fileAssociations`
+/// 的 `mimeType`），运行时没有注册表可写——空操作。
+#[cfg(not(windows))]
+pub fn register_markdown_association() {}

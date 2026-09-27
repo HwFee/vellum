@@ -191,20 +191,47 @@ node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/ex
   - **必须先派一次 wheel 再等 6s**，否则阅读位置落位守护的缓动动画会污染测量。
 - 真机锚定规则对照：`scripts/cdp-anchor-synthetic.mjs`——纯合成滚动容器里「改宽度 vs 改字号」的锚定矩阵，确认「行内尺寸变化不补偿」是**浏览器规则**（同一容器改字号正常补偿、改宽度恒为 0），与项目结构无关。
 - 真机 Obsidian 验收：`scripts/cdp-obsidian-verify.mjs`——完整说明（断言清单、定稿形态三条真机证据、边框宽度按区间判、实测数字）见 `docs/agents/obsidian.md`。
+- 真机字体三槽 / Ctrl+滚轮验收：`scripts/cdp-reader-fonts.mjs`（`npm run verify:reader-fonts`）。
+  - 断言：`list_system_fonts` 可达（ACL / CSP 零违规、零告警）/ 出厂栈与拆槽前逐字相同（`--font-latin` 解析结果 = `--font-cjk`）/ 面板 360 项且 `insideViewport`（fixed 定位不被滚动容器裁）/ 搜索过滤 / 选中后根变量写成「字面 + `var(--font-*-tail)`」/ 恢复默认后变量被移除 / Ctrl+滚轮进一档且 `devicePixelRatio` 不变（没叠整页缩放）/ 普通滚轮字号不动 / 开关关掉后滚轮失效 / `Ctrl+0` 复位 / 面板内 `Esc` 只关面板不退设置视图。
+  - 探针幂等：自己判设置视图开没开、跑完恢复原状（`settings.json` 与视图状态都放回原样）。
+  - **前置：先 `npm run build`**——本仓库 `tauri dev` 跑的是编译期嵌入的 `dist`（见下节 custom-protocol），不重建就验的是上一份产物（2026-09-27 实测踩过一轮）。
 - ~~待办真机项：`Ctrl+P` 打印~~ —— **已退役（v1.10）**：`window.print()` 与系统打印对话框下线，`Ctrl+P` 改绑「导出为 PDF」纸张舞台（后端 CDP `Page.printToPDF` 落盘），机制与验收见 `docs/agents/rendering.md` 的「导出为 PDF」一节。
 
 ### `tauri/custom-protocol` feature
 
 - **`tauri/custom-protocol` feature 是生产上下文的开关**（tauri 2.11 的 `dev = !custom_protocol` 判定）。
 - `Cargo.toml` 已显式声明，缺失它的构建会产出 dev 上下文 exe——窗口加载 `http://localhost:1420`、不嵌入前端资源，无 dev 服务器时显示「localhost 拒绝连接」。
+- **推论（2026-09-27 实测）：本仓库的 `npm run tauri dev` 跑的是「生产上下文」**——前端资源在编译期由 `generate_context!` 嵌入 exe，窗口 URL 是 `http://tauri.localhost/` 而不是 devUrl。于是：① 改前端必须先 `npm run build` 再启动（HMR 不生效，页面 reload 也只会拿到旧 bundle）；② CDP 探针验的一定要是**重建后重启**的那一份（只 `Page.reload` 不够：index.html 与 asset 哈希都取自嵌入资源）；③ 改前端不必重启 cargo，但改了 `dist` 后 `tauri dev` 是否重编由构建脚本的 `rerun-if-changed` 决定，拿不准就直接重启。
 - 打包始终用 `npm run tauri build`（CLI 也会自动注入该 feature）；改 Rust 代码后验证可用裸 `cargo build --release`（manifest 已声明，结果一致）。
+
+## Linux / WSL 开发与验收
+
+- **环境（WSL Ubuntu 24.04 + WSLg）**：
+  `apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev pkg-config git rsync`（截图/输入探针另需 `x11-apps imagemagick xdotool`；appimage 打包另需 `xdg-utils`），加 Node 22 与用户级 rustup stable。sudo 要密码时用 `wsl -u root -e …` 绕过。
+- **代码同步**：只在 WSL 文件系统里 npm/build——`/mnt/c` 上跑 npm 会污染 Windows 原生 node_modules。每改完 Windows 侧都要重跑：
+  `rsync -a --delete --exclude node_modules --exclude src-tauri/target --exclude dist --exclude outputs /mnt/c/Users/17445/Desktop/Vellum/ ~/vellum/`
+- **构建**：`npm ci` → `npm run build`（`generate_context!` 编译期就要 `dist/`，缺了直接 proc-macro panic）→ `cd src-tauri && cargo test && cargo clippy` → `npm run tauri build -- --bundles deb`（`appimage` 同理；`tauri.linux.conf.json` 已把 Linux 目标收成 `["deb","appimage"]`，主配置里的 NSIS 不受影响）。产物在 `src-tauri/target/release/bundle/`。没设 `TAURI_SIGNING_PRIVATE_KEY` 时**产物照常落盘**、结尾报签名错并以退出码 1 收场——与 Windows 同款行为，属预期。
+- **平台差异速查**：
+  - widget 沙箱 URL：Linux/macOS 是 `vellum-widget://localhost/<id>`，Windows/Android 是 `http://vellum-widget.localhost/<id>`；`extract_widget_id` 两形都认，CSP `frame-src` 两形并收（`connect-src ipc: http://ipc.localhost` 不变）。
+  - 导出为 PDF：Linux 走 WebKitGTK `PrintOperation`——「Print to File」虚拟打印机 + `output-uri`=`file://<目标>` + `output-file-format`=pdf，`print()` 静默无对话框；`PageSetup` A4 + 20mm/22mm 与 Windows CDP 参数、前端 @page 常量同值。**WebKitGTK 不渲染 CSS @page 边盒**：页码/页脚行在 Linux 导出的 PDF 里缺席（正文与底色一致，已实测产出有效 PDF）。
+  - 文件关联：`register_markdown_association` 非 Windows 是空操作；deb 的 `usr/share/applications/Vellum.desktop` 由 `bundle.fileAssociations` 的 `mimeType` 写出 `MimeType=text/markdown`（已实测）。
+  - `is_pid_alive`：Windows 走 Win32 OpenProcess，Linux 判 `/proc/<pid>` 存在（zombie 回收前短暂误判活，可接受），其余 Unix 恒 true 存根；残留 `.mdlog` sidecar 清理 Linux 上同样生效。
+  - 自动更新：`latest.json` 只发 `windows-x86_64`，Linux 上 `check()` 必然失败——静默路径只落 console（手动路径才出「检查失败」提示），无用户可见错误。
+  - 原生滚动条：`--hide-scrollbars` 是 WebView2 启动参数，WebKitGTK 不认——kami.css 全域 `::-webkit-scrollbar { width:0; height:0 }` 收掉原生条，自定义滚动条照常（Windows 上无副作用）。
+  - **顶栏拖拽不可用**：`-webkit-app-region`/`app-region` 是 Chromium 特性，WebKitGTK 不解析。没有加 `data-tauri-drag-region`——Tauri 的拖拽脚本在全平台都注，与 CSS app-region 并存会让 Windows 端一次按下触发两套拖动。Linux 上窗口移动走 WM（Alt+F7 / 系统手势）。要修需先把 CSS app-region 从 Windows 撤下，另行评审。
+- **WSLg 验收要点**：
+  - `GDK_BACKEND=x11` 起窗口进 XWayland 后 `xwininfo`/`import` 才可见可截；但 WebKitGTK 默认走 dmabuf GPU 渲染，X11 截到的是黑洞——加 `WEBKIT_DISABLE_DMABUF_RENDERER=1` 转软渲再截。
+  - `wsl -e` 会话退出会整树收割其后代——`nohup`/`disown` 保不住，验证时让启动命令占住前台 shell。
+  - xdotool 的 windowfocus/key 注入在 WSLg XWayland 拿不到 `_NET_ACTIVE_WINDOW`，GUI 自动化基本不可用；需要外部触发导出时按惯例写本地临时探针（本轮用 main.rs 里的 `VELLUM_DEBUG_EXPORT` 环境变量钩子，验收后已删，不进库）。
+  - `GTK_THEME=Adwaita:dark` 映射成 `prefers-color-scheme: dark`，「跟随系统」下截深色图就用它。
+  - `WEBKIT_INSPECTOR_SERVER=127.0.0.1:<port>` 会开端口但说的是 WebKitGTK 自有 socket 协议，HTTP/WS 握手都会被立刻断开——不能当 CDP 用。
 
 ## 文件索引
 
 | 文件 | 职责 |
 |------|------|
 | `src/lib/updater.ts` | 更新检查（启动静默路径 + 设置页「立即检查」，提示条复用 `.editor-toast`） |
-| `src/lib/appPreferences.ts` | 界面行为偏好（`sidebarOpenOnLaunch` / `autoCheckUpdates`，与 `outlineWidth` 同一个 settings Store） |
+| `src/lib/appPreferences.ts` | 界面行为偏好（`sidebarOpenOnLaunch` / `autoCheckUpdates` / `theme` / `ctrlWheelFontSize` / `headingScript`，与 `outlineWidth` 同一个 settings Store） |
 | `src/components/SettingsView.tsx` | 设置视图四节内容栏（`SETTINGS_SECTIONS` 分节清单唯一来源） |
 | `src/components/SettingsNav.tsx` | 设置视图的侧栏内容（复用 `.outline-panel*` / `.outline-search*` 语汇） |
 | `scripts/check-obsidian-corpus.test.tsx` | Obsidian 全库语料检查（真实渲染管线跑 wisdom 每一篇 `.md`，三族语法各计识别数 + 未处理构造必须为 0） |
