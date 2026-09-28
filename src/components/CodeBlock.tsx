@@ -90,15 +90,21 @@ function resolveHighlightLanguage(language?: string): string {
 const KAMI_PRISM_STYLE = {
   ...oneLight,
   // oneLight 的基座选择器带 hsl 字面量（暗色字 + 近白底），深色下会浮出白纸块；
-  // 覆写为令牌变量随主题走，其余属性（等宽字体、whiteSpace、tabSize）保留原值
+  // 颜色覆写为令牌变量随主题走，fontFamily 改指 --mono 槽位（见下），其余属性
+  // （whiteSpace、tabSize）保留原值
   'code[class*="language-"]': {
     ...oneLight['code[class*="language-"]'],
     color: "var(--near-black)",
     background: "transparent",
+    // oneLight 的字面量等宽栈原样进来会成为**内联 style**——优先级压过
+    // `.code-block { font-family: var(--mono) }`，换代码字体时整块不动。
+    // 改成内联 var()：仍走内联通道，但消费的是同一个槽位变量
+    fontFamily: "var(--mono)",
   },
   'pre[class*="language-"]': {
     ...oneLight['pre[class*="language-"]'],
     color: "var(--near-black)",
+    fontFamily: "var(--mono)",
   },
   comment: { color: "var(--stone)", fontStyle: "italic" as const },
   prolog: { color: "var(--stone)" },

@@ -146,6 +146,9 @@ export type AppRuntime = {
   views: {
     isSettingsOpenRef: MutableRefObject<boolean>;
     isExportOpenRef: MutableRefObject<boolean>;
+    /** 当前文档是否带库（library != null ⇒ 库模式）。快捷键层经 ref 读——
+        它在挂载时注册一次监听，不能靠 prop 闭包把「模式」钉在首帧 */
+    isLibraryModeRef: MutableRefObject<boolean>;
     /** 进入设置视图时取下的阅读位置：正文退出 DOM 期间它就是「当前阅读位置」——
         容器里滚的是设置内容，此刻再测容器量到的是设置页的偏移 */
     settingsScrollRecordRef: MutableRefObject<{ path: string; record: ScrollPositionRecord } | null>;
@@ -207,6 +210,7 @@ export function useAppRuntime(): AppRuntime {
       views: {
         isSettingsOpenRef: { current: false },
         isExportOpenRef: { current: false },
+        isLibraryModeRef: { current: false },
         settingsScrollRecordRef: { current: null },
       },
     };

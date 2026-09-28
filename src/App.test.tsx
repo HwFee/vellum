@@ -174,6 +174,13 @@ const loadedDoc = {
   fileName: "readme.md",
   parentPath: "C:/notes",
   markdown: "# Intro\n\n## Section\n\nBody text.",
+  // 既有用例默认站在库模式一侧：库面板 / Ctrl+Shift+F / 页签的既有断言都预设它在。
+  // 单文件模式（library: null）有专门用例，见「模式由打开方式决定」一节。
+  library: {
+    root: "C:/notes",
+    explicit: false,
+    marker: "obsidian" as const,
+  },
 };
 
 // F40：`heavyDoc` 的界面接线用一条用例验证，但 800ms 阈值在 jsdom 里几乎不可能自然触发。
@@ -239,7 +246,7 @@ afterEach(() => {
 test("renders the empty viewer state", () => {
   render(<App />);
   expect(screen.getByRole("heading", { name: "素笺" })).toBeInTheDocument();
-  expect(screen.getByText("打开 Markdown 文件开始查看。")).toBeInTheDocument();
+  expect(screen.getByText("把 .md 文件或文件夹拖进来。")).toBeInTheDocument();
 });
 
 test("renders the top bar as a pure toolbar (no path, no file name)", () => {
@@ -2738,6 +2745,112 @@ test("Ctrl+F 是 Ctrl+K 的别名：打开侧栏并聚焦搜索框", async () =>
   await waitFor(() => expect(screen.getByLabelText("搜索文档内容")).toHaveFocus());
 });
 
+test("单文件模式：侧栏回到无页签形态（只有「目錄」题头，四页签不渲染）", async () => {
+  const singleDoc = { ...loadedDoc, library: null };
+  backendInvoke.mockResolvedValueOnce(singleDoc);
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/readme.md");
+
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+  await waitFor(() =>
+    expect(screen.getByRole("heading", { name: "Intro" })).toBeInTheDocument()
+  );
+
+  // 打开侧栏：无页签题头，OutlinePanel 的自带「目錄」题头就位
+  fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
+  expect(document.querySelector(".outline-sidebar--open")).toBeInTheDocument();
+  expect(screen.queryByRole("tablist")).toBeNull();
+  expect(screen.getByText("目錄")).toBeInTheDocument();
+  expect(screen.queryByRole("tab", { name: "文件" })).toBeNull();
+});
+
+test("单文件模式：Ctrl+Shift+F 吞键不动作（侧栏不开、不切页签）", async () => {
+  const singleDoc = { ...loadedDoc, library: null };
+  backendInvoke.mockResolvedValueOnce(singleDoc);
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/readme.md");
+
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+  await waitFor(() =>
+    expect(screen.getByRole("heading", { name: "Intro" })).toBeInTheDocument()
+  );
+
+  expect(fireEvent.keyDown(window, { key: "F", ctrlKey: true, shiftKey: true })).toBe(false);
+  expect(document.querySelector(".outline-sidebar--open")).toBeNull();
+  expect(screen.queryByLabelText("检索全库内容")).toBeNull();
+  // 库命令不许发：非库模式下 Rust 会拒答，前端本来就不该调
+  expect(backendInvoke).not.toHaveBeenCalledWith("list_library", undefined);
+});
+
+test("「选择文件夹…」走 Rust 侧 open_library 对话框，选中目录按 loadPath 打开", async () => {
+  const vaultDoc = {
+    ...loadedDoc,
+    path: "D:/vaults/wisdom/index.md",
+    fileName: "index.md",
+    parentPath: "D:/vaults/wisdom",
+    library: { root: "D:/vaults/wisdom", explicit: true, marker: null },
+  };
+  backendInvoke.mockImplementation((command: string) => {
+    if (command === "open_library") return Promise.resolve("D:/vaults/wisdom");
+    if (command === "load_document") return Promise.resolve(vaultDoc);
+    return Promise.resolve(null);
+  });
+
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "选择文件夹…" }));
+
+  await waitFor(() =>
+    expect(backendInvoke).toHaveBeenCalledWith("open_library", undefined)
+  );
+  await waitFor(() =>
+    expect(backendInvoke).toHaveBeenCalledWith("load_document", {
+      path: "D:/vaults/wisdom",
+    })
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("heading", { name: "index" })).toBeInTheDocument()
+  );
+  // 库模式：四页签在
+  fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
+  expect(screen.getByRole("tab", { name: "文件" })).toBeInTheDocument();
+});
+
+test("库模式：侧栏页签照旧（四页签题头）", async () => {
+  await loadDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
+  expect(screen.getByRole("tab", { name: "目錄" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByRole("tab", { name: "文件" })).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "檢索" })).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "反鏈" })).toBeInTheDocument();
+});
+
+test("打开空文件夹 → 库模式空态「没有找到 Markdown 文件」（不弹错）", async () => {
+  // load_document 对「库内无 Markdown」返回的是带 library 的空文档（path 为空串）：
+  // 前端据此渲染库模式空态，四页签照常、正文区是空态说明
+  const emptyLibraryDoc = {
+    path: "",
+    fileName: "empty-vault",
+    parentPath: "D:/vaults/empty",
+    markdown: "",
+    library: { root: "D:/vaults/empty", explicit: true, marker: null },
+  };
+  backendInvoke.mockImplementation((command: string) =>
+    command === "load_document" ? Promise.resolve(emptyLibraryDoc) : Promise.resolve(null)
+  );
+  vi.mocked(open).mockResolvedValueOnce("D:/vaults/empty");
+
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() =>
+    expect(screen.getByText("没有找到 Markdown 文件")).toBeInTheDocument()
+  );
+  // 库模式页签仍在（空库也是库）
+  fireEvent.click(screen.getByRole("button", { name: "切换大纲" }));
+  expect(screen.getByRole("tab", { name: "文件" })).toBeInTheDocument();
+});
+
 test("侧栏页签：点「文件」挂载库文件面板，点文件行按普通路径 loadPath", async () => {
   await loadDocument();
 
@@ -2785,6 +2898,7 @@ test("侧栏页签：点「文件」挂载库文件面板，点文件行按普�
 });
 
 test("Ctrl+Shift+F 开侧栏切「檢索」页签并聚焦库检索框（不当成 Ctrl+F）", async () => {
+  // 库模式（loadDocument 的 fixture 带 library）：正常动线
   await loadDocument();
 
   expect(fireEvent.keyDown(window, { key: "F", ctrlKey: true, shiftKey: true })).toBe(false);

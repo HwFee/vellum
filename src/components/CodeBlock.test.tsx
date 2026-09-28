@@ -47,6 +47,21 @@ describe("CodeBlock", () => {
     expect(code).toHaveClass("language-typescript");
   });
 
+  it("高亮样式不写字面量等宽栈：pre/code 的 fontFamily 指 --mono 槽位变量", async () => {
+    // 回归：oneLight 的 "Fira Code..." 字面量以**内联 style** 落在 pre/code 上，
+    // 优先级压过 `.code-block { font-family: var(--mono) }`——改代码字体整块不动。
+    const { container } = render(<CodeBlock code="const x = 1;" language="ts" />);
+    await act(async () => {});
+    const pre = container.querySelector(".code-block pre") as HTMLElement;
+    const code = pre.querySelector("code") as HTMLElement;
+    for (const el of [pre, code]) {
+      const family = el.style.fontFamily;
+      expect(family).not.toContain("Fira Code");
+      expect(family).not.toContain("Menlo");
+      expect(family).toBe("var(--mono)");
+    }
+  });
+
   it("copies the exact raw code string on click", async () => {
     const writeText = vi.fn().mockResolvedValueOnce(undefined);
     vi.stubGlobal("navigator", { clipboard: { writeText } });

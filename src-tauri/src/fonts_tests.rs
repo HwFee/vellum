@@ -1,4 +1,4 @@
-use crate::fonts::{insert_family, into_sorted, normalize_family_name};
+use crate::fonts::{fs_csb_is_cjk, insert_family, into_sorted, normalize_family_name};
 use std::collections::BTreeMap;
 
 /// UTF-16 字面 → Option<String>：以 0 结尾的定长缓冲要在这里归位
@@ -45,6 +45,41 @@ fn into_sorted_returns_name_ordered_entries() {
     assert_eq!(names, vec!["Consolas", "Georgia"]);
     assert!(fonts[0].mono && !fonts[0].cjk);
     assert!(!fonts[1].mono && !fonts[1].cjk);
+}
+
+/// fsCsb[0] 的 CJK 判定：日/简中/韩/繁中/韩 Johab 任意一位命中即算 CJK 字体
+#[test]
+fn fs_csb_is_cjk_recognizes_cjk_codepages() {
+    for bit in [17u32, 18, 19, 20, 21] {
+        assert!(fs_csb_is_cjk(1 << bit), "bit {bit} 应判 CJK");
+    }
+    // 拉丁/符号等其它代码页位都不算
+    assert!(!fs_csb_is_cjk(0));
+    assert!(!fs_csb_is_cjk(1 << 0)); // 1252 Latin 1
+    assert!(!fs_csb_is_cjk(1 << 16)); // 874 Thai
+    assert!(!fs_csb_is_cjk(1 << 31)); // 符号
+    // 组合位：CJK 位混入其它位仍命中；全非 CJK 位不命中
+    assert!(fs_csb_is_cjk((1 << 0) | (1 << 18)));
+    assert!(!fs_csb_is_cjk((1 << 0) | (1 << 16)));
+}
+
+/// 真机枚举的标记回归：CJK 签名给中文字体打标，Ebrima 这类大字库不再误标
+#[cfg(windows)]
+#[test]
+fn collect_system_fonts_flags_cjk_by_font_signature() {
+    let fonts = crate::fonts::collect_system_fonts();
+    let flag = |name: &str| fonts.iter().find(|f| f.name == name).map(|f| f.cjk);
+    assert_eq!(flag("宋体"), Some(true), "宋体应标 cjk");
+    assert_eq!(flag("微软雅黑"), Some(true), "微软雅黑应标 cjk");
+    // Ebrima / Gadugi / Leelawadee / Lucida Sans Unicode 是换签名判定前
+    // 被误标「中文」的那批大字库——有装就断言它没标上
+    for name in ["Ebrima", "Gadugi", "Leelawadee", "Lucida Sans Unicode"] {
+        if let Some(cjk) = flag(name) {
+            assert!(!cjk, "{name} 不该标 cjk");
+        }
+    }
+    assert_eq!(flag("Segoe UI"), Some(false));
+    assert_eq!(flag("Arial"), Some(false));
 }
 
 /// 真机枚举：Windows 上至少要能列出系统字体（全新机器也有 Arial）

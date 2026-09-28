@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { BlockEditor } from "./components/BlockEditor";
 import { CustomScrollbar } from "./components/CustomScrollbar";
 import { EmptyState } from "./components/EmptyState";
@@ -32,6 +32,7 @@ import { usePlatformBindings } from "./hooks/usePlatformBindings";
 import { useReaderSettings } from "./hooks/useReaderSettings";
 import { useWheelFontSize } from "./hooks/useWheelFontSize";
 import { useRecentFiles } from "./hooks/useRecentFiles";
+import { useRecentLibraries } from "./hooks/useRecentLibraries";
 import { useScrollMemory } from "./hooks/useScrollMemory";
 import { useScrollPosition } from "./hooks/useScrollPosition";
 import { useSearchState } from "./hooks/useSearchState";
@@ -57,6 +58,8 @@ export default function App() {
   const { loadPathRef } = rt.doc;
 
   const [isOutlineOpen, toggleOutline, setIsOutlineOpen] = useOutlineOpen(false);
+  // 当前文档是否带库（library != null ⇒ 库模式）：快捷键层经 ref 读（监听只注册一次）
+  const isLibraryModeRef = rt.views.isLibraryModeRef;
   const isNarrow = useIsNarrow();
   const [outlineWidth, setOutlineWidth] = useOutlineWidth();
   // 阅读设置（字号 / 栏宽 / 行高）：变量覆写挂在 documentElement，与文档无关
@@ -99,6 +102,14 @@ export default function App() {
     clearRecent: handleClearRecent,
     loadRecent,
   } = useRecentFiles();
+
+  // 最近库列表（新→旧）：开始页的「最近库」分组；打开管线在 ready 提交后写入
+  const {
+    recentLibraries,
+    addRecentLibraryTop,
+    removeRecentLibraryTop,
+    loadLibraries,
+  } = useRecentLibraries();
 
   // 阅读位置的测量与落盘
   const { currentScrollRecord, persistCurrentScroll } = useScrollPosition(rt);
@@ -176,6 +187,7 @@ export default function App() {
     loadPath,
     reloadCurrent,
     handleOpen,
+    handleOpenLibrary,
     applyMarkdown,
     saveMarkdown,
     handleActivateUnit,
@@ -190,10 +202,29 @@ export default function App() {
     resetForwardStack,
     addRecentTop,
     removeRecentTop,
+    addRecentLibraryTop,
+    removeRecentLibraryTop,
     applyLoadedMdlogState: applyLoadedState,
     setMdlogState,
     resetMdlogForSwitch: resetForDocumentSwitch,
   });
+
+  // 模式随文档换代：ready 提交后把「是否带库」同步给快捷键层。
+  // 渲染期写 ref 在并发渲染下不安全（被丢弃的渲染会把未提交的模式先写进去）；
+  // effect 在提交后跑——按键处理器经 ref 读的永远是「已提交的那份」，
+  // 早一拍拿到新模式只可能让 Ctrl+Shift+F 在模式切换的同一帧里多吞一次键，无害。
+  const isLibraryMode = state.status === "ready" && state.document.library != null;
+  // useLayoutEffect：DOM 变更后、绘制前同步执行——keydown 处理器经 ref 读的
+  // 是「已提交的模式」，不存在「文档已切库但 ref 还停在旧模式」的窗口
+  useLayoutEffect(() => {
+    isLibraryModeRef.current = isLibraryMode;
+  }, [isLibraryMode, isLibraryModeRef]);
+  // 换模式时侧栏页签复位「目錄」（单文件模式根本没有页签，不能留着上一模式的页签态）。
+  // 渲染期条件 setState 是 React 认可的「render-phase update」：同一组件同帧重渲染，
+  // 守卫条件终止即收敛，不会循环。
+  if (state.status === "ready" && state.document.library == null && sidebarTab !== "outline") {
+    setSidebarTab("outline");
+  }
 
   // 编辑会话（在 activeDocument 之后创建）：回调与 effect 经 editorRef 读到最新一份，
   // 既避免闭包过期，也让传给 memo 化 MarkdownDocument 的回调保持引用稳定
@@ -236,6 +267,11 @@ export default function App() {
     state,
   });
 
+  // 启动时把最近库列表也拉进 state（空态的「最近库」分组与文件分组共用一次挂载）
+  useEffect(() => {
+    void loadLibraries();
+  }, [loadLibraries]);
+
   // 全局快捷键（最后接线：收齐全部 handler）
   useGlobalShortcuts(rt, {
     isOutlineOpen,
@@ -250,6 +286,7 @@ export default function App() {
     handlePrevMatch,
     toggleFocusMode,
     setSidebarTab,
+    isLibraryModeRef,
     librarySearchInputRef,
   });
 
@@ -342,6 +379,23 @@ export default function App() {
               searchInputRef={searchInputRef}
               headerScript={preferences.headingScript}
             />
+          ) : !isLibraryMode ? (
+            /* 单文件模式：回到 ef96d75 之前的无页签形态——只渲染「目錄」题头
+               （OutlinePanel 不传 header 就走自带题头），侧栏开合/拖宽照旧。 */
+            <OutlinePanel
+              headerScript={preferences.headingScript}
+              headings={headings}
+              activeHeadingId={activeHeadingId}
+              onSelectHeading={handleSelectHeading}
+              searchQuery={searchQuery}
+              onSearchChange={handleSearchChange}
+              matchCount={matchCount}
+              activeMatchIndex={activeMatchIndex}
+              searchQueryPending={searchQueryPending}
+              onNextMatch={handleNextMatch}
+              onPrevMatch={handlePrevMatch}
+              searchInputRef={searchInputRef}
+            />
           ) : (
             sidebarTab === "files" ? (
               <FilesPanel
@@ -422,6 +476,7 @@ export default function App() {
                 preferences={preferences}
                 onPreferencesChange={setPreferences}
                 currentDocumentPath={activeDocument?.path ?? null}
+                isLibraryMode={isLibraryMode}
                 recentCount={recentFiles.length}
                 onClearRecent={handleClearRecent}
                 onExit={closeSettings}
@@ -439,8 +494,11 @@ export default function App() {
                   {state.status === "empty" ? (
                     <EmptyState
                       onOpen={handleOpen}
+                      onOpenLibrary={handleOpenLibrary}
                       recentFiles={recentFiles}
+                      recentLibraries={recentLibraries}
                       onOpenRecent={(path) => void loadPathRef.current(path)}
+                      onOpenRecentLibrary={(path) => void loadPathRef.current(path)}
                     />
                   ) : null}
                   {state.status === "loading" ? (
@@ -457,7 +515,18 @@ export default function App() {
                       onOpenRecent={(path) => void loadPathRef.current(path)}
                     />
                   ) : null}
-                  {state.status === "ready" ? (
+                  {state.status === "ready" &&
+                  state.document.path === "" &&
+                  state.document.library != null ? (
+                    /* 空库空态（§4.3）：文件夹里没有 Markdown——不弹错，正文区给一句
+                       说明；侧栏四页签照常（檢索/反鏈/文件列表自己出空态） */
+                    <section className="empty-state" aria-label="空库">
+                      <div className="empty-eyebrow">库模式</div>
+                      <h1>{state.document.fileName || "素笺"}</h1>
+                      <p>没有找到 Markdown 文件</p>
+                    </section>
+                  ) : null}
+                  {state.status === "ready" && state.document.path !== "" ? (
                     <>
                       {/* 文档标题（Obsidian 的 inline title）：取自文件名，落在正文首行。
                           刻意放在 .markdown-body 之外——它不属于文档内容，也就不进 markdown

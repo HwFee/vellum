@@ -218,7 +218,7 @@ node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/ex
   - `is_pid_alive`：Windows 走 Win32 OpenProcess，Linux 判 `/proc/<pid>` 存在（zombie 回收前短暂误判活，可接受），其余 Unix 恒 true 存根；残留 `.mdlog` sidecar 清理 Linux 上同样生效。
   - 自动更新：`latest.json` 只发 `windows-x86_64`，Linux 上 `check()` 必然失败——静默路径只落 console（手动路径才出「检查失败」提示），无用户可见错误。
   - 原生滚动条：`--hide-scrollbars` 是 WebView2 启动参数，WebKitGTK 不认——kami.css 全域 `::-webkit-scrollbar { width:0; height:0 }` 收掉原生条，自定义滚动条照常（Windows 上无副作用）。
-  - **顶栏拖拽不可用**：`-webkit-app-region`/`app-region` 是 Chromium 特性，WebKitGTK 不解析。没有加 `data-tauri-drag-region`——Tauri 的拖拽脚本在全平台都注，与 CSS app-region 并存会让 Windows 端一次按下触发两套拖动。Linux 上窗口移动走 WM（Alt+F7 / 系统手势）。要修需先把 CSS app-region 从 Windows 撤下，另行评审。
+  - 顶栏拖拽：Linux 走 Tauri 注入的 `data-tauri-drag-region` 脚本（mousedown → `plugin:window|start_dragging`，双击 → `internal_toggle_maximize`），需要 `core:window:allow-start-dragging` 与 `core:window:allow-internal-toggle-maximize` 两条能力（已收进 capabilities/default.json）。WebKitGTK 不解析 CSS `app-region`——脚本是唯一通路；**Windows 上实测 DOM mousedown 与原生 app-region 拖拽同一按下都吃**（双击会先原生最大化），所以 TopBar 只在非 Windows 挂 `data-tauri-drag-region`（UA 判 "Windows"），CSS `app-region` 全平台保留。
 - **WSLg 验收要点**：
   - `GDK_BACKEND=x11` 起窗口进 XWayland 后 `xwininfo`/`import` 才可见可截；但 WebKitGTK 默认走 dmabuf GPU 渲染，X11 截到的是黑洞——加 `WEBKIT_DISABLE_DMABUF_RENDERER=1` 转软渲再截。
   - `wsl -e` 会话退出会整树收割其后代——`nohup`/`disown` 保不住，验证时让启动命令占住前台 shell。

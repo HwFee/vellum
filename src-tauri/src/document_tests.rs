@@ -656,3 +656,156 @@ mod note_preview_tests {
         assert!(preview.markdown.is_ascii());
     }
 }
+
+mod library_root_tests {
+    use super::*;
+    use crate::document::{
+        find_library_root, marker_at, resolve_wikilink_map, ANCESTOR_WALK_MAX_DEPTH,
+    };
+    use crate::state::LibraryMarker;
+
+    /// canonical 形态的起点（生产路径上 from_dir 永远来自 canonical doc.parent()）。
+    fn canonical(path: &std::path::Path) -> PathBuf {
+        dunce::canonicalize(path).unwrap()
+    }
+
+    fn write(dir: &std::path::Path, relative: &str, body: &str) -> PathBuf {
+        let path = dir.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&path, body).unwrap();
+        path
+    }
+
+    /// 建一条 `d1/d2/.../dn/` 的目录链，返回最深一级。
+    fn nest(root: &std::path::Path, levels: usize) -> PathBuf {
+        let mut dir = root.to_path_buf();
+        for i in 1..=levels {
+            dir = dir.join(format!("d{i}"));
+        }
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn finds_vellum_marker_at_document_directory() {
+        // 文档所在目录 = 第 1 级：目录本身就是库根（同级 `.vellum` 赢 `.obsidian`）
+        let root = TestDir::new("vellum_root_level1");
+        fs::create_dir_all(root.path().join(".vellum")).unwrap();
+
+        let found = find_library_root(&canonical(root.path())).unwrap();
+        assert_eq!(found.0, canonical(root.path()));
+        assert_eq!(found.1, LibraryMarker::Vellum);
+    }
+
+    #[test]
+    fn vellum_wins_over_obsidian_at_same_level() {
+        let root = TestDir::new("vellum_root_same_level");
+        fs::create_dir_all(root.path().join(".vellum")).unwrap();
+        fs::create_dir_all(root.path().join(".obsidian")).unwrap();
+        let sub = canonical(&nest(root.path(), 1));
+
+        let found = find_library_root(&sub).unwrap();
+        assert_eq!(found.1, LibraryMarker::Vellum);
+    }
+
+    #[test]
+    fn nearest_ancestor_wins_in_nested_vaults() {
+        // 嵌套库：内层 `.obsidian` 比外层 `.vellum` 更近 → 内层赢
+        let root = TestDir::new("vellum_root_nested");
+        fs::create_dir_all(root.path().join(".vellum")).unwrap();
+        let inner = nest(root.path(), 1);
+        fs::create_dir_all(inner.join(".obsidian")).unwrap();
+        let deep = canonical(&nest(&inner, 2));
+
+        let found = find_library_root(&deep).unwrap();
+        assert_eq!(found.0, canonical(&inner));
+        assert_eq!(found.1, LibraryMarker::Obsidian);
+    }
+
+    #[test]
+    fn marker_at_returns_vellum_over_obsidian() {
+        let root = TestDir::new("vellum_marker_at");
+        assert_eq!(marker_at(root.path()), None);
+        fs::create_dir_all(root.path().join(".obsidian")).unwrap();
+        assert_eq!(marker_at(root.path()), Some(LibraryMarker::Obsidian));
+        fs::create_dir_all(root.path().join(".vellum")).unwrap();
+        assert_eq!(marker_at(root.path()), Some(LibraryMarker::Vellum));
+    }
+
+    #[test]
+    fn stops_at_depth_cap() {
+        // 标记在第 9 级（从文档目录起）：恰好超帽 → 判定为「不是库」
+        let root = TestDir::new("vellum_root_depth_cap");
+        // d1..d8 是文档上方的 8 级；标记放在 root（第 9 级）
+        fs::create_dir_all(root.path().join(".obsidian")).unwrap();
+        let deep = canonical(&nest(root.path(), ANCESTOR_WALK_MAX_DEPTH));
+
+        // 文档在 d8：d8(1) d7(2) … root(9) —— 标记在第 9 级，超过 8 级帽
+        assert_eq!(find_library_root(&deep), None);
+    }
+
+    #[test]
+    fn eight_level_semantics_document_dir_is_level_1() {
+        // §8-5 拍板语义：文档所在目录 = 第 1 级，最多查到第 8 级（含端点）。
+        // 从文档目录起建 7 级祖先链，标记放在最深一级（=第 8 级）：必须命中；
+        // 若语义错算成「父目录 = 第 0 级」，这条就会在帽外漏掉。
+        let root = TestDir::new("vellum_root_level8_edge");
+        let mark = nest(root.path(), ANCESTOR_WALK_MAX_DEPTH - 1);
+        fs::create_dir_all(mark.join(".obsidian")).unwrap();
+        let doc_dir = canonical(&nest(&mark, 1));
+
+        let found = find_library_root(&doc_dir).unwrap();
+        assert_eq!(found.0, canonical(&mark));
+    }
+
+    #[test]
+    fn stops_at_filesystem_root() {
+        // 盘符根 / 文件系统根：parent() 为 None 时终止，不得越过
+        let root = TestDir::new("vellum_root_fsroot");
+        let mut dir = canonical(root.path());
+        while dir.parent().is_some() {
+            dir = dir.parent().unwrap().to_path_buf();
+        }
+        // 从根起（第 1 级 = 根本身）：无标记时返回 None，不 panic、不越过
+        let _ = find_library_root(&dir);
+    }
+
+    #[test]
+    fn wikilink_ancestor_search_respects_same_depth_cap() {
+        // resolve_by_ancestors 必须与模式判定共用同一边界：目标在第 9 级不可解析
+        let root = TestDir::new("vellum_wikilink_depth_cap");
+        let target = write(root.path(), "target.md", "t\n");
+        let deep_dir = canonical(&nest(root.path(), ANCESTOR_WALK_MAX_DEPTH));
+        let doc = write(&deep_dir, "note.md", "# n\n");
+
+        // 目标在 root = 第 9 级（deep 的 8 级祖先之上）：超出共享帽，必须 None
+        let map = resolve_wikilink_map(&canonical(&doc), &["target".to_string()]);
+        assert_eq!(map.get("target").cloned().flatten(), None);
+        // 目标文件确实存在——只是太深（判据是深度帽不是「不在」）
+        assert!(target.is_file());
+
+        // 帽外目录：再往文档目录下叠 1 级（目标仍在同一相对深度），同样必须 None
+        let deeper = canonical(&nest(&deep_dir, 1));
+        let deep_doc = write(&deeper, "note2.md", "# n\n");
+        let map2 = resolve_wikilink_map(&canonical(&deep_doc), &["target".to_string()]);
+        assert_eq!(map2.get("target").cloned().flatten(), None);
+    }
+
+    #[test]
+    fn wikilink_basename_fallback_uses_library_root_within_cap() {
+        // 库根（第 2 级）在帽内：basename 兜底照常工作
+        let root = TestDir::new("vellum_wikilink_within_cap");
+        fs::create_dir_all(root.path().join(".obsidian")).unwrap();
+        let sub = canonical(&nest(root.path(), 1));
+        let doc = write(&sub, "note.md", "# n\n");
+        let target = write(root.path(), "elsewhere/unique.md", "u\n");
+
+        let map = resolve_wikilink_map(&canonical(&doc), &["unique".to_string()]);
+        assert_eq!(
+            map.get("unique").cloned().flatten(),
+            Some(canonical(&target).to_string_lossy().to_string())
+        );
+    }
+}

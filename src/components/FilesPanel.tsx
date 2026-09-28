@@ -211,7 +211,7 @@ export function FilesPanel({ header, documentPath, onOpenPath }: FilesPanelProps
               onOpenPath={onOpenPath}
             />
             {listing.truncated ? (
-              <p className="library-note">仅列出前 50 000 项</p>
+              <p className="library-note">文件过多，建议选更小的文件夹（仅列出前 50 000 项）</p>
             ) : null}
           </>
         )}

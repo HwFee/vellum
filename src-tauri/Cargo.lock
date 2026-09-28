@@ -4540,6 +4540,7 @@ name = "vellum"
 version = "1.12.0"
 dependencies = [
  "base64 0.22.1",
+ "dirs",
  "dunce",
  "gtk",
  "notify",

@@ -1,14 +1,14 @@
 //! 库面板三命令的纯逻辑：文件列表 / 全库检索 / 反向链接。
 //!
-//! 「库根」= 距当前文档最近的、含 `.obsidian` 目录的祖先目录（复用 document.rs 的
-//! `find_vault_root`）；找不到时退化为文档所在目录。三个命令都以 `AppState.current`
-//! 为唯一锚点——前端不传路径，读取面天然收窄在当前文档所在的库里。
+//! 「库根」来自 `AppState.current.library`——打开时就由 `find_library_root` /
+//! 显式文件夹入口定死，随文档原子换代；三个命令不再各自向上搜，非库模式由
+//! main.rs 在取根那一步统一拒绝（`NOT_IN_LIBRARY`），前端据模式位不调用。
 //! 遍历复用 `collect_markdown_files`（点目录 / node_modules 跳过、限深 12、
 //! 限项 50 000），读文件经 `read_text_capped`（>2MB 或非 UTF-8 静默跳过）。
 
-use crate::document::{collect_markdown_files, find_vault_root, markdown_stem};
+use crate::document::{collect_markdown_files, markdown_stem};
 use serde::Serialize;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// 检索与反链读文件的上限：超过 2MB 的笔记不做全文逐行扫（结果截断由前端收口）。
 const LIBRARY_MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
@@ -38,6 +38,8 @@ pub struct LibraryFile {
 pub struct LibraryListing {
     pub root: String,
     pub root_name: String,
+    /// `true` = 库根由标记目录（`.vellum` / `.obsidian`）判定得出；
+    /// `false` = 用户显式打开了那个文件夹本身（不看标记也算库）。
     pub is_vault: bool,
     pub files: Vec<LibraryFile>,
     pub truncated: bool,
@@ -88,15 +90,6 @@ pub struct BacklinkFile {
     pub snippets: Vec<BacklinkSnippet>,
 }
 
-/// 库根：含 `.obsidian` 的最近祖先；没有则文档所在目录。返回 (root, is_vault)。
-fn library_root(current: &Path) -> Option<(PathBuf, bool)> {
-    let dir = current.parent()?;
-    match find_vault_root(dir) {
-        Some(root) => Some((root, true)),
-        None => Some((dir.to_path_buf(), false)),
-    }
-}
-
 /// 读一个文件的全文：>2MB、非普通文件、非 UTF-8 一律静默跳过（库检索不该被
 /// 单个大文件或编码损坏的笔记挂住）。
 fn read_text_capped(path: &Path) -> Option<String> {
@@ -109,10 +102,10 @@ fn read_text_capped(path: &Path) -> Option<String> {
 }
 
 /// `list_library`：库根 + Markdown 文件清单。
-pub fn list_library(current: &Path) -> Result<LibraryListing, String> {
-    let (root, is_vault) =
-        library_root(current).ok_or_else(|| "no document loaded".to_string())?;
-    let (files, truncated) = collect_markdown_files(&root);
+/// `root` 由 `AppState.current.library` 供给（打开时定死），`is_vault` 是
+/// 「根上有无标记目录」的呈现信息——显式打开的文件夹不带标记也是库。
+pub fn list_library(root: &Path, is_vault: bool) -> Result<LibraryListing, String> {
+    let (files, truncated) = collect_markdown_files(root);
     Ok(LibraryListing {
         root_name: root
             .file_name()
@@ -178,12 +171,11 @@ fn make_match(line_no: usize, line: &str, hit_char: usize, needle_len: usize) ->
 /// `search_library`：全库 Markdown 逐行大小写不敏感检索。
 /// 空查询 → 空结果；>200 char → Err。单文件至多 20 处、全库 300 处截断；
 /// 文件按 rel 路径序输出，零命中文件不计。
-pub fn search_library(current: &Path, query: &str) -> Result<LibrarySearch, String> {
+pub fn search_library(root: &Path, query: &str) -> Result<LibrarySearch, String> {
     let query = query.trim();
     if query.chars().count() > SEARCH_QUERY_MAX_CHARS {
         return Err("query too long".to_string());
     }
-    let (root, _) = library_root(current).ok_or_else(|| "no document loaded".to_string())?;
     if query.is_empty() {
         return Ok(LibrarySearch {
             files: Vec::new(),
@@ -191,7 +183,7 @@ pub fn search_library(current: &Path, query: &str) -> Result<LibrarySearch, Stri
         });
     }
     let needle = lower_chars(query);
-    let (files, _) = collect_markdown_files(&root);
+    let (files, _) = collect_markdown_files(root);
 
     let mut out: Vec<LibrarySearchFile> = Vec::new();
     let mut total = 0usize;
@@ -314,9 +306,9 @@ fn snippet_line(line: &str) -> String {
 
 /// `find_backlinks`：扫库内每篇（除当前文档）找 `[[当前文档]]` 反链。
 /// 代码围栏（``` 或 ~~~ 起止的行）内不算；每篇至多 5 条摘录；结果按 rel 排序。
-pub fn find_backlinks(current: &Path) -> Result<Vec<BacklinkFile>, String> {
-    let (root, _) = library_root(current).ok_or_else(|| "no document loaded".to_string())?;
-    let current_rel = rel_path_of(&root, current);
+/// `current` 仍是必传：它是「谁被链」的判据（文档 stem + 库内相对路径）。
+pub fn find_backlinks(root: &Path, current: &Path) -> Result<Vec<BacklinkFile>, String> {
+    let current_rel = rel_path_of(root, current);
     let Some(stem_lower) = current
         .file_name()
         .and_then(|name| name.to_str())
@@ -327,7 +319,7 @@ pub fn find_backlinks(current: &Path) -> Result<Vec<BacklinkFile>, String> {
     };
     let current_rel_noext_lower = strip_rel_ext(&current_rel).to_lowercase();
 
-    let (files, _) = collect_markdown_files(&root);
+    let (files, _) = collect_markdown_files(root);
     let mut out: Vec<BacklinkFile> = Vec::new();
     for (path, rel_path) in files {
         // 自引不算反链（rel 同一份遍历产物，形态一致可直接比字符串）

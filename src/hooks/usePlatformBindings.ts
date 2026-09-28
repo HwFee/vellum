@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useEffect, useRef, useState } from "react";
-import { fileNameToTitle, isMarkdownPath } from "../lib/path";
+import { fileNameToTitle, isMarkdownPath, isSamePath } from "../lib/path";
 import type { DocumentState, LoadedDocument } from "../types";
 import type { AppRuntime, LoadOptions } from "./useAppRuntime";
 
@@ -31,6 +31,10 @@ export function usePlatformBindings(
   }
 ): PlatformBindings {
   const { currentPathRef, currentMarkdownRef, editorRef, loadPathRef } = rt.doc;
+  /// 文件夹拖放去重桶：onDragDropEvent 的 path_is_directory 探针与 Rust 侧
+  /// open-dropped-folder 事件都可能带同一个目录来——上一次「文件夹装入请求」的
+  /// 路径 + 时间戳记在这里，300ms 内同路径的第二次不再重复打开
+  const lastFolderDropRef = useRef<{ path: string; at: number } | null>(null);
   const { loadPath, reloadCurrent, setState, loadRecent, state } = deps;
   const [isDropTarget, setIsDropTarget] = useState(false);
   const startupLoaded = useRef(false);
@@ -57,10 +61,33 @@ export function usePlatformBindings(
           return;
         }
         setIsDropTarget(false);
+        // .md 文件优先：paths 里有 Markdown 就走既有打开管线（混合拖入也认第一个 .md）。
+        // 无 .md 时才探目录（path_is_directory 是 Rust 侧一次 is_dir 检查）：
+        // 文件夹按 loadPath → load_document 正常管线进库模式——与「打开文件夹…」同一动线，
+        // 草稿提交与阅读位置交接在 Rust 写入 AppState 之前，顺序天然安全。
+        // Rust 侧 WindowEvent::DragDrop 同样监听 Dropped（无 .md 时发 open-dropped-folder
+        // 事件）：两路消费同一拖放互不重迭，下面那个 listener 里的去重桶挡二次打开。
         const path = payload.paths.find(isMarkdownPath);
         if (path) {
           // 经 ref 取最新一份 loadPath：本 effect 只在挂载时注册一次
           void loadPathRef.current(path);
+          return;
+        }
+        const dir = payload.paths[0];
+        if (dir) {
+          // 探针失败静默降级（拖放能力缺失不该影响阅读）；非 Promise 返回（测试桩
+          // 未 mock 该命令时 resolve undefined）同样安全落地
+          void Promise.resolve(invoke<boolean>("path_is_directory", { path: dir }))
+            .then((isDir) => {
+              if (isDir !== true) return;
+              // 与 open-dropped-folder 监听同用去重桶（isSamePath 归一化比较）：
+              // 探针先到时 Rust 事件里的同一路径被判重挡住，反之亦然
+              const last = lastFolderDropRef.current;
+              if (last && isSamePath(last.path, dir) && Date.now() - last.at < 300) return;
+              lastFolderDropRef.current = { path: dir, at: Date.now() };
+              void loadPathRef.current(dir);
+            })
+            .catch(() => {});
         }
       });
       if (cancelled) {
@@ -72,6 +99,39 @@ export function usePlatformBindings(
 
     // 拖放能力缺失（旧 WebView2 / 权限未授予）不该影响阅读：失败即静默降级
     void bindDragDrop().catch(() => {});
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [loadPathRef]);
+
+  // Rust 侧 WindowEvent::DragDrop 的兜底路：文件夹路径经「open-dropped-folder」
+  // 事件到前端，走与 onDragDropEvent 探针同一条 loadPath 管线。去重桶挡双发
+  // （两路注册都存活的平台会前后脚各送一次同一目录）
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    async function bindFolderDrop() {
+      const unlistenFn = await listen<string>("open-dropped-folder", (event) => {
+        const dir = event.payload;
+        if (typeof dir !== "string" || !dir) return;
+        const last = lastFolderDropRef.current;
+        // 判重用归一化比较（分隔符/大小写）：Rust 侧 to_string_lossy 与前端原始串
+        // 在同一目录上也可能写法不同（C:\a vs C:/a）
+        if (last && isSamePath(last.path, dir) && Date.now() - last.at < 300) return;
+        lastFolderDropRef.current = { path: dir, at: Date.now() };
+        void loadPathRef.current(dir);
+      });
+      if (cancelled) {
+        unlistenFn();
+      } else {
+        unlisten = unlistenFn;
+      }
+    }
+
+    void bindFolderDrop().catch(() => {});
 
     return () => {
       cancelled = true;

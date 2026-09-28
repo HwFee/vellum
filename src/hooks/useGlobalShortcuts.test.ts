@@ -17,6 +17,9 @@ function makeDeps(overrides: Partial<GlobalShortcutDeps> = {}): GlobalShortcutDe
     handlePrevMatch: vi.fn(),
     toggleFocusMode: vi.fn(),
     setSidebarTab: vi.fn(),
+    // 测试默认站在库模式一侧（Ctrl+Shift+F 的既有用例都预设它在）；单文件模式的
+    // 「吞键不动作」另有专门用例显式传 { current: false }
+    isLibraryModeRef: { current: true },
     librarySearchInputRef: { current: null },
     ...overrides,
   };
@@ -79,5 +82,27 @@ describe("useGlobalShortcuts · Ctrl+Shift+F 全库检索", () => {
     });
     expect(deps.setSidebarTab).not.toHaveBeenCalled();
     expect(deps.setOutlineOpenPinned).not.toHaveBeenCalled();
+  });
+
+  it("单文件模式：吞键不动作（不开侧栏、不切页签、不聚焦）", () => {
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    const focusSpy = vi.spyOn(input, "focus");
+    const deps = makeDeps({
+      isLibraryModeRef: { current: false },
+      librarySearchInputRef: { current: input },
+    });
+    setup(deps);
+
+    // 键仍被吞掉（false = preventDefault 已调）——它是 WebView 的整页搜索加速键，
+    // 不让渡；但库三命令在非库模式下被 Rust 拒答，打开了也只是空面板，故不做任何动作
+    expect(fireEvent.keyDown(window, { key: "F", ctrlKey: true, shiftKey: true })).toBe(false);
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(deps.setSidebarTab).not.toHaveBeenCalled();
+    expect(deps.setOutlineOpenPinned).not.toHaveBeenCalled();
+    expect(focusSpy).not.toHaveBeenCalled();
+    input.remove();
   });
 });

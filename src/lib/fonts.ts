@@ -65,34 +65,35 @@ export function fontSlotValue(slot: FontSlot, name: string): string {
   return `${quoted}, var(--font-cjk)`;
 }
 
-/// 候选表排序：本槽相关者优先（中文槽先 CJK 字体、代码槽先等宽字体），
-/// 同档内随包字体在前，再按名字。不按槽位过滤——过滤会把用户真正想要的那款藏起来，
-/// 只调顺序不动集合。
-function rank(font: SystemFont, slot: FontSlot): number {
-  if (slot === "cjk") return font.cjk ? 0 : 1;
-  if (slot === "mono") return font.mono ? 0 : 1;
-  return 0;
-}
-
 function byName(a: SystemFont, b: SystemFont): number {
   if (a.name < b.name) return -1;
   if (a.name > b.name) return 1;
   return 0;
 }
 
-/// 候选表：先按槽位相关性、再随包优先、最后名字。
-/// 「相关」排在「随包」之前是刻意的：随包两款里只有楷体是中文字面，
-/// 中文槽把 JetBrains Mono 摆在中文系统字体前面纯属噪声（它在代码槽才是主角）。
-export function sortFontsForSlot(fonts: readonly SystemFont[], slot: FontSlot): SystemFont[] {
-  const bundled = new Set(BUNDLED_FONTS.map((font) => font.name.toLowerCase()));
-  return [...fonts].sort((a, b) => {
-    const rankDiff = rank(a, slot) - rank(b, slot);
-    if (rankDiff !== 0) return rankDiff;
-    const aBundled = bundled.has(a.name.toLowerCase());
-    const bBundled = bundled.has(b.name.toLowerCase());
-    if (aBundled !== bBundled) return aBundled ? -1 : 1;
-    return byName(a, b);
-  });
+/// 候选表平铺序：当前选中项最先（再开面板时它就在抬眼处），随包两款紧随，
+/// 其余按名字。不分组不分类——字体不分家，三槽共用同一张全表；「默认」项
+/// 由调用方补在最前。选中名不在候选表里（脏值 / 已卸载）也按名塞进去露脸。
+export function flatFontOptions(
+  fonts: readonly SystemFont[],
+  selected: string
+): SystemFont[] {
+  const seen = new Set<string>();
+  const out: SystemFont[] = [];
+  const push = (font: SystemFont) => {
+    const key = font.name.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(font);
+  };
+  if (selected) {
+    const hit = fonts.find((font) => font.name === selected);
+    push(hit ?? { name: selected, cjk: false, mono: false });
+  }
+  const bundledNames = new Set(BUNDLED_FONTS.map((font) => font.name));
+  for (const font of fonts) if (bundledNames.has(font.name)) push(font);
+  for (const font of [...fonts].sort(byName)) if (!bundledNames.has(font.name)) push(font);
+  return out;
 }
 
 /// 搜索过滤（大小写不敏感的子串匹配）；空格分词，逐词命中

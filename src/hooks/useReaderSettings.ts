@@ -1,16 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getSettingsStore } from "../lib/settings";
-import { FONT_SLOT_VAR, fontSlotValue, sanitizeFontName, type FontSlot } from "../lib/fonts";
+import {
+  FONT_SLOT_VAR,
+  fontSlotValue,
+  quoteFontFamily,
+  sanitizeFontName,
+  type FontSlot,
+} from "../lib/fonts";
 
 const STORE_KEY = "readerSettings";
 
-/// 字面预热样张：按槽位各给够代表性的字符（CJK / 拉丁 / 代码符），
+/// 字面预热样张：按槽位各给够代表性的字符（CJK / 代码符），
 /// fonts.load 据此触发整族加载——而不是只载到行名的那几个字
 const FONT_WARM_SAMPLE: Record<FontSlot, string> = {
   cjk: "素笺字体预览样张",
   latin: "Vellum AaBbGg 0123",
   mono: "() => {}; // mono",
 };
+
+/// 西文槽「真分开」用的拉丁 unicode-range：覆盖基本拉丁 + 扩展 + 音标组合符 +
+/// 拉丁扩展增补 + 通用标点 + 货币符号 + 类字母符号 + 箭头；**全角 CJK 标点
+/// （U+3000-303F / U+FF00-FFEF）刻意不收**——它们跟汉字走，归中文槽管。
+export const LATIN_UNICODE_RANGE =
+  "U+0000-024F, U+0300-036F, U+1E00-1EFF, U+2000-206F, U+20A0-20CF, U+2100-214F, U+2190-21FF";
+
+/// local() 造出来的那枚收窄字面挂的族名（不是系统字体，是运行时注入的别名）
+const LATIN_FACE_FAMILY = "Vellum Latin";
 
 export interface ReaderSettings {
   fontSize: number;
@@ -138,15 +153,15 @@ export function useReaderSettings(): [ReaderSettings, (patch: Partial<ReaderSett
   // 已载入 / 回默认 / 无 fonts API（测试环境）的情形一律同步落笔，不绕一圈异步。
   useEffect(() => {
     const root = document.documentElement.style;
-    const slots = { cjk: settings.cjkFont, latin: settings.latinFont, mono: settings.monoFont };
+    const slots = { cjk: settings.cjkFont, mono: settings.monoFont };
     const write = () => {
-      for (const [slot, name] of Object.entries(slots) as [FontSlot, string][]) {
+      for (const [slot, name] of Object.entries(slots) as ["cjk" | "mono", string][]) {
         if (name) root.setProperty(FONT_SLOT_VAR[slot], fontSlotValue(slot, name));
         else root.removeProperty(FONT_SLOT_VAR[slot]);
       }
     };
     const fonts = typeof document !== "undefined" ? document.fonts : undefined;
-    const cold = (Object.entries(slots) as [FontSlot, string][]).filter(
+    const cold = (Object.entries(slots) as ["cjk" | "mono", string][]).filter(
       ([slot, name]) =>
         name !== "" && !!fonts?.load && !fonts.check(`16px "${name}"`, FONT_WARM_SAMPLE[slot])
     );
@@ -168,7 +183,64 @@ export function useReaderSettings(): [ReaderSettings, (patch: Partial<ReaderSett
     return () => {
       cancelled = true;
     };
-  }, [settings.cjkFont, settings.latinFont, settings.monoFont]);
+  }, [settings.cjkFont, settings.monoFont]);
+
+  // 西文槽的真分开：`--font-latin: 字面名, var(--font-cjk)` 的朴素写法有个洞——
+  // 用户挑的字面若自带汉字（微软雅黑之类），整条栈把汉字也接走，中文槽形同虚设。
+  // 解法：local() 造一枚收窄到拉丁区的运行时 FontFace（族名 "Vellum Latin"），
+  // --font-latin 指向它——自带汉字的字面只出拉丁字形，汉字照旧落回中文槽。
+  // 300ms 语义不变：超时就先写兜底（未经收窄的原名栈），载入完成再升级换上；
+  // local() 解析失败（本地化族名之类）则永久落兜底并告警一次。latinFont 回默认
+  // 时摘掉那枚 face、移除覆写。换字面时旧 face 先删再挂新的，不堆积。
+  const latinFaceRef = useRef<FontFace | null>(null);
+  const latinEpochRef = useRef(0);
+  useEffect(() => {
+    const epoch = ++latinEpochRef.current;
+    const root = document.documentElement.style;
+    const fonts = typeof document !== "undefined" ? document.fonts : undefined;
+    const name = settings.latinFont;
+    const dropPrevFace = () => {
+      if (latinFaceRef.current && fonts && typeof fonts.delete === "function") {
+        fonts.delete(latinFaceRef.current);
+      }
+      latinFaceRef.current = null;
+    };
+    // 回默认 / 无 FontFace 能力（测试环境等）：照旧写「原名 + 回中文槽」栈
+    if (!name || typeof FontFace === "undefined" || !fonts?.add || !fonts.delete) {
+      dropPrevFace();
+      if (name) root.setProperty("--font-latin", fontSlotValue("latin", name));
+      else root.removeProperty("--font-latin");
+      return;
+    }
+    const face = new FontFace(
+      LATIN_FACE_FAMILY,
+      `local(${quoteFontFamily(name)}), local(${quoteFontFamily(`${name} Regular`)})`,
+      { unicodeRange: LATIN_UNICODE_RANGE, weight: "100 900", style: "normal" }
+    );
+    let upgraded = false;
+    const upgrade = () => {
+      if (upgraded || epoch !== latinEpochRef.current) return;
+      upgraded = true;
+      dropPrevFace();
+      fonts.add(face);
+      latinFaceRef.current = face;
+      root.setProperty("--font-latin", `"${LATIN_FACE_FAMILY}", var(--font-cjk)`);
+    };
+    // 兜底栈只负责「先别空着」：写过它不封路——load 完成后仍应升级到收窄字面
+    const fallback = () => {
+      if (upgraded || epoch !== latinEpochRef.current) return;
+      root.setProperty("--font-latin", fontSlotValue("latin", name));
+    };
+    void face.load().then(upgrade).catch(() => {
+      console.warn(`Vellum Latin face load failed for "${name}" — 回退原名栈`, face.status);
+      fallback();
+    });
+    // 300ms 内没载好：先写兜底栈（不饿着等），载好了 upgrade 再把它换掉
+    const timeout = setTimeout(fallback, 300);
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [settings.latinFont]);
 
   // 卸载时清掉变量覆写（默认值由 CSS 回退承接）
   useEffect(

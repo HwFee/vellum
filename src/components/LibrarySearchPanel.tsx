@@ -131,7 +131,7 @@ export function LibrarySearchPanel({
               </div>
             ))}
             {result.truncated ? (
-              <p className="library-note">结果过多，仅显示前 300 处</p>
+              <p className="library-note">文件过多，建议选更小的文件夹（仅显示前 300 处命中）</p>
             ) : null}
           </>
         ) : null}
