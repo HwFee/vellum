@@ -5,6 +5,7 @@ import {
   useReaderSettings,
   stepFontSize,
   READER_SETTINGS_DEFAULT,
+  LATIN_UNICODE_RANGE,
 } from "./useReaderSettings";
 import { __resetSettingsStoreForTest } from "../lib/settings";
 
@@ -332,6 +333,183 @@ describe("useReaderSettings 字体三槽（中文 / 西文 / 代码）", () => {
       );
     } finally {
       delete (document as unknown as { fonts?: unknown }).fonts;
+    }
+  });
+});
+
+describe("西文槽 unicode-range 收窄（Vellum Latin FontFace）", () => {
+  /// 可控的 FontFace stub：load() 的兑现时机由用例掌握
+  class FakeFontFace {
+    family: string;
+    source: string;
+    descriptors: Record<string, string>;
+    status = "unloaded";
+    resolveLoad: (face: FontFace) => void = () => {};
+    rejectLoad: (err: unknown) => void = () => {};
+    fail = false;
+    constructor(family: string, source: string, descriptors: Record<string, string>) {
+      this.family = family;
+      this.source = source;
+      this.descriptors = descriptors;
+    }
+    load(): Promise<FontFace> {
+      return new Promise<FontFace>((resolve, reject) => {
+        if (this.fail) reject(new Error("no local face"));
+        else {
+          this.resolveLoad = resolve;
+          this.rejectLoad = reject;
+          this.status = "loaded";
+          resolve(this as unknown as FontFace);
+        }
+      });
+    }
+  }
+
+  let created: FakeFontFace[] = [];
+  let fontsStub: {
+    add: ReturnType<typeof vi.fn>;
+    delete: ReturnType<typeof vi.fn>;
+    check: ReturnType<typeof vi.fn>;
+    load: ReturnType<typeof vi.fn>;
+  };
+
+  beforeEach(() => {
+    created = [];
+    fontsStub = {
+      add: vi.fn(() => true),
+      delete: vi.fn(() => true),
+      check: vi.fn(() => false),
+      load: vi.fn(() => Promise.resolve([])),
+    };
+    vi.stubGlobal(
+      "FontFace",
+      class extends FakeFontFace {
+        constructor(family: string, source: string, descriptors: Record<string, string>) {
+          super(family, source, descriptors);
+          created.push(this);
+        }
+      }
+    );
+    Object.defineProperty(document, "fonts", { value: fontsStub, configurable: true });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete (document as unknown as { fonts?: unknown }).fonts;
+  });
+
+  it("local() 收窄成功：挂 Vellum Latin face、写别名栈，unicodeRange 只盖拉丁区", async () => {
+    const { result } = renderHook(() => useReaderSettings());
+    act(() => {
+      result.current[1]({ latinFont: "Microsoft YaHei" });
+    });
+    await act(async () => {});
+
+    expect(created).toHaveLength(1);
+    const face = created[0];
+    expect(face.family).toBe("Vellum Latin");
+    expect(face.source).toContain('local("Microsoft YaHei")');
+    expect(face.descriptors.unicodeRange).toBe(LATIN_UNICODE_RANGE);
+    // CJK 全角区不在范围内：汉字不会因为西文槽选了带汉字的字面而被接走
+    expect(face.descriptors.unicodeRange).not.toContain("3000");
+    expect(fontsStub.add).toHaveBeenCalledWith(face);
+    expect(document.documentElement.style.getPropertyValue("--font-latin")).toBe(
+      '"Vellum Latin", var(--font-cjk)'
+    );
+  });
+
+  it("local() 解析失败：回退「原名 + 回中文槽」栈并告警", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { result } = renderHook(() => useReaderSettings());
+    created = [];
+    const FailingFace = class extends FakeFontFace {
+      constructor(family: string, source: string, descriptors: Record<string, string>) {
+        super(family, source, descriptors);
+        this.fail = true;
+        created.push(this);
+      }
+    };
+    vi.stubGlobal("FontFace", FailingFace);
+    act(() => {
+      result.current[1]({ latinFont: "Source Sans Pro" });
+    });
+    await act(async () => {});
+
+    expect(fontsStub.add).not.toHaveBeenCalled();
+    expect(document.documentElement.style.getPropertyValue("--font-latin")).toBe(
+      '"Source Sans Pro", var(--font-cjk)'
+    );
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("换字面：旧 face 先删再挂新 face；回默认删 face 并移除覆写", async () => {
+    const { result } = renderHook(() => useReaderSettings());
+    act(() => {
+      result.current[1]({ latinFont: "Georgia" });
+    });
+    await act(async () => {});
+    const first = created[0];
+    expect(document.documentElement.style.getPropertyValue("--font-latin")).toBe(
+      '"Vellum Latin", var(--font-cjk)'
+    );
+
+    act(() => {
+      result.current[1]({ latinFont: "Consolas" });
+    });
+    await act(async () => {});
+    expect(fontsStub.delete).toHaveBeenCalledWith(first);
+    expect(created).toHaveLength(2);
+    expect(fontsStub.add).toHaveBeenLastCalledWith(created[1]);
+    expect(created[1].source).toContain('local("Consolas")');
+
+    act(() => {
+      result.current[1]({ latinFont: "" });
+    });
+    await act(async () => {});
+    expect(fontsStub.delete).toHaveBeenLastCalledWith(created[1]);
+    expect(document.documentElement.style.getPropertyValue("--font-latin")).toBe("");
+  });
+
+  it("300ms 内没载好先写兜底栈，载好后再升级为 Vellum Latin", async () => {
+    const PendingFace = class extends FakeFontFace {
+      constructor(family: string, source: string, descriptors: Record<string, string>) {
+        super(family, source, descriptors);
+        created.push(this);
+      }
+      load(): Promise<FontFace> {
+        return new Promise<FontFace>((resolve) => {
+          this.resolveLoad = resolve;
+        });
+      }
+    };
+    vi.stubGlobal("FontFace", PendingFace);
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useReaderSettings());
+      act(() => {
+        result.current[1]({ latinFont: "Georgia" });
+      });
+      // 载入在途，先不落笔
+      expect(document.documentElement.style.getPropertyValue("--font-latin")).toBe("");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(350);
+      });
+      // 超时：兜底原名栈先顶上
+      expect(document.documentElement.style.getPropertyValue("--font-latin")).toBe(
+        '"Georgia", var(--font-cjk)'
+      );
+      // 载好了再升级
+      await act(async () => {
+        created[0].resolveLoad(created[0] as unknown as FontFace);
+        await Promise.resolve();
+      });
+      expect(document.documentElement.style.getPropertyValue("--font-latin")).toBe(
+        '"Vellum Latin", var(--font-cjk)'
+      );
+      expect(fontsStub.add).toHaveBeenCalledWith(created[0]);
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

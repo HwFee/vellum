@@ -52,9 +52,9 @@ fn list_library_walker_skips_dot_dirs_node_modules_and_non_markdown() {
     write(root.path(), "node_modules/d.md", "d\n");
     write(root.path(), "readme.txt", "not markdown\n");
     write(root.path(), "assets/img.png", "fake\n");
-    let current = canonical(&root.path().join("a.md"));
 
-    let listing = list_library(&current).unwrap();
+    // 显式打开的文件夹本身即库根（不看标记）：root 入参直接是那个目录
+    let listing = list_library(root.path(), false).unwrap();
 
     let files = rels(&listing);
     assert_eq!(files, vec!["a.md".to_string(), "notes/b.markdown".to_string()]);
@@ -64,15 +64,16 @@ fn list_library_walker_skips_dot_dirs_node_modules_and_non_markdown() {
 }
 
 #[test]
-fn list_library_prefers_vault_root_over_document_dir() {
+fn list_library_lists_whatever_root_it_is_given() {
+    // 库根由 main.rs 从 Opened.library 供给（打开时由 find_library_root 定死）；
+    // 纯逻辑层只管「给我什么根就遍历什么根」。标记祖先的选定在 document.rs
+    // 单测里覆盖（find_library_root：8 级 / 主目录 / `.vellum` 优先）。
     let root = TestDir::new("vellum_library_vault_root_test");
     fs::create_dir_all(root.path().join(".obsidian")).unwrap();
     write(root.path(), "index.md", "# 索引\n");
     write(root.path(), "deep/sub/note.md", "n\n");
-    // 文档在深层目录：库根必须回退到含 .obsidian 的那一级，而不是文档目录
-    let current = canonical(&root.path().join("deep/sub/note.md"));
 
-    let listing = list_library(&current).unwrap();
+    let listing = list_library(root.path(), true).unwrap();
 
     assert!(listing.is_vault);
     assert_eq!(listing.root, root.path().to_string_lossy());
@@ -84,14 +85,13 @@ fn search_is_case_insensitive_ascii_and_cjk() {
     let root = TestDir::new("vellum_library_search_case_test");
     write(root.path(), "a.md", "Hello world\n你好世界\n");
     write(root.path(), "b.md", "nothing here\n");
-    let current = canonical(&root.path().join("a.md"));
 
-    let ascii = search_library(&current, "hello").unwrap();
+    let ascii = search_library(root.path(), "hello").unwrap();
     assert_eq!(ascii.files.len(), 1);
     assert_eq!(ascii.files[0].matches.len(), 1);
     assert_eq!(ascii.files[0].matches[0].line, 1);
 
-    let cjk = search_library(&current, "世界").unwrap();
+    let cjk = search_library(root.path(), "世界").unwrap();
     assert_eq!(cjk.files[0].matches[0].line, 2);
 }
 
@@ -102,15 +102,14 @@ fn search_case_folding_is_char_lowercase_not_unicode_folding() {
     // 即「STRASSE 查 Straße」不命中（与前端 String.toLowerCase 同一套语义），
     // 但 ẞ（U+1E9E）→ ß 这类真·单字符小写照常命中。
     write(root.path(), "de.md", "Straße steht hier.\nFußball!\n");
-    let current = canonical(&root.path().join("de.md"));
 
-    let no_fold = search_library(&current, "STRASSE").unwrap();
+    let no_fold = search_library(root.path(), "STRASSE").unwrap();
     assert!(no_fold.files.is_empty());
 
-    let sharp = search_library(&current, "straße").unwrap();
+    let sharp = search_library(root.path(), "straße").unwrap();
     assert_eq!(sharp.files[0].matches[0].line, 1);
 
-    let capital_sharp = search_library(&current, "STRAẞE").unwrap();
+    let capital_sharp = search_library(root.path(), "STRAẞE").unwrap();
     assert_eq!(capital_sharp.files[0].matches[0].line, 1);
 }
 
@@ -119,9 +118,8 @@ fn search_snippet_indices_are_char_offsets_around_cjk() {
     let root = TestDir::new("vellum_library_search_cjk_test");
     // CJK 字符占 1 char / 3 byte：matchStart/matchLen 必须是 char 索引而非字节索引
     write(root.path(), "cjk.md", "前面全是中文填充字符，关键字在这里。\n");
-    let current = canonical(&root.path().join("cjk.md"));
 
-    let result = search_library(&current, "关键字").unwrap();
+    let result = search_library(root.path(), "关键字").unwrap();
     let m = &result.files[0].matches[0];
     let chars: Vec<char> = m.snippet.chars().collect();
     let hit: String = chars[m.match_start..m.match_start + m.match_len].iter().collect();
@@ -135,9 +133,8 @@ fn search_snippet_ellipsizes_when_window_is_cut() {
     let root = TestDir::new("vellum_library_search_ellipsis_test");
     let long_line = format!("{}needle{}", "x".repeat(80), "y".repeat(80));
     write(root.path(), "long.md", &format!("{long_line}\n"));
-    let current = canonical(&root.path().join("long.md"));
 
-    let result = search_library(&current, "needle").unwrap();
+    let result = search_library(root.path(), "needle").unwrap();
     let m = &result.files[0].matches[0];
     assert!(m.snippet.starts_with('…'));
     assert!(m.snippet.ends_with('…'));
@@ -150,9 +147,8 @@ fn search_caps_at_twenty_per_file() {
     let root = TestDir::new("vellum_library_search_cap_file_test");
     let body: String = (0..30).map(|_| "hit here\n").collect();
     write(root.path(), "many.md", &body);
-    let current = canonical(&root.path().join("many.md"));
 
-    let result = search_library(&current, "hit").unwrap();
+    let result = search_library(root.path(), "hit").unwrap();
     assert_eq!(result.files[0].matches.len(), 20);
     assert!(!result.truncated);
 }
@@ -168,9 +164,8 @@ fn search_caps_at_three_hundred_total_and_marks_truncated() {
             &(0..20).map(|_| "hit\n").collect::<String>(),
         );
     }
-    let current = canonical(&root.path().join("f00.md"));
 
-    let result = search_library(&current, "hit").unwrap();
+    let result = search_library(root.path(), "hit").unwrap();
     let total: usize = result.files.iter().map(|f| f.matches.len()).sum();
     assert_eq!(total, 300);
     assert!(result.truncated);
@@ -181,15 +176,14 @@ fn search_caps_at_three_hundred_total_and_marks_truncated() {
 fn search_empty_query_and_oversized_query() {
     let root = TestDir::new("vellum_library_search_edge_test");
     write(root.path(), "a.md", "content\n");
-    let current = canonical(&root.path().join("a.md"));
 
-    assert!(search_library(&current, "   ").unwrap().files.is_empty());
-    assert!(search_library(&current, "").unwrap().files.is_empty());
+    assert!(search_library(root.path(), "   ").unwrap().files.is_empty());
+    assert!(search_library(root.path(), "").unwrap().files.is_empty());
 
     let long = "x".repeat(201);
-    assert!(search_library(&current, &long).is_err());
+    assert!(search_library(root.path(), &long).is_err());
     let exact = "x".repeat(200);
-    assert!(search_library(&current, &exact).is_ok());
+    assert!(search_library(root.path(), &exact).is_ok());
 }
 
 #[test]
@@ -205,7 +199,7 @@ fn backlinks_finds_alias_fragment_embed_and_md_suffix() {
     write(root.path(), "c.md", "无关 [[other]] 笔记。\n");
     let current = canonical(&root.path().join("current.md"));
 
-    let backlinks = find_backlinks(&current).unwrap();
+    let backlinks = find_backlinks(root.path(), &current).unwrap();
 
     let found: Vec<&str> = backlinks.iter().map(|f| f.rel_path.as_str()).collect();
     assert_eq!(found, vec!["a.md", "b.md"]);
@@ -225,7 +219,7 @@ fn backlinks_ignores_fenced_code_and_excludes_self() {
     );
     let current = canonical(&root.path().join("current.md"));
 
-    let backlinks = find_backlinks(&current).unwrap();
+    let backlinks = find_backlinks(root.path(), &current).unwrap();
 
     assert_eq!(backlinks.len(), 1);
     assert_eq!(backlinks[0].rel_path, "code.md");
@@ -246,7 +240,7 @@ fn backlinks_slash_target_requires_path_suffix() {
     write(root.path(), "no.md", "见 [[other/a]] 与 [[z/other/a]]。\n");
     let current = canonical(&root.path().join("x/sub/a.md"));
 
-    let backlinks = find_backlinks(&current).unwrap();
+    let backlinks = find_backlinks(root.path(), &current).unwrap();
 
     assert_eq!(backlinks.len(), 1);
     assert_eq!(backlinks[0].rel_path, "ok.md");
@@ -264,7 +258,7 @@ fn backlinks_slash_target_requires_segment_boundary() {
     write(root.path(), "bad.md", "见 [[sub/a]]。\n");
     let current = canonical(&root.path().join("xsub/a.md"));
 
-    let backlinks = find_backlinks(&current).unwrap();
+    let backlinks = find_backlinks(root.path(), &current).unwrap();
     assert!(backlinks.is_empty());
 
     // 对照：目标恰好等于完整相对路径（库根直放）与真·目录后缀都该命中
@@ -273,7 +267,7 @@ fn backlinks_slash_target_requires_segment_boundary() {
     write(root.path(), "good2.md", "见 [[x/sub/a]]。\n");
     write(root.path(), "x/sub/b.md", "# b\n");
     let current_root = canonical(&root.path().join("sub/a.md"));
-    let root_hits = find_backlinks(&current_root).unwrap();
+    let root_hits = find_backlinks(root.path(), &current_root).unwrap();
     assert_eq!(
         root_hits.iter().map(|f| f.rel_path.as_str()).collect::<Vec<_>>(),
         vec!["bad.md", "good1.md"]
@@ -288,7 +282,7 @@ fn backlinks_snippets_cap_at_five_per_file() {
     write(root.path(), "ref.md", &body);
     let current = canonical(&root.path().join("current.md"));
 
-    let backlinks = find_backlinks(&current).unwrap();
+    let backlinks = find_backlinks(root.path(), &current).unwrap();
     assert_eq!(backlinks.len(), 1);
     assert_eq!(backlinks[0].snippets.len(), 5);
     assert_eq!(backlinks[0].snippets[0].line, 1);

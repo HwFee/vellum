@@ -1242,9 +1242,11 @@ describe("kami.css 字体三槽变量", () => {
     expect(consumers).toEqual([]);
   });
 
-  it("字体选择器面板用 fixed 定位（滚动容器里绝对定位会被裁），且排在首个 .mdlog-widget 之前", () => {
-    const panel = css.match(/\.font-picker__panel\s*\{[^}]*\}/s)?.[0] ?? "";
-    expect(panel).toMatch(/position:\s*fixed/);
+  it("字体选择器是行内展开（grid 0fr→1fr 过渡，不浮层），且排在首个 .mdlog-widget 之前", () => {
+    const region = css.match(/\.font-picker__region\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(region).toMatch(/grid-template-rows:\s*0fr/);
+    const open = css.match(/\.font-picker__region--open\s*\{[^}]*\}/s)?.[0] ?? "";
+    expect(open).toMatch(/grid-template-rows:\s*1fr/);
     expect(css.indexOf(".font-picker")).toBeGreaterThan(-1);
     expect(css.indexOf(".font-picker")).toBeLessThan(css.indexOf(".mdlog-widget"));
   });

@@ -32,6 +32,8 @@ type SetupOptions = {
   settings?: ReaderSettings;
   preferences?: AppPreferences;
   currentDocumentPath?: string | null;
+  /// 默认 true：既有用例都站在库模式一侧（快捷键一览的「全库检索」行预设可见）
+  isLibraryMode?: boolean;
   recentCount?: number;
 };
 
@@ -47,6 +49,7 @@ async function setup(options: SetupOptions = {}) {
       preferences={options.preferences ?? APP_PREFERENCES_DEFAULT}
       onPreferencesChange={onPreferencesChange}
       currentDocumentPath={options.currentDocumentPath ?? null}
+      isLibraryMode={options.isLibraryMode ?? true}
       recentCount={options.recentCount ?? 0}
       onClearRecent={onClearRecent}
       onExit={onExit}
@@ -114,16 +117,45 @@ describe("SettingsView", () => {
     expect(onSettingsChange).toHaveBeenCalledWith({ lineHeight: 1.7 });
   });
 
-  it("样张消费同一组 CSS 变量，恢复默认回写整套默认值", async () => {
+  it("样张排在字体行之前、三槽各有一行样字（中文段 / 英文行 / 代码块），全部恢复默认回写整套默认值", async () => {
     const { onSettingsChange } = await setup({
       settings: { ...READER_SETTINGS_DEFAULT, fontSize: 18, columnWidth: 960, lineHeight: 1.7 },
     });
 
-    expect(screen.getByText("样张")).toBeInTheDocument();
-    expect(document.querySelector(".settings-view__proof-sheet")).toBeInTheDocument();
+    const proof = document.querySelector(".settings-view__proof")!;
+    expect(proof).toBeInTheDocument();
+    // 行序：样张在中文字体行之前（三槽字面在样张上先看得见）
+    const cjkRow = screen.getByRole("button", { name: /中文字体（当前/ }).closest(".settings-view__row")!;
+    expect(proof.compareDocumentPosition(cjkRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(proof as HTMLElement).getByText(/quick brown fox/)).toBeInTheDocument();
+    // 代码样张 = 正文同一个 CodeBlock（含复制钮与语言标）
+    const block = proof.querySelector(".settings-view__proof-block .code-block");
+    expect(block).toHaveTextContent('print("素笺 · Vellum 0O1lI {}[]")');
+    expect(within(block as HTMLElement).getByRole("button", { name: "复制" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "恢复默认" }));
+    fireEvent.click(screen.getByRole("button", { name: "全部恢复默认" }));
     expect(onSettingsChange).toHaveBeenCalledWith(READER_SETTINGS_DEFAULT);
+  });
+
+  it("行内复位：非默认的行露「恢复默认」小钮（默认行占位隐藏），点击只复位该行字段", async () => {
+    const { onSettingsChange } = await setup({
+      settings: { ...READER_SETTINGS_DEFAULT, fontSize: 18, cjkFont: "SimSun" },
+    });
+
+    // 改了 fontSize 与 cjkFont：这两行露钮；栏宽/行高是默认值，钮在但不露面
+    const fontSizeRow = screen.getByRole("group", { name: "正文字号" }).closest(".settings-view__row")!;
+    const resets = [...document.querySelectorAll(".settings-view__row-reset")];
+    const [fsReset, cwReset] = resets;
+    expect(fsReset).not.toHaveStyle({ visibility: "hidden" });
+    expect(cwReset).toHaveStyle({ visibility: "hidden" });
+
+    fireEvent.click(within(fontSizeRow as HTMLElement).getByRole("button", { name: "恢复默认" }));
+    expect(onSettingsChange).toHaveBeenCalledWith({ fontSize: READER_SETTINGS_DEFAULT.fontSize });
+
+    // 字体行的复位回写空串（默认 = 不覆写变量）
+    const cjkRow = screen.getByRole("button", { name: /中文字体（当前：SimSun/ }).closest(".settings-view__row")!;
+    fireEvent.click(within(cjkRow as HTMLElement).getByRole("button", { name: "恢复默认" }));
+    expect(onSettingsChange).toHaveBeenCalledWith({ cjkFont: "" });
   });
 
   it("「外观」分段选择器：三档陈列，出厂高亮「跟随系统」，点击回写 theme", async () => {
@@ -250,7 +282,7 @@ describe("SettingsView", () => {
   });
 
   it("快捷键一览：十一行只读陈列，kbd 复用大纲搜索框的样式类", async () => {
-    await setup();
+    await setup({ isLibraryMode: true });
 
     const rows: Array<[string, string[]]> = [
       ["切换大纲", ["CTRL", "B"]],
@@ -274,6 +306,15 @@ describe("SettingsView", () => {
         expect(kbd).toHaveClass("outline-search__kbd");
       }
     }
+  });
+
+  it("单文件模式隐去「全库检索」行（那个快捷键在非库模式吞键不动作）", async () => {
+    await setup({ isLibraryMode: false });
+
+    expect(screen.queryByText("全库检索")).toBeNull();
+    // 其余快捷键照旧
+    expect(screen.getByText("聚焦搜索")).toBeInTheDocument();
+    expect(screen.getByText("切换大纲")).toBeInTheDocument();
   });
 
   it("字体三槽各一行，出厂都显示「默认」字样（中文随包楷体 / 西文跟随中文 / 代码 JetBrains Mono）", async () => {
@@ -310,16 +351,16 @@ describe("SettingsView", () => {
     try {
       await setup();
       fireEvent.click(screen.getByRole("button", { name: /中文字体（当前/ }));
-      const panel = await screen.findByRole("listbox", { name: "中文字体候选表" });
-      await waitFor(() => expect(within(panel).getByText("SimSun")).toBeInTheDocument());
+      const region = await screen.findByRole("listbox", { name: "中文字体候选表" });
+      await waitFor(() => expect(within(region).getByText("SimSun")).toBeInTheDocument());
 
-      // 候选项此刻仍用界面字体渲染——打开面板不再让几百款字体同步整形
-      const names = [...panel.querySelectorAll<HTMLElement>(".font-picker__option-name")];
+      // 候选项此刻仍用界面字体渲染——展开不再让几百款字体同步整形
+      const names = [...region.querySelectorAll<HTMLElement>(".font-picker__chip-name")];
       const optionNames = names.filter((el) => !el.textContent?.startsWith("默认"));
       expect(optionNames.length).toBeGreaterThan(0);
       for (const el of optionNames) expect(el.style.fontFamily).toBe("");
 
-      // 「滚进视口」SimSun → 该行换上自己的字面
+      // 「滚进视口」SimSun → 该字片换上自己的字面
       const target = registry.find((entry) => entry.el.textContent === "SimSun");
       expect(target).toBeTruthy();
       act(() => {
@@ -349,56 +390,177 @@ describe("SettingsView", () => {
     }
   });
 
-  it("点开中文字体：列出本机字体（含随包两款与系统字体），选中即回写 cjkFont", async () => {
+  it("点开中文字体：就地展开候选区（平铺三列字片，无分组眉题），选中即回写 cjkFont 并收起", async () => {
     const { onSettingsChange } = await setup();
 
-    fireEvent.click(screen.getByRole("button", { name: /中文字体（当前/ }));
-    const panel = await screen.findByRole("listbox", { name: "中文字体候选表" });
+    const trigger = screen.getByRole("button", { name: /中文字体（当前/ });
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    // 展开区不在浮层里：它就是行与行之间的文档流节点
+    const region = document.querySelector(".font-picker__region")!;
+    expect(region).toBeInTheDocument();
+    expect(region.parentElement).toHaveClass("settings-view__section");
+    const listbox = await screen.findByRole("listbox", { name: "中文字体候选表" });
 
-    // 系统字体是异步拉回来的：等它进列表
-    await waitFor(() => expect(within(panel).getByText("SimSun")).toBeInTheDocument());
-    expect(within(panel).getByText("TsangerJinKai02")).toBeInTheDocument();
-    expect(within(panel).getByText("默认 · 倉頡楷體")).toBeInTheDocument();
+    await waitFor(() => expect(within(listbox).getByText("SimSun")).toBeInTheDocument());
+    expect(within(listbox).getByText("TsangerJinKai02")).toBeInTheDocument();
+    expect(within(listbox).getByText("默认 · 倉頡楷體")).toBeInTheDocument();
+    // 平铺无分组：眉题一个都不该在；默认 → 随包两款 → 其余按名字
+    expect(listbox.querySelector(".font-picker__group")).toBeNull();
+    const chips = [...listbox.querySelectorAll(".font-picker__chip")].map(
+      (el) => el.textContent
+    );
+    expect(chips).toEqual([
+      "默认 · 倉頡楷體",
+      "TsangerJinKai02",
+      "JetBrains Mono",
+      "Consolas",
+      "Georgia",
+      "SimSun",
+    ]);
 
-    fireEvent.click(within(panel).getByText("SimSun"));
+    fireEvent.click(within(listbox).getByText("SimSun"));
     expect(onSettingsChange).toHaveBeenCalledWith({ cjkFont: "SimSun" });
-    // 选完就关面板
-    expect(screen.queryByRole("listbox", { name: "中文字体候选表" })).toBeNull();
+    // 选完收起：触发器回到未展开；区域 DOM 常驻（过渡收尾后落 rested 隐藏态，
+    // 不卸载——末段动画不能靠 unmount 收，否则残余高度瞬跳）
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await waitFor(() =>
+      expect(document.querySelector(".font-picker__region--rested")).toBeInTheDocument()
+    );
   });
 
-  it("搜索框过滤候选表；选「默认」回写空串", async () => {
+  it("选中项紧跟「默认」之后（随包两款再后，其余按名字）；默认态无选中则不占首条之外的位置", async () => {
+    await setup({ settings: { ...READER_SETTINGS_DEFAULT, latinFont: "Georgia" } });
+    fireEvent.click(screen.getByRole("button", { name: /西文字体（当前/ }));
+    const listbox = await screen.findByRole("listbox", { name: "西文字体候选表" });
+    await waitFor(() => expect(within(listbox).getByText("Georgia")).toBeInTheDocument());
+    const chips = [...listbox.querySelectorAll(".font-picker__chip")].map(
+      (el) => el.textContent
+    );
+    expect(chips).toEqual([
+      "默认 · 跟随中文",
+      "Georgia",
+      "TsangerJinKai02",
+      "JetBrains Mono",
+      "Consolas",
+      "SimSun",
+    ]);
+  });
+
+  it("点字片先 pointerdown 也不被误判成「点外面」——点击照常提交（展开区是行的兄弟节点）", async () => {
+    const { onSettingsChange } = await setup();
+    const trigger = screen.getByRole("button", { name: /中文字体（当前/ });
+    fireEvent.click(trigger);
+    const listbox = await screen.findByRole("listbox", { name: "中文字体候选表" });
+    await waitFor(() => expect(within(listbox).getByText("SimSun")).toBeInTheDocument());
+
+    // 真实按下-抬起序列：pointerdown 落在字片上不许先收区
+    const chip = within(listbox).getByText("SimSun").closest("button")!;
+    fireEvent.pointerDown(chip);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(chip);
+    expect(onSettingsChange).toHaveBeenCalledWith({ cjkFont: "SimSun" });
+  });
+
+  it("pointerdown 落在搜索框不收起；落在行与区之外才收起", async () => {
+    await setup();
+    const trigger = screen.getByRole("button", { name: /中文字体（当前/ });
+    fireEvent.click(trigger);
+    const listbox = await screen.findByRole("listbox", { name: "中文字体候选表" });
+    const search = within(listbox.parentElement!).getByRole("combobox", { name: "搜索中文字体" });
+
+    fireEvent.pointerDown(search);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.pointerDown(document.body);
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await waitFor(() =>
+      expect(document.querySelector(".font-picker__region--rested")).toBeInTheDocument()
+    );
+  });
+
+  it("字体行同时只开一个：开中文再开西文，中文那区收起来", async () => {
+    await setup();
+
+    const cjkTrigger = screen.getByRole("button", { name: /中文字体（当前/ });
+    fireEvent.click(cjkTrigger);
+    expect(await screen.findByRole("listbox", { name: "中文字体候选表" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /西文字体（当前/ }));
+    expect(cjkTrigger).toHaveAttribute("aria-expanded", "false");
+    expect(await screen.findByRole("listbox", { name: "西文字体候选表" })).toBeInTheDocument();
+    // 收起区常驻但落 rested 隐藏态
+    await waitFor(() =>
+      expect(
+        document.querySelector('.font-picker__region--rested')
+      ).toBeInTheDocument()
+    );
+  });
+
+  it("搜索框过滤候选字片；无匹配时给空态文案；选「默认」回写空串", async () => {
     const { onSettingsChange } = await setup({
       settings: { ...READER_SETTINGS_DEFAULT, latinFont: "Georgia" },
     });
 
     fireEvent.click(screen.getByRole("button", { name: /西文字体（当前：Georgia）/ }));
-    const panel = await screen.findByRole("listbox", { name: "西文字体候选表" });
-    await waitFor(() => expect(within(panel).getByText("SimSun")).toBeInTheDocument());
+    const listbox = await screen.findByRole("listbox", { name: "西文字体候选表" });
+    await waitFor(() => expect(within(listbox).getByText("SimSun")).toBeInTheDocument());
 
-    fireEvent.change(within(panel).getByRole("searchbox", { name: "搜索西文字体" }), {
-      target: { value: "cons" },
-    });
-    expect(within(panel).queryByText("SimSun")).toBeNull();
-    expect(within(panel).getByText("Consolas")).toBeInTheDocument();
+    const search = within(listbox.parentElement!).getByRole("combobox", { name: "搜索西文字体" });
+    fireEvent.change(search, { target: { value: "cons" } });
+    expect(within(listbox).queryByText("SimSun")).toBeNull();
+    expect(within(listbox).getByText("Consolas")).toBeInTheDocument();
 
-    fireEvent.change(within(panel).getByRole("searchbox", { name: "搜索西文字体" }), {
-      target: { value: "" },
-    });
-    fireEvent.click(within(panel).getByText("默认 · 跟随中文"));
+    fireEvent.change(search, { target: { value: "不存在" } });
+    expect(within(listbox).getByText("没有匹配「不存在」的字体")).toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: "" } });
+    fireEvent.click(within(listbox).getByText("默认 · 跟随中文"));
     expect(onSettingsChange).toHaveBeenCalledWith({ latinFont: "" });
   });
 
-  it("面板里按 Esc 只关面板，不退设置视图（设置视图的 Esc 监听在 window 上）", async () => {
+  it("方向键在栅格上走高亮（↑↓ 跨行 ±3、←→ 同行 ±1），Enter 提交并收起", async () => {
+    const { onSettingsChange } = await setup();
+
+    fireEvent.click(screen.getByRole("button", { name: /中文字体（当前/ }));
+    const listbox = await screen.findByRole("listbox", { name: "中文字体候选表" });
+    await waitFor(() => expect(within(listbox).getByText("SimSun")).toBeInTheDocument());
+    const search = within(listbox.parentElement!).getByRole("combobox", { name: "搜索中文字体" });
+
+    // 平铺表：默认(0) → 随包(TsangerJinKai02=1, JetBrains Mono=2) →
+    // 按名：Consolas=3 → Georgia=4 → SimSun=5。↓ 一次跳三格到 Consolas
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    const consolasChip = within(listbox).getByText("Consolas").closest("button")!;
+    expect(consolasChip).toHaveClass("font-picker__chip--active");
+    expect(search).toHaveAttribute("aria-activedescendant", consolasChip.id);
+
+    fireEvent.keyDown(search, { key: "ArrowRight" });
+    const georgiaChip = within(listbox).getByText("Georgia").closest("button")!;
+    expect(georgiaChip).toHaveClass("font-picker__chip--active");
+
+    fireEvent.keyDown(search, { key: "ArrowLeft" });
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(onSettingsChange).toHaveBeenCalledWith({ cjkFont: "Consolas" });
+    await waitFor(() =>
+      expect(document.querySelector(".font-picker__region--rested")).toBeInTheDocument()
+    );
+  });
+
+  it("展开区里按 Esc 只收本区并把焦点还给触发器，不退设置视图", async () => {
     const { onExit } = await setup();
 
-    fireEvent.click(screen.getByRole("button", { name: /代码字体（当前/ }));
-    const panel = await screen.findByRole("listbox", { name: "代码字体候选表" });
+    const trigger = screen.getByRole("button", { name: /代码字体（当前/ });
+    fireEvent.click(trigger);
+    const listbox = await screen.findByRole("listbox", { name: "代码字体候选表" });
+    const search = within(listbox.parentElement!).getByRole("combobox", { name: "搜索代码字体" });
 
-    fireEvent.keyDown(within(panel).getByRole("searchbox", { name: "搜索代码字体" }), {
-      key: "Escape",
-    });
-    expect(screen.queryByRole("listbox", { name: "代码字体候选表" })).toBeNull();
+    fireEvent.keyDown(search, { key: "Escape" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(onExit).not.toHaveBeenCalled();
+    expect(trigger).toHaveFocus();
+    await waitFor(() =>
+      expect(document.querySelector(".font-picker__region--rested")).toBeInTheDocument()
+    );
   });
 
   it("Ctrl + 滚轮改字号：开关反映偏好、点击回写 ctrlWheelFontSize", async () => {

@@ -1,6 +1,6 @@
 [package]
 name = "vellum"
-version = "1.12.0"
+version = "1.13.0"
 description = "Vellum · 素笺 - an elegant Markdown viewer"
 authors = ["Vellum · 素笺"]
 edition = "2021"
@@ -14,6 +14,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 base64 = "0.22"
+dirs = "6"
 dunce = "1"
 notify = "6"
 serde = { version = "1", features = ["derive"] }
@@ -34,6 +35,7 @@ webview2-com = "0.38.2"
 windows-core = "0.61"
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
+  "Win32_Globalization",
   "Win32_Graphics_Gdi",
   "Win32_System_Threading",
 ] }

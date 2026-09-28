@@ -28,7 +28,7 @@ Tauri 2 + React 19 桌面 Markdown 阅读器，Windows 10/11 x64 与 Linux（Web
 | `samples/` | 示例 Markdown（`sample.md`；本地图片放 `samples/assets/`） |
 | `docs/agents/` | 四份分册：渲染 / Obsidian 语法 / widget 沙箱 / 工程与发布 |
 | `docs/design/` | 界面设计稿与真机取证截图（`export-pdf-mockups.html`、`shots/`） |
-| 根目录 | `AGENTS.md`（本文件）、`DESIGN.md`、`CHANGELOG.md`、`README.md` |
+| 根目录 | `AGENTS.md`（本文件）、`DESIGN.md`、`CHANGELOG.md`、`README.md`、`HANDOFF.md`（**本轮交接，开工先读**）、`TODO.md`（指向 HANDOFF 的指针） |
 
 - **不新建目录**：新素材放进上表已有位置——界面稿与截图给 `docs/design/`，示例文档给 `samples/`，长期文档给 `docs/agents/`。
 - **临时产物不入库**：`outputs/`、`dist/`、`node_modules/`、`target/` 已在 `.gitignore`，别用 `git add -f` 绕过。
@@ -71,7 +71,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 8. **侧栏开关与拖宽的全部入口**（顶栏按钮 / `Ctrl+B` / `Ctrl+K` / 窄屏 Escape 与遮罩 / 窄屏选章 / 拖宽手柄）都必须走 `beginWidthTransition()`；入口已由 `src/hooks/usePinnedLayoutActions.ts` 收口，新加入口同样放这里。 → `docs/agents/rendering.md`
 9. 热重载滚动恢复不要改回纯像素恢复；阅读位置恢复不要改回一次性 `ratio × scrollHeight`。 → `docs/agents/rendering.md`
 10. 打包前必须先 `taskkill /IM vellum.exe /F`（`Get-Process vellum` 为空），否则链接阶段报 `os error 5 拒绝访问`。 → `docs/agents/tooling.md`
-11. capabilities 必须有 `core:window:allow-destroy`、`core:window:allow-set-title` 与 `updater:default`；CSP 必须含 `connect-src ipc: http://ipc.localhost`。 → `docs/agents/tooling.md`
+11. capabilities 必须有 `core:window:allow-destroy`、`core:window:allow-set-title`、`core:window:allow-start-dragging`（Linux 顶栏拖拽走的 Tauri 脚本 IPC）、`core:window:allow-internal-toggle-maximize`（同脚本的双击最大化）与 `updater:default`；CSP 必须含 `connect-src ipc: http://ipc.localhost`。`data-tauri-drag-region` 只在非 Windows 挂（Windows 上 CSS app-region 与该脚本双重触发）。 → `docs/agents/tooling.md`
 12. `.pi/skills/` 与 `extensions/mdlog` 是目录联接：`git ls-files .pi/skills/` 有输出就是错，别用 `git add -f` 绕过忽略；删这些路径时只删联接条目本身（`Remove-Item` 单条 或 `[System.IO.Directory]::Delete`），别用会顺着联接递归的 `rmdir /s`——会删掉全局技能库里的真身。 → `docs/agents/tooling.md`
 13. kami.css 新规则只要含 `.mdlog-widget` 字样，就必须放在首个该选择器出现处**之后**。 → `docs/agents/widgets.md`
 14. katex 版本必须与 rehype-katex 嵌套依赖的 katex 严格同版（当前均 0.16.47）。 → `docs/agents/rendering.md`
@@ -91,7 +91,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 - 应用编排：`src/App.tsx` 只做「`useAppRuntime` 共享 ref 总线 → 领域 hooks 接线 → JSX」，全部职责域在 `src/hooks/`（文档加载 `useDocumentLoader`、平台绑定 `usePlatformBindings`、滚动记忆 `useScrollMemory`/`useScrollPosition`、布局过渡 `useLayoutShift`、钉视口入口 `usePinnedLayoutActions`、整页视图 `useFullScreenViews`、mdlog `useMdlog`、导航 `useNavHistory`/`useSmoothNav`/`useOutline`、搜索 `useSearchState`、快捷键 `useGlobalShortcuts`、编辑会话 `useDocumentEditor` 等）。
 - 设置页与界面偏好：`src/components/SettingsView.tsx`（四节内容栏；`SETTINGS_SECTIONS` / `settingsSectionElementId` 是分节清单的唯一来源，侧栏导航据此生成）、`src/components/SettingsNav.tsx`（设置视图的侧栏内容）、`src/lib/appPreferences.ts`（Store key `sidebarOpenOnLaunch` / `autoCheckUpdates` / `theme` / `ctrlWheelFontSize` / `headingScript`，读盘失败回退出厂值）、`src/hooks/useTheme.ts` 与 `src/lib/theme.ts`（外观主题：写 `data-theme`/`colorScheme`，导出视图强制 light，偏好镜像 localStorage `vellum-theme` 供 main.tsx 首帧同步解算）、`src/hooks/useWheelFontSize.ts`（Ctrl+滚轮改字号：window 捕获段非被动监听，导出视图只吞不改）、`src/lib/updater.ts`（`checkForUpdates(manual?)`：启动静默检查 + 设置页「立即检查」）。
 - 导出为 PDF：`src/components/ExportPdfView.tsx`（纸张舞台）、`src/lib/exportDocument.ts`（消毒后的正文底稿）、`src/lib/exportLayout.ts`（模板常量）、`src/lib/exportPagination.ts`（按行摹 Chromium 分页）、Rust 侧 `export_pdf` 命令（对主窗口 WebView2 调 CDP `Page.printToPDF`）。
-- 库面板：`src-tauri/src/library.rs`（`list_library` / `search_library` / `find_backlinks`，锚定 `AppState.current`）、`src/components/SidebarTabs.tsx` 与 `FilesPanel` / `LibrarySearchPanel` / `BacklinksPanel`（同一枚 `.outline-sidebar` 内换内容）、`src/lib/library.ts`（契约类型 + `buildFileTree` + `snippetParts`）。
+- 库面板：`src-tauri/src/library.rs`（`list_library` / `search_library` / `find_backlinks`，锚定 `AppState.current: Option<Opened>`——模式由打开方式决定：`Opened.library` 为 None 即单文件模式，三命令返回 `not in library mode`；库根判定与向上搜索的 8 级/主目录/盘根边界在 `document.rs` 的 `walk_ancestors` + `find_library_root`）、`src/components/SidebarTabs.tsx` 与 `FilesPanel` / `LibrarySearchPanel` / `BacklinksPanel`（同一枚 `.outline-sidebar` 内换内容）、`src/lib/library.ts`（契约类型 + `buildFileTree` + `snippetParts`）。
 - pi 扩展实体：`extensions/mdlog/`（pi 的加载位 `~/.pi/agent/extensions/mdlog` 是指向它的目录联接）。
 - 真机探针：`scripts/cdp-*.mjs`（`cdp-verify` / `cdp-perf-scroll` / `cdp-sidebar-jump` / `cdp-anchor-synthetic` / `cdp-obsidian-verify` / `cdp-reader-fonts`）。
 - 设计语言：`DESIGN.md`；变更记录：`CHANGELOG.md`。
@@ -100,6 +100,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 
 | 文档 | 管什么 | 什么时候读 |
 |------|--------|-----------|
+| `HANDOFF.md` | **本轮主题「模式由打开方式定」**：四条已定决策、向上找库的边界规格（8 级 / 主目录 / 盘根 / `.vellum` 优先）、单文件 vs 库的行为矩阵、P0–P3 实施清单与完成判据、5 条待拍板 | **开工前第一份**；动侧栏页签、`library.rs` / `document.rs` 库根判定、打开管线（argv / 对话框 / 拖放）之前 |
 | `docs/agents/rendering.md` | 渲染结构、搜索跳转、大纲跟随、侧栏布局与宽度（含设置视图的侧栏内容切换）、设置视图、阅读位置记忆、热重载恢复、布局过渡窗、`viewportPin`、数学公式、块级就地编辑不变量、任务勾选、打印样式、导出为 PDF、文件索引 | 改渲染管线 / 滚动 / 编辑器 / 大纲 / 设置页 / 打印 / 导出时 |
 | `docs/agents/obsidian.md` | frontmatter 属性卡、callout、wikilink 端到端与片段跳转、文档标题与属性卡/提示块定稿形态、CJK 强调兜底、全库语料检查与真机验收 | 碰三族语法或 `rehypeObsidian` 时 |
 | `docs/agents/widgets.md` | `WidgetSandbox` 存活上限与懒挂载、沙箱根溢出保护、交互块授权台账、停帧降载与静态图指针防线、预载视距与高度夹取、mdlog 状态与吸底、sidecar 清理 | 改 mdlog 或 widget 沙箱时 |

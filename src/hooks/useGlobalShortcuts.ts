@@ -26,6 +26,9 @@ export type GlobalShortcutDeps = {
   toggleFocusMode: () => void;
   /// 侧栏页签切换（Ctrl+K/F 回「目錄」、Ctrl+Shift+F 去「檢索」）；setState 稳定
   setSidebarTab: (tab: SidebarTab) => void;
+  /// 当前是否库模式（`document.library != null`，经 ref 在按键时读——监听只注册一次，
+  /// 不能靠 prop 闭包把模式钉在首帧）：单文件模式下 Ctrl+Shift+F 吞键不动作
+  isLibraryModeRef: MutableRefObject<boolean>;
   /// Ctrl+Shift+F 的聚焦目标：库内检索框（挂在「檢索」页签的输入上）
   librarySearchInputRef: MutableRefObject<HTMLInputElement | null>;
 };
@@ -43,7 +46,7 @@ export function useGlobalShortcuts(rt: AppRuntime, deps: GlobalShortcutDeps): vo
   const { editorRef } = rt.doc;
   const { isSettingsOpenRef, isExportOpenRef } = rt.views;
   const { searchInputRef } = rt.dom;
-  const { isOutlineOpen, setOutlineOpenPinned, toggleOutlinePinned, handleNavBack, handleNavForward, toggleExport, handleOpen, stepReaderFontSize, handleNextMatch, handlePrevMatch, toggleFocusMode, setSidebarTab, librarySearchInputRef } = deps;
+  const { isOutlineOpen, setOutlineOpenPinned, toggleOutlinePinned, handleNavBack, handleNavForward, toggleExport, handleOpen, stepReaderFontSize, handleNextMatch, handlePrevMatch, toggleFocusMode, setSidebarTab, isLibraryModeRef, librarySearchInputRef } = deps;
 
   // 搜索匹配导航回调随 matchCount 换代（useCallback 依赖了它）：固定监听经 ref
   // 读最新一份，不为每次匹配计数变化重挂 window 监听
@@ -133,10 +136,15 @@ export function useGlobalShortcuts(rt: AppRuntime, deps: GlobalShortcutDeps): vo
       // Ctrl+Shift+F 全库检索：必须先于 Ctrl+K/F 别名判定（Shift+F 的 key 经
       // toLowerCase 也是 "f"，不抢在前面就会当成 Ctrl+F）。无条件吞键——它是
       // WebView 的整页搜索加速键；设置/导出整页视图打开时静默忽略
-      // （侧栏此刻不在 DOM，库检索框聚焦不到）。
+      // （侧栏此刻不在 DOM，库检索框聚焦不到）。**单文件模式吞键不动作**：
+      // 库三命令在非库模式下被 Rust 拒答，打开了也是空面板。
       if (key === "f" && event.shiftKey && !event.altKey) {
         event.preventDefault();
-        if (!isSettingsOpenRef.current && !isExportOpenRef.current) {
+        if (
+          !isSettingsOpenRef.current &&
+          !isExportOpenRef.current &&
+          isLibraryModeRef.current
+        ) {
           if (!isOutlineOpen) setOutlineOpenPinned(true);
           setSidebarTab("search");
           if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
@@ -199,5 +207,5 @@ export function useGlobalShortcuts(rt: AppRuntime, deps: GlobalShortcutDeps): vo
     }
     window.addEventListener("keydown", handleGlobalShortcut);
     return () => window.removeEventListener("keydown", handleGlobalShortcut);
-  }, [isOutlineOpen, setOutlineOpenPinned, toggleOutlinePinned, handleNavBack, handleNavForward, toggleExport, handleOpen, stepReaderFontSize, toggleFocusMode, setSidebarTab, librarySearchInputRef, editorRef, isSettingsOpenRef, isExportOpenRef, searchInputRef]);
+  }, [isOutlineOpen, setOutlineOpenPinned, toggleOutlinePinned, handleNavBack, handleNavForward, toggleExport, handleOpen, stepReaderFontSize, toggleFocusMode, setSidebarTab, isLibraryModeRef, librarySearchInputRef, editorRef, isSettingsOpenRef, isExportOpenRef, searchInputRef]);
 }

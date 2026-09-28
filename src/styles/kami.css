@@ -1569,6 +1569,103 @@ mark.search-match--current {
   font-size: 11px;
 }
 
+/* ===== 开始页（方案 B · 一体拖放区） ===== */
+/* 整块仍是 .empty-state（同限宽同 padding），mast 居中、虚线拖放区接住一切：
+   拖文件进单文件阅读、拖文件夹进库模式；不拖就点下面两个「选择…」按钮。 */
+.empty-state--start {
+  max-width: min(640px, 100%);
+}
+
+.empty-state--start .empty-state__mast {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.empty-state--start .empty-state__mast h1 {
+  margin: 14px 0 8px;
+  font-size: 30px;
+}
+
+.empty-state--start .empty-state__mast p {
+  margin: 0;
+  font-size: 13.5px;
+}
+
+.empty-state__zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 44px 24px 36px;
+  border: 1px dashed var(--hairline);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ivory) 60%, transparent);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.empty-state__zone-icon {
+  color: var(--faint-mark);
+}
+
+.empty-state__zone-lead {
+  color: var(--olive);
+  font-size: 13.5px;
+}
+
+/* 「或」分隔：中间字两边发丝线，与空态的 mono 眉题同语汇 */
+.empty-state__or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 340px;
+  color: var(--faint-text);
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 3px;
+}
+
+.empty-state__or::before,
+.empty-state__or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--hairline);
+}
+
+.empty-state__btns {
+  display: flex;
+  gap: 10px;
+}
+
+/* 拖入悬停（正文区 .document-scroll--drop-target 期间的空态）：虚线区点亮——
+   与 B 稿 .spB.is-drag 同一语义，只是描边与底色换成主题变量 */
+.document-scroll--drop-target .empty-state__zone {
+  border-color: var(--brand);
+  background: var(--brand-tint);
+}
+
+.document-scroll--drop-target .empty-state__zone-icon {
+  color: var(--brand);
+}
+
+/* 「库」标记：给「最近库」条目的 mono 小签（与 recent-files 同列对齐） */
+.kind-tag {
+  flex: none;
+  align-self: center;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--tag-bg);
+  color: var(--brand);
+  font: 500 9.5px/1.6 var(--mono);
+  letter-spacing: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .empty-state__zone {
+    transition: none;
+  }
+}
+
 /* ===== 文档标题（Obsidian 的 inline title） ===== */
 /* 标题取自文件名、落在正文首行（`fileNameToTitle` 剥 .md）。宽度与内边距与 .markdown-body
    同参，保证标题左缘与正文首块逐像素对齐；不在 .markdown-body 内部，因此不参与 markdown
@@ -2929,142 +3026,231 @@ mark.search-match--current {
   font-size: 12px;
 }
 
-/* 字体选择器（中文字体 / 西文字体 / 代码字体）：当前值是一枚与 .seg 同语汇的
-   幽灵按钮，点开在下方浮出一张可选列表。面板用 position: fixed —— 设置视图活在
-   overflow-y: scroll 的滚动容器里，绝对定位的面板会被容器在底部裁掉；fixed 元素
-   不被祖先的 overflow 裁剪（祖先链上没有 transform / filter / will-change，
-   viewportPin 也只写 scrollTop，不构成新的包含块）。 */
-.font-picker {
-  position: relative;
-  display: flex;
-  justify-content: flex-end;
-  min-width: 0;
+/* 样张里的真代码块：与正文同一个 CodeBlock（挂在 markdown-body 壳里继承
+   正文语境）；只收口外边距——.code-block 自带 14px 0 的段落间距在卡里偏多 */
+.settings-view__proof-block .code-block {
+  margin: 10px 0 0;
 }
 
-.font-picker__value {
-  max-width: 320px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font: 500 12px/1.5 var(--mono);
-  letter-spacing: 0.2px;
-  color: var(--olive);
-  padding: 5px 10px;
+/* 行内单项复位：贴着行标签的小字钮——非默认才露面（占位保留，行不抖） */
+.settings-view__row-reset {
+  margin-left: 8px;
+  padding: 0;
   border: 0;
-  border-radius: 4px;
+  background: none;
+  color: var(--stone);
+  font: 12px/1.5 var(--serif);
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.settings-view__row-reset:hover {
+  color: var(--brand);
+}
+
+/* 字体选择器（中文字体 / 西文字体 / 代码字体）：行内展开，不浮层。触发器是与行内
+   控件同节奏的输入框样式（发丝内描边、左对齐、当前字面自体字样 + 小角标）；
+   点开在行下就地展开候选区——高度过渡用 grid-template-rows 0fr→1fr，不量高、
+   随文下推后续行。三槽同时只开一个（SettingsView 的 openFontSlot）。 */
+.font-picker__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 200px;
+  max-width: 260px;
+  height: 30px;
+  padding: 0 4px 0 12px;
+  border: 0;
+  border-radius: 5px;
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--hairline);
+  color: var(--near-black);
+  font-family: var(--serif);
+  font-size: 13.5px;
+  letter-spacing: 0.2px;
+  text-align: left;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
 }
 
-.font-picker__value:hover {
+.font-picker__trigger:hover {
   background: var(--warm-sand);
-  color: var(--near-black);
 }
 
-.font-picker__value:focus-visible {
+.font-picker__trigger:focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 1px;
 }
 
-.font-picker__value--default {
+.font-picker__trigger-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.font-picker__trigger--default .font-picker__trigger-name {
   color: var(--stone);
 }
 
 /* 字面预热中（选中 → document.fonts.load 就绪之间）的淡态提示 */
-.font-picker__value--pending {
+.font-picker__trigger--pending {
   opacity: 0.62;
 }
 
-.font-picker__panel {
-  position: fixed;
-  /* 965：压在侧栏（960）之上、悬停预览（970）与顶栏（1000）之下——面板是设置页里
-     的一枚部件，不该越过这两层 */
-  z-index: 965;
-  display: flex;
-  flex-direction: column;
-  width: 320px;
-  max-height: 340px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--ivory);
-  box-shadow: 0 8px 24px var(--shadow-soft);
+.font-picker__chevron {
+  flex: none;
+  margin-right: 4px;
+  color: var(--faint-text);
+}
+
+/* 展开区：grid 0fr→1fr 是天然的高度过渡技巧——子元素 min-height:0 + overflow:hidden
+   才能真的收成 0；展开/收起都走它（收起期间 React 多留一拍 DOM）。
+   节奏不对称：展开 220ms ease-out 从容铺开，收起 160ms ease-in 快点走（内层同时
+   淡出）——收起那一下若拖慢会被读成「卡了一下」 */
+.font-picker__region {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.16s ease-in;
+}
+
+.font-picker__region--open {
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.22s ease-out;
+}
+
+/* 收起完成后的落位：DOM 常驻（重开原样翻出），仅不可见且退出焦点/命中
+   ——此时轨道已是 0，加这条只切可见性，不产生布局变化 */
+.font-picker__region--rested {
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .font-picker__region {
+    transition: none;
+  }
+}
+
+.font-picker__region-inner {
+  /* 参与 0fr↔1fr 高度动画的那一层必须 0 padding / 0 border / 0 margin——否则轨道
+     收到底还剩 padding+border 那一截，卸载时 20 多像素瞬跳（收起末段的卡顿来源） */
+  min-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.14s ease-in;
+}
+
+/* 所有留白与虚线分隔下沉到第三层：它随轨道一起被裁，不占最小高度 */
+.font-picker__region-pad {
+  padding: 10px 0 12px;
+  /* 与相邻行的通栏发丝线同款但更轻：展开区与所属行是同一条事项，虚线表达「附属」 */
+  border-top: 1px dashed var(--hairline);
+}
+
+.font-picker__region--open .font-picker__region-inner {
+  opacity: 1;
+  transition: opacity 0.18s ease-out 0.04s;
+}
+
+/* 展开区夹在行与行之间时，下一行的顶发丝线由这条补上
+   （.settings-view__row + .settings-view__row 认的是相邻行元素，中间隔了展开区就断了） */
+.font-picker__region + .settings-view__row {
+  border-top: 1px solid var(--border-soft);
 }
 
 .font-picker__search {
-  flex: none;
   width: 100%;
   margin-bottom: 6px;
-  padding: 6px 9px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--parchment);
+  padding: 4px 2px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  background: transparent;
   color: var(--near-black);
-  font: 12px/1.5 var(--serif);
+  font: 12.5px/1.5 var(--serif);
+  outline: none;
+}
+
+.font-picker__search::placeholder {
+  color: var(--faint-text);
 }
 
 .font-picker__search:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: 0;
+  border-bottom-color: var(--stone);
 }
 
-.font-picker__list {
-  flex: 1;
-  min-height: 0;
-  margin: 0;
-  padding: 0;
+/* 字片区：固定 5 行字片高，再往里内部滚——展开区不无限吃设置栏的高度。
+   定高 + contain:strict 是收起流畅的关键：外层 grid-template-rows 过渡逐帧改
+   展开区高度时，这一块的内部布局（46+ 枚各用字面的字片）不因高度变化重排 */
+.font-picker__grid-scroll {
+  height: 176px;
   overflow-y: auto;
-  list-style: none;
+  contain: strict;
 }
 
-/* 视口外行整行跳布局（行高固定，contain-intrinsic-size 只估高度）——
-   打开面板时几百行候选项不一次全排，渐进预览的 IntersectionObserver 仍照常触发 */
-.font-picker__list > li {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 30px;
+.font-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
 }
 
-.font-picker__option {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  padding: 6px 8px;
+/* 眉题与字片同处一张栅格：眉题跨满三列（它不是选项，选中导航只数字片） */
+.font-picker__group {
+  grid-column: 1 / -1;
+  padding: 9px 2px 5px;
+  font: 500 9.5px/1.5 var(--mono);
+  letter-spacing: 3px;
+  color: var(--faint-text);
+}
+
+.font-picker__chip {
+  min-height: 32px;
+  padding: 4px 10px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 5px;
   background: transparent;
   color: var(--near-black);
+  font-size: 13.5px;
   text-align: left;
   cursor: pointer;
-}
-
-.font-picker__option:hover {
-  background: var(--brand-tint);
-}
-
-.font-picker__option[aria-selected="true"] {
-  color: var(--brand);
-}
-
-.font-picker__option-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
+  /* 视口外字片整枚跳布局（行高固定，contain-intrinsic-size 只估高度）——
+     几百枚字片不一次全排，渐进预览的 IntersectionObserver 仍照常触发 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 32px;
 }
 
-.font-picker__option-tag {
-  flex: none;
-  font: 500 10px/1.5 var(--mono);
-  letter-spacing: 0.4px;
-  color: var(--stone);
+.font-picker__chip:hover {
+  background: var(--warm-sand);
+}
+
+/* 键盘/悬停高亮（不是选中）：比选中态淡一档 */
+.font-picker__chip--active {
+  background: var(--brand-hover-tint);
+}
+
+.font-picker__chip[aria-selected="true"] {
+  background: var(--brand-tint);
+  color: var(--brand);
+}
+
+.font-picker__chip:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
+.font-picker__chip-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .font-picker__empty {
-  padding: 10px 8px;
+  padding: 8px 2px;
   color: var(--stone);
   font-size: 12px;
 }

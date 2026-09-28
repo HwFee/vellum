@@ -9,7 +9,7 @@ import {
   prefetchSystemFonts,
   quoteFontFamily,
   sanitizeFontName,
-  sortFontsForSlot,
+  flatFontOptions,
   __resetSystemFontsForTest,
   type SystemFont,
 } from "./fonts";
@@ -63,44 +63,46 @@ describe("quoteFontFamily / fontSlotValue 栈合成", () => {
   });
 });
 
-describe("sortFontsForSlot 排序", () => {
-  it("先按槽位相关性：中文槽首条是随包楷体，中文系统字体紧随其后", () => {
-    const sorted = sortFontsForSlot([...SYSTEM, ...BUNDLED_FONTS], "cjk");
-    expect(sorted.map((font) => font.name)).toEqual([
-      "TsangerJinKai02",
-      "SimSun",
-      // 非 CJK 的随包字体（JetBrains Mono）落进第二档：它在中文槽里是噪声
-      "JetBrains Mono",
-      "Consolas",
-      "Georgia",
-    ]);
-  });
+describe("flatFontOptions 平铺序", () => {
+  const ALL = [...SYSTEM, ...BUNDLED_FONTS];
 
-  it("代码槽首条是随包 JetBrains Mono，等宽系统字体在前", () => {
-    const sorted = sortFontsForSlot([...SYSTEM, ...BUNDLED_FONTS], "mono");
-    expect(sorted.map((font) => font.name)).toEqual([
+  it("未选中：随包两款最前，其余按名字", () => {
+    expect(flatFontOptions(ALL, "").map((f) => f.name)).toEqual([
+      "TsangerJinKai02",
       "JetBrains Mono",
       "Consolas",
-      // 非等宽的随包字体（楷体）落进第二档，排在同档的随包位
-      "TsangerJinKai02",
       "Georgia",
       "SimSun",
     ]);
   });
 
-  it("中文槽把 CJK 字体排在前面，代码槽把等宽字体排在前面（只调顺序、不过滤）", () => {
-    const sorted = sortFontsForSlot(SYSTEM, "cjk");
-    expect(sorted.map((font) => font.name)).toEqual(["SimSun", "Consolas", "Georgia"]);
-
-    const monoFirst = sortFontsForSlot(SYSTEM, "mono");
-    expect(monoFirst.map((font) => font.name)).toEqual(["Consolas", "Georgia", "SimSun"]);
+  it("选中项排在最前，随包紧随其后；选中是随包款不重复", () => {
+    expect(flatFontOptions(ALL, "Georgia").map((f) => f.name)).toEqual([
+      "Georgia",
+      "TsangerJinKai02",
+      "JetBrains Mono",
+      "Consolas",
+      "SimSun",
+    ]);
+    expect(flatFontOptions(ALL, "JetBrains Mono").map((f) => f.name)).toEqual([
+      "JetBrains Mono",
+      "TsangerJinKai02",
+      "Consolas",
+      "Georgia",
+      "SimSun",
+    ]);
   });
 
-  it("同档内按名字排序，且不改动入参数组", () => {
+  it("选中名不在候选表里（脏值 / 已卸载）也塞进去露面", () => {
+    const names = flatFontOptions(ALL, "Gone Font").map((f) => f.name);
+    expect(names[0]).toBe("Gone Font");
+    expect(names.slice(1, 3)).toEqual(["TsangerJinKai02", "JetBrains Mono"]);
+  });
+
+  it("不改动入参数组", () => {
     const input = [...SYSTEM];
-    const sorted = sortFontsForSlot(input, "latin");
-    expect(sorted.map((font) => font.name)).toEqual(["Consolas", "Georgia", "SimSun"]);
-    expect(input.map((font) => font.name)).toEqual(["SimSun", "Georgia", "Consolas"]);
+    flatFontOptions(input, "");
+    expect(input.map((f) => f.name)).toEqual(["SimSun", "Georgia", "Consolas"]);
   });
 });
 

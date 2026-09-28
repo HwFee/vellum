@@ -412,12 +412,13 @@ pub async fn unregister_widget(state: State<'_, WidgetState>, id: String) -> Res
 pub async fn read_mdlog_state(
     state: State<'_, AppState>,
 ) -> Result<Option<MdlogStateResponse>, String> {
-    // S2: AppState 仅保存当前文档路径；中毒时安全读取 inner 引用，防止状态查询失败。
+    // S2: AppState 仅保存当前文档路径（Opened.doc）；中毒时安全读取 inner 引用。
     let current = state
         .current
         .lock()
         .unwrap_or_else(|p| p.into_inner())
-        .clone();
+        .clone()
+        .map(|opened| opened.doc);
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
 
+use crate::state::LibraryMarker;
+
 pub(crate) const MAX_FILE_SIZE_BYTES: u64 = 50 * 1024 * 1024;
 /// 临时文件名后缀：原子写先写同目录临时文件再 rename 覆盖原文件。
 const SAVE_TEMP_SUFFIX: &str = ".vellum-tmp";
@@ -16,6 +18,10 @@ pub struct LoadedDocument {
     pub file_name: String,
     pub parent_path: String,
     pub markdown: String,
+    /// 本次打开判定出的库（None = 单文件模式）：打开时定死、随文档原子换代。
+    /// 前端据此决定侧栏形态与库命令是否可发，不自行向上探测。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub library: Option<crate::state::LibraryRef>,
 }
 
 /// `save_document` 的返回契约（严格 camelCase）。
@@ -105,6 +111,7 @@ pub fn load_markdown_file(path: &Path) -> Result<LoadedDocument, String> {
         file_name,
         parent_path,
         markdown,
+        library: None,
     })
 }
 
@@ -263,11 +270,85 @@ pub fn resolve_asset_to_data_url(anchor_dir: &Path, asset_src: &str) -> Result<S
     }
 }
 
-/// Obsidian 库根标记目录：库根的判据是「含 `.obsidian` 目录的最近祖先」。
-const VAULT_MARKER_DIR: &str = ".obsidian";
+/// 库根标记目录：`.vellum` 优先、其次 `.obsidian`（同级都在时 `.vellum` 赢）。
+/// Obsidian 库只读兼容：`.obsidian` 只用来判定库根，一个字节都不往里写。
+const VELLUM_MARKER_DIR: &str = ".vellum";
+const OBSIDIAN_MARKER_DIR: &str = ".obsidian";
+
+/// 向上搜索的深度上限：从「起始目录 = 第 1 级」起最多检查 8 级。
+/// 库根判定（find_library_root）与 wikilink 祖先解析（resolve_by_ancestors）
+/// 共用这一个常量与同一条 walk_ancestors——两处深度语义必须逐字一致，
+/// 否则会出现「模式判定说不是库、链接解析却找到了库」的自相矛盾。
+/// 8 级是 UNC 场景下网络往返次数的暴露面上限（每级至多 2 次 is_dir）。
+pub const ANCESTOR_WALK_MAX_DEPTH: usize = 8;
+
 /// 库索引遍历的硬上限（防御病态目录树把命令挂住）。
 const VAULT_WALK_MAX_DEPTH: usize = 12;
 const VAULT_WALK_MAX_ENTRIES: usize = 50_000;
+
+/// 用户主目录：向上搜索的语义停止点——越过主目录的祖先（盘符根、共享根）
+/// 不可能是「用户的库」，继续向上只是白白多碰几级文件系统。
+/// 判定时先 canonicalize：junction / symlink 展开后再比（比对双方都已是 canonical）。
+fn home_dir() -> Option<PathBuf> {
+    dirs::home_dir().and_then(|home| dunce::canonicalize(home).ok())
+}
+
+/// `current` 是否是早停边界：文件系统根（parent 为 None）或用户主目录。
+fn is_walk_boundary(current: &Path, home: Option<&Path>) -> bool {
+    current.parent().is_none() || home.is_some_and(|home| current == home)
+}
+
+/// 向上遍历的唯一实现：从 `start`（第 1 级）起逐级向上，至多 8 级，
+/// 遇用户主目录 / 盘符根 / UNC 根即在「该级仍经 visit 判定后」停下。
+/// 返回 visit 首个回 Some 时的产物；全程只读检查，无副作用。
+fn walk_ancestors<T>(
+    start: &Path,
+    home: Option<&Path>,
+    visit: impl for<'a> Fn(&'a Path) -> Option<T>,
+) -> Option<T> {
+    let mut current = Some(start.to_path_buf());
+    let mut depth = 0usize;
+
+    while let Some(dir) = current {
+        depth += 1;
+        if depth > ANCESTOR_WALK_MAX_DEPTH {
+            return None;
+        }
+        if let Some(found) = visit(&dir) {
+            return Some(found);
+        }
+        if is_walk_boundary(&dir, home) {
+            return None;
+        }
+        current = dir.parent().map(Path::to_path_buf);
+    }
+
+    None
+}
+
+/// 目录里命中的库标记：`.vellum` 与 `.obsidian` 同级都在时 `.vellum` 赢。
+/// 显式打开文件夹进库模式时也用它记 marker（显式库可以恰好带标记目录）。
+pub fn marker_at(dir: &Path) -> Option<LibraryMarker> {
+    if dir.join(VELLUM_MARKER_DIR).is_dir() {
+        Some(LibraryMarker::Vellum)
+    } else if dir.join(OBSIDIAN_MARKER_DIR).is_dir() {
+        Some(LibraryMarker::Obsidian)
+    } else {
+        None
+    }
+}
+
+/// 向上找库根：从 `from_dir`（第 1 级）起最多 8 级，命中 `.vellum` / `.obsidian`
+/// 目录的最近祖先即库根；同级两标记都在时 `.vellum` 赢。
+/// 遇用户主目录或盘符根 / UNC 根即判「不是库」（该级仍会先经 marker 判定——
+/// 主目录本身带标记时它仍是库根，只是不再向上越过）。
+/// 每级至多 2 次 `is_dir()`；`parent()` 是纯字面操作，junction / symlink 不成环。
+pub fn find_library_root(from_dir: &Path) -> Option<(PathBuf, LibraryMarker)> {
+    let home = home_dir();
+    walk_ancestors(from_dir, home.as_deref(), |dir| {
+        marker_at(dir).map(|marker| (dir.to_path_buf(), marker))
+    })
+}
 
 /// wikilink 目标是否可以作为相对路径使用。
 ///
@@ -306,36 +387,20 @@ fn target_candidates(dir: &Path, target: &str) -> [Option<PathBuf>; 2] {
 }
 
 /// 祖先目录逐级向上找目标文件（先按原样，再补 `.md` / `.markdown`）。
+/// 与 find_library_root 同一条 walk_ancestors：8 级帽、主目录 / 盘根早停逐字一致。
 /// 大小写交给文件系统（Windows 不区分大小写，不做手工折叠）。只读检查，返回 canonical 路径。
 fn resolve_by_ancestors(from_dir: &Path, target: &str) -> Option<PathBuf> {
-    let mut current = Some(from_dir.to_path_buf());
-
-    while let Some(dir) = current {
-        for candidate in target_candidates(&dir, target).into_iter().flatten() {
-            if let Ok(canonical) = dunce::canonicalize(&candidate) {
-                if canonical.is_file() {
-                    return Some(canonical);
-                }
-            }
-        }
-        current = dir.parent().map(Path::to_path_buf);
-    }
-
-    None
-}
-
-/// 从文档所在目录向上找库根（含 `.obsidian` 目录的最近祖先）；没有则返回 None。
-pub(crate) fn find_vault_root(from_dir: &Path) -> Option<PathBuf> {
-    let mut current = Some(from_dir.to_path_buf());
-
-    while let Some(dir) = current {
-        if dir.join(VAULT_MARKER_DIR).is_dir() {
-            return Some(dir);
-        }
-        current = dir.parent().map(Path::to_path_buf);
-    }
-
-    None
+    let home = home_dir();
+    walk_ancestors(from_dir, home.as_deref(), |dir| {
+        target_candidates(dir, target)
+            .into_iter()
+            .flatten()
+            .find_map(|candidate| {
+                dunce::canonicalize(&candidate)
+                    .ok()
+                    .filter(|canonical| canonical.is_file())
+            })
+    })
 }
 
 /// 全库 basename 索引：`<去扩展名的小写 basename>` → 命中文件。
@@ -344,7 +409,7 @@ type BasenameIndex = HashMap<String, Vec<PathBuf>>;
 /// 递归遍历库根（跳过点目录与 node_modules、限深限项），返回全部 Markdown 文件的
 /// `(绝对路径, 相对库根的 '/' 分隔路径)`，按 rel 排序；条目预算耗尽时 truncated=true。
 /// basename 索引（wikilink 解析兜底）与库面板三命令共用这一份遍历规则。
-pub(crate) fn collect_markdown_files(root: &Path) -> (Vec<(PathBuf, String)>, bool) {
+pub fn collect_markdown_files(root: &Path) -> (Vec<(PathBuf, String)>, bool) {
     let mut files: Vec<(PathBuf, String)> = Vec::new();
     let mut budget = VAULT_WALK_MAX_ENTRIES;
     collect_dir(root, root, 0, &mut budget, &mut files);
@@ -462,8 +527,8 @@ fn resolve_by_basename(index: &BasenameIndex, target: &str) -> Option<PathBuf> {
 
 /// 解析一篇文档里的全部 wikilink 目标（纯函数，无副作用，只做只读存在性检查）：
 /// 1. 目标不合法（空 / 绝对 / 含 `..` / 含控制字符）→ None
-/// 2. 从文档所在目录逐级向上，按原样或补 `.md` / `.markdown` 找文件
-/// 3. 仍找不到时，在最近的 `.obsidian` 库根内按**唯一 basename** 兜底
+/// 2. 从文档所在目录逐级向上找（与模式判定同一条 8 级 / 主目录边界）
+/// 3. 仍找不到时，在向上命中 `.vellum` / `.obsidian` 的库根内按**唯一 basename** 兜底
 ///
 /// 返回表按**调用方传入的原字符串**键控（渲染层按 `data-wikilink` 原样查表）。
 pub fn resolve_wikilink_map(
@@ -471,9 +536,10 @@ pub fn resolve_wikilink_map(
     targets: &[String],
 ) -> HashMap<String, Option<String>> {
     let from_dir = from_path.parent().map(Path::to_path_buf);
-    let vault_index = from_dir.as_deref().and_then(find_vault_root).map(|root| {
-        build_basename_index(&root)
-    });
+    let vault_index = from_dir
+        .as_deref()
+        .and_then(find_library_root)
+        .map(|(root, _marker)| build_basename_index(&root));
 
     let mut resolved: HashMap<String, Option<String>> = HashMap::new();
 

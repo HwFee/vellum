@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>开始页 · 设计稿（置景：真实窗口）</title>
+<style>
+/* ===== 随包字体 ===== */
+@font-face { font-family: "TsangerJinKai02"; src: url("../../public/fonts/TsangerJinKai02-W04.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "TsangerJinKai02"; src: url("../../public/fonts/TsangerJinKai02-W05.woff2") format("woff2"); font-weight: 500; font-style: normal; }
+@font-face { font-family: "JetBrains Mono"; src: url("../../public/fonts/JetBrainsMono.woff2") format("woff2"); font-weight: 400 500; font-style: normal; }
+
+/* ===== 令牌：与 src/styles/kami.css 逐字一致 ===== */
+:root {
+  --parchment: #f5f4ed; --ivory: #faf9f5; --inline-code-bg: #f0eee6;
+  --warm-sand: #e8e6dc; --near-black: #141413; --dark-warm: #3d3d3a;
+  --olive: #504e49; --stone: #6b6a64; --brand: #1B365D; --tag-bg: #E4ECF5;
+  --brand-tint: #EEF2F7; --border: #e8e6dc; --border-soft: #e5e3d8; --hairline: #dddacc;
+  --scrollbar-thumb: rgba(80, 78, 73, 0.5); --scrollbar-thumb-hover: rgba(80, 78, 73, 0.7);
+  --scrim: rgba(20, 20, 19, 0.15); --shadow-soft: rgba(20, 20, 19, 0.08);
+  --faint-text: #a5a294; --faint-mark: #b9b6a9; --brand-hover-tint: rgba(27, 54, 93, 0.08);
+  --font-cjk-tail: "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", Charter, Georgia, Palatino;
+  --font-cjk: "TsangerJinKai02", var(--font-cjk-tail);
+  --font-latin: var(--font-cjk);
+  --font-mono-tail: "SF Mono", "Fira Code", Consolas, Monaco, "TsangerJinKai02", "Source Han Serif SC";
+  --font-mono: "JetBrains Mono", var(--font-mono-tail);
+  --serif: var(--font-latin), var(--font-cjk), serif;
+  --mono: var(--font-mono), monospace;
+}
+:root[data-theme="dark"] {
+  --parchment: #1c1b19; --ivory: #242320; --inline-code-bg: #2a2926;
+  --warm-sand: #33312c; --near-black: #e8e6dc; --dark-warm: #cfccc0;
+  --olive: #b3b0a4; --stone: #8f8c82; --brand: #8fb0d9; --tag-bg: #25303f;
+  --brand-tint: #1f2733; --border: #34322d; --border-soft: #2f2d29; --hairline: #3d3b35;
+  --scrollbar-thumb: rgba(232, 230, 220, 0.28); --scrollbar-thumb-hover: rgba(232, 230, 220, 0.45);
+  --scrim: rgba(0, 0, 0, 0.4); --shadow-soft: rgba(0, 0, 0, 0.35);
+  --faint-text: #6a675c; --faint-mark: #57544b; --brand-hover-tint: rgba(143, 176, 217, 0.14);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--warm-sand);
+  color: var(--near-black);
+  font-family: var(--serif);
+  font-size: 14px; line-height: 1.55; letter-spacing: 0.3pt;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ===== 方案切换条 ===== */
+.switcher {
+  position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  padding: 10px 20px;
+  background: color-mix(in srgb, var(--warm-sand) 88%, var(--ivory));
+  border-bottom: 1px solid var(--hairline);
+}
+.switcher .pick { display: flex; gap: 2px; }
+.switcher .pick button {
+  border: 0; background: transparent; color: var(--stone);
+  font: 500 12px/1.5 var(--serif); padding: 4px 12px; cursor: pointer; border-radius: 4px;
+}
+.switcher .pick button[aria-pressed="true"] { background: var(--ivory); color: var(--near-black); }
+.switcher .why { flex: 1; min-width: 240px; color: var(--stone); font-size: 12.5px; }
+.switcher .drag-toggle button {
+  border: 1px solid var(--border); border-radius: 4px; background: transparent;
+  color: var(--stone); font: 500 12px/1.5 var(--serif); padding: 4px 12px; cursor: pointer;
+}
+.switcher .drag-toggle button[aria-pressed="true"] { background: var(--brand-tint); color: var(--brand); }
+.theme-toggle { display: flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.theme-toggle button { border: 0; background: transparent; color: var(--stone); font: 500 12px/1.5 var(--serif); padding: 4px 14px; cursor: pointer; }
+.theme-toggle button[aria-pressed="true"] { background: var(--ivory); color: var(--near-black); }
+
+/* ===== 窗口置景 ===== */
+.stage { display: flex; justify-content: center; padding: 28px 16px 80px; }
+.frame {
+  width: min(1100px, 100%); height: 680px;
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  background: var(--parchment); box-shadow: 0 12px 40px var(--shadow-soft);
+  display: flex; flex-direction: column;
+}
+.frame__topbar {
+  flex: none; height: 46px;
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px;
+  padding: 0 0 0 16px;
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--parchment) 94%, var(--ivory));
+}
+.tb-actions { display: flex; align-items: center; gap: 6px; padding: 6px 0; }
+.tb-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--stone);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  font-size: 13px;
+}
+.tb-divider { width: 1px; height: 16px; background: var(--hairline); margin: 0 2px; }
+.tb-win { display: flex; align-items: center; height: 46px; }
+.tb-win span {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; margin-right: 8px; border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--border); color: var(--stone);
+  font: 500 10px/1 var(--mono);
+}
+.frame__body { flex: 1; min-height: 0; overflow-y: auto; background: var(--parchment); }
+
+/* ===== 现状（真实样式逐字摘自 kami.css） ===== */
+.empty-state { max-width: min(800px, 100%); margin: 0 auto; padding: 60px 32px; }
+.empty-state h1 { margin: 14px 0 10px; font-size: 28px; line-height: 1.15; font-weight: 500; }
+.empty-state p { margin: 0 0 22px; color: var(--olive); }
+.empty-eyebrow {
+  color: var(--stone); font: 500 10px/1.5 var(--mono); letter-spacing: 4px; text-transform: uppercase;
+}
+.button-primary {
+  height: 32px; padding: 7px 16px; border: 0; border-radius: 6px;
+  background: var(--warm-sand); color: var(--dark-warm);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  cursor: pointer; font-weight: 500; font-size: 13px;
+  font-family: var(--serif); letter-spacing: 0.3pt;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+.button-primary:hover {
+  background: color-mix(in srgb, var(--warm-sand) 80%, var(--border));
+  box-shadow: inset 0 0 0 1px var(--hairline), 0 1px 2px rgba(20,20,19,0.04);
+}
+.recent-files { margin-top: 30px; padding-top: 16px; border-top: 1px solid var(--hairline); text-align: left; }
+.recent-files__title {
+  margin: 0 0 6px; color: var(--stone);
+  font: 500 10px/1.5 var(--mono); letter-spacing: 2px; text-transform: uppercase;
+}
+.recent-files__list { margin: 0; padding: 0; list-style: none; }
+.recent-files__link {
+  display: flex; align-items: baseline; gap: 10px; width: 100%;
+  padding: 5px 8px; border: 0; border-radius: 3px; background: transparent;
+  cursor: pointer; text-align: left; transition: background 0.15s ease;
+  font-family: var(--serif);
+}
+.recent-files__name {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--near-black);
+  font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap;
+  transition: color 0.15s ease;
+}
+.recent-files__dir {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--stone);
+  font: 10px/1.5 var(--mono); text-overflow: ellipsis; white-space: nowrap;
+}
+.recent-files__link:hover { background: var(--ivory); }
+.recent-files__link:hover .recent-files__name { color: var(--brand); }
+.empty-state .empty-hint { margin: 18px 0 0; color: var(--stone); font-size: 11px; }
+
+/* 「库」标记：给文件夹类最近条目的 mono 小签（新功能，各方案共用） */
+.kind-tag {
+  flex: none; align-self: center; padding: 1px 6px; border-radius: 3px;
+  background: var(--tag-bg); color: var(--brand);
+  font: 500 9.5px/1.6 var(--mono); letter-spacing: 1px;
+}
+
+/* ===== A · 双卡 ===== */
+.spA { max-width: min(760px, 100%); margin: 0 auto; padding: 56px 32px; }
+.spA__mast { margin-bottom: 26px; }
+.spA__mast h1 { margin: 12px 0 8px; font-size: 28px; font-weight: 500; }
+.spA__mast p { margin: 0; color: var(--olive); font-size: 13.5px; }
+.spA__cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.spA__card {
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+  padding: 18px 18px 16px; min-height: 118px;
+  border: 1px dashed var(--hairline); border-radius: 8px;
+  background: var(--ivory); cursor: pointer; text-align: left;
+  font-family: var(--serif);
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.spA__card svg { color: var(--stone); transition: color 0.15s ease; }
+.spA__card .t { font-size: 14px; font-weight: 500; color: var(--near-black); }
+.spA__card .d { font-size: 12px; color: var(--stone); line-height: 1.6; }
+.spA__card .m { margin-top: auto; font: 500 10px/1.5 var(--mono); letter-spacing: 1px; color: var(--faint-text); }
+.spA__card:hover { border-color: var(--brand); box-shadow: 0 1px 4px var(--shadow-soft); }
+.spA__card:hover svg { color: var(--brand); }
+.spA.is-drag .spA__card { border-color: var(--brand); background: var(--brand-tint); }
+.spA.is-drag .spA__card svg { color: var(--brand); }
+
+/* ===== B · 一体拖放区 ===== */
+.spB { max-width: min(640px, 100%); margin: 0 auto; padding: 64px 32px; }
+.spB__mast { text-align: center; margin-bottom: 30px; }
+.spB__mast h1 { margin: 14px 0 8px; font-size: 30px; font-weight: 500; }
+.spB__mast p { margin: 0; color: var(--olive); font-size: 13.5px; }
+.spB__zone {
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  padding: 44px 24px 36px;
+  border: 1px dashed var(--hairline); border-radius: 10px;
+  background: color-mix(in srgb, var(--ivory) 60%, transparent);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.spB__zone svg { color: var(--faint-mark); }
+.spB__zone .lead { color: var(--olive); font-size: 13.5px; }
+.spB__zone .or {
+  display: flex; align-items: center; gap: 12px; width: 100%; max-width: 340px;
+  color: var(--faint-text); font: 500 10px/1.5 var(--mono); letter-spacing: 3px;
+}
+.spB__zone .or::before, .spB__zone .or::after { content: ""; flex: 1; height: 1px; background: var(--hairline); }
+.spB__zone .btns { display: flex; gap: 10px; }
+.spB.is-drag .spB__zone { border-color: var(--brand); background: var(--brand-tint); }
+.spB.is-drag .spB__zone svg { color: var(--brand); }
+
+/* ===== C · 书目式 ===== */
+.spC { max-width: min(680px, 100%); margin: 0 auto; padding: 72px 32px; }
+.spC .eyebrow2 { color: var(--stone); font: 500 10px/1.5 var(--mono); letter-spacing: 5px; }
+.spC h1 { margin: 10px 0 6px; font-size: 40px; font-weight: 500; letter-spacing: 2px; }
+.spC .slogan { margin: 0 0 30px; color: var(--olive); font-size: 14px; }
+.spC__actions { display: flex; align-items: center; gap: 4px; margin-bottom: 34px; }
+.spC__actions a {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 10px; border-radius: 4px; cursor: pointer;
+  color: var(--brand); font-size: 13.5px; font-weight: 500;
+  text-decoration: underline; text-decoration-color: var(--hairline);
+  text-underline-offset: 4px; text-decoration-thickness: 1px;
+  transition: background 0.15s ease, text-decoration-color 0.15s ease;
+}
+.spC__actions a:hover { background: var(--brand-hover-tint); text-decoration-color: var(--brand); }
+.spC__actions svg { color: var(--stone); }
+.spC__actions .sep { color: var(--faint-mark); }
+.spC__toc .row {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 7px 8px; border-radius: 3px; cursor: pointer;
+}
+.spC__toc .row:hover { background: var(--ivory); }
+.spC__toc .num { flex: none; color: var(--faint-mark); font: 500 10.5px/1.5 var(--mono); }
+.spC__toc .name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+.spC__toc .leader { flex: 1; border-bottom: 1px dotted var(--faint-mark); transform: translateY(-3px); min-width: 20px; }
+.spC__toc .dir { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--stone); font: 10px/1.5 var(--mono); }
+.spC.is-drag { box-shadow: inset 0 0 0 1px var(--brand); border-radius: 8px; }
+
+/* ===== D · 行式 ===== */
+.spD { max-width: min(620px, 100%); margin: 0 auto; padding: 60px 32px; }
+.spD__mast { margin-bottom: 24px; }
+.spD__mast h1 { margin: 12px 0 8px; font-size: 28px; font-weight: 500; }
+.spD__row {
+  display: flex; align-items: center; justify-content: space-between; gap: 18px;
+  padding: 13px 0; border-top: 1px solid var(--border-soft);
+}
+.spD__row .lab { flex: none; }
+.spD__row .lab .t { font-size: 13.5px; font-weight: 500; }
+.spD__row .lab .d { margin-top: 2px; color: var(--stone); font-size: 12px; }
+.spD__row button {
+  flex: none; height: 30px; padding: 4px 14px; border: 0; border-radius: 6px;
+  background: var(--warm-sand); color: var(--dark-warm);
+  box-shadow: inset 0 0 0 1px var(--hairline); cursor: pointer;
+  font: 500 13px/1.5 var(--serif); letter-spacing: 0.3pt;
+}
+.spD__row button:hover { background: color-mix(in srgb, var(--warm-sand) 80%, var(--border)); }
+.spD__drop {
+  margin-top: 4px; padding: 12px 14px;
+  border: 1px dashed var(--hairline); border-radius: 6px;
+  color: var(--stone); font-size: 12px; text-align: center;
+}
+.spD.is-drag .spD__drop { border-color: var(--brand); background: var(--brand-tint); color: var(--brand); }
+
+/* 各方案共用：最近列表下推一点 */
+.spA .recent-files, .spB .recent-files, .spC .recent-files, .spD .recent-files { margin-top: 34px; }
+</style>
+</head>
+<body>
+
+<div class="switcher">
+  <div class="pick" role="group" aria-label="方案">
+    <button data-v="0" aria-pressed="false">0 现状</button>
+    <button data-v="A" aria-pressed="true">A 双卡</button>
+    <button data-v="B" aria-pressed="false">B 拖放区</button>
+    <button data-v="C" aria-pressed="false">C 书目</button>
+    <button data-v="D" aria-pressed="false">D 行式</button>
+  </div>
+  <div class="why" id="why"></div>
+  <div class="drag-toggle"><button id="drag-sim" aria-pressed="false">模拟拖入</button></div>
+  <div class="theme-toggle" role="group" aria-label="主题">
+    <button id="theme-light" aria-pressed="true">浅色</button>
+    <button id="theme-dark" aria-pressed="false">深色</button>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="frame">
+    <div class="frame__topbar">
+      <div class="tb-actions">
+        <span class="tb-btn">☰</span><span class="tb-btn">‹</span><span class="tb-btn">›</span><span class="tb-btn">✎</span><span class="tb-btn">＋</span><span class="tb-btn">⤓</span>
+        <span class="tb-divider"></span>
+        <span class="tb-btn">⚙</span>
+      </div>
+      <div></div>
+      <div class="tb-win"><span>—</span><span>▢</span><span>✕</span></div>
+    </div>
+    <div class="frame__body" id="frame-body"></div>
+  </div>
+</div>
+
+<script>
+const ICON_FILE = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6" opacity=".55"/><path d="M9 15l3-3 3 3" opacity=".55"/></svg>';
+const ICON_FOLDER = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M8 14h8" opacity=".5"/></svg>';
+const ICON_INBOX = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>';
+
+// 演示用最近条目：{name, dir, kind}  kind: "file" | "lib"
+const RECENTS = [
+  { name: "卡片笔记法", dir: "~/Documents/wisdom/methods", kind: "file" },
+  { name: "wisdom", dir: "~/Documents/wisdom", kind: "lib" },
+  { name: "挪威的森林 · 读书笔记", dir: "~/Documents/reading", kind: "file" },
+  { name: "dev-log", dir: "D:/projects/vellum", kind: "lib" },
+  { name: "sample", dir: "~/Desktop/Vellum/samples", kind: "file" },
+];
+
+function recentList(opts = {}) {
+  const rows = RECENTS.map(r => `
+    <li><button class="recent-files__link" type="button" title="${r.dir}/${r.name}">
+      ${opts.toc ? `<span class="num">${String(RECENTS.indexOf(r) + 1).padStart(2, "0")}</span>` : ""}
+      <span class="recent-files__name">${r.name}</span>
+      ${opts.toc ? `<span class="leader"></span>` : ""}
+      <span class="recent-files__dir">${r.dir}</span>
+      ${r.kind === "lib" ? `<span class="kind-tag">库</span>` : ""}
+    </button></li>`).join("");
+  return `<div class="recent-files">
+    <h2 class="recent-files__title">${opts.title || "最近打开"}</h2>
+    <ul class="recent-files__list">${rows}</ul>
+  </div>`;
+}
+
+const VARIANTS = {
+  "0": {
+    why: "现状：眉题 + 素笺 + 一个「打开文件」按钮 + 最近列表 + 一行拖放小字。库模式入口无处可寻。",
+    html: `<section class="empty-state">
+      <div class="empty-eyebrow">Markdown 查看器</div>
+      <h1>素笺</h1>
+      <p>打开 Markdown 文件开始查看。</p>
+      <button class="button-primary" type="button">打开文件…</button>
+      ${recentList()}
+      <p class="empty-hint">或将 .md 文件拖入窗口</p>
+    </section>`
+  },
+  A: {
+    why: "A · 双卡：两个入口并排成卡，本身就是拖放目标——文件卡进单文件阅读，文件夹卡进库模式（副文案点明三面板）。最近列表里库条目带「库」签。",
+    html: `<section class="spA" id="sp-root">
+      <div class="spA__mast">
+        <div class="empty-eyebrow">Markdown 查看器</div>
+        <h1>素笺</h1>
+        <p>读一篇，或打开一个库。</p>
+      </div>
+      <div class="spA__cards">
+        <button class="spA__card" type="button">
+          ${ICON_FILE}
+          <span class="t">打开文件</span>
+          <span class="d">一篇 .md 的安静阅读，无侧栏库面板。</span>
+          <span class="m">拖入或点击选择</span>
+        </button>
+        <button class="spA__card" type="button">
+          ${ICON_FOLDER}
+          <span class="t">打开文件夹</span>
+          <span class="d">以库模式打开：文件 · 检索 · 反链都在。</span>
+          <span class="m">拖入或点击选择</span>
+        </button>
+      </div>
+      ${recentList()}
+    </section>`
+  },
+  B: {
+    why: "B · 拖放区：一个大的虚线区接住一切——拖文件是单文件，拖文件夹是库，自动分辨；不想拖就点下面两个按钮。最「空」的一版。",
+    html: `<section class="spB" id="sp-root">
+      <div class="spB__mast">
+        <div class="empty-eyebrow">Markdown 查看器</div>
+        <h1>素笺</h1>
+        <p>把 .md 文件或文件夹拖进来。</p>
+      </div>
+      <div class="spB__zone">
+        ${ICON_INBOX}
+        <div class="lead">文件进阅读 · 文件夹进库</div>
+        <div class="or">或</div>
+        <div class="btns">
+          <button class="button-primary" type="button">选择文件…</button>
+          <button class="button-primary" type="button">选择文件夹…</button>
+        </div>
+      </div>
+      ${recentList()}
+    </section>`
+  },
+  C: {
+    why: "C · 书目：更像一本书的扉页——大题字、两个安静的链接式入口、最近列表排成带点线的「目录」，拖放提示交给整窗描边（试试右上「模拟拖入」）。",
+    html: `<section class="spC" id="sp-root">
+      <div class="eyebrow2">VELLUM · MARKDOWN READER</div>
+      <h1>素笺</h1>
+      <p class="slogan">纸是静的，字是活的。</p>
+      <div class="spC__actions">
+        <a>${ICON_FILE.replace('width="22" height="22"','width="14" height="14"')}打开文件…</a>
+        <span class="sep">·</span>
+        <a>${ICON_FOLDER.replace('width="22" height="22"','width="14" height="14"')}打开文件夹…</a>
+      </div>
+      ${recentList({ toc: true, title: "最近" })}
+    </section>`
+  },
+  D: {
+    why: "D · 行式：像设置页一样的两行——左文右钮，「打开文件」「打开文件夹」各占一行，副文案说明区别；拖放区收成一条提示带。",
+    html: `<section class="spD" id="sp-root">
+      <div class="spD__mast">
+        <div class="empty-eyebrow">Markdown 查看器</div>
+        <h1>素笺</h1>
+      </div>
+      <div class="spD__row">
+        <div class="lab"><div class="t">打开文件</div><div class="d">一篇 .md 的单文件阅读</div></div>
+        <button type="button">选择文件…</button>
+      </div>
+      <div class="spD__row">
+        <div class="lab"><div class="t">打开文件夹</div><div class="d">库模式：文件 · 检索 · 反链</div></div>
+        <button type="button">选择文件夹…</button>
+      </div>
+      <div class="spD__drop">也可以直接把 .md 文件或文件夹拖进来</div>
+      ${recentList()}
+    </section>`
+  }
+};
+
+const body = document.getElementById("frame-body");
+const why = document.getElementById("why");
+let current = "A";
+function render(v) {
+  current = v;
+  body.innerHTML = VARIANTS[v].html;
+  why.textContent = VARIANTS[v].why;
+  document.querySelectorAll(".pick button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === v));
+}
+document.querySelectorAll(".pick button").forEach(b => b.addEventListener("click", () => render(b.dataset.v)));
+
+const dragBtn = document.getElementById("drag-sim");
+dragBtn.addEventListener("click", () => {
+  const on = dragBtn.getAttribute("aria-pressed") !== "true";
+  dragBtn.setAttribute("aria-pressed", on);
+  const root = document.getElementById("sp-root");
+  if (root) root.classList.toggle("is-drag", on);
+  if (current === "0") body.classList.toggle("is-drag", on), body.style.boxShadow = on ? "inset 0 0 0 1px var(--brand)" : "";
+});
+
+document.getElementById("theme-light").addEventListener("click", () => setTheme("light"));
+document.getElementById("theme-dark").addEventListener("click", () => setTheme("dark"));
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  document.getElementById("theme-light").setAttribute("aria-pressed", t === "light");
+  document.getElementById("theme-dark").setAttribute("aria-pressed", t === "dark");
+}
+render("A");
+</script>
+</body>
+</html>

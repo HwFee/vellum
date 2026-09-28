@@ -35,6 +35,8 @@ pub(crate) struct FontFlags {
 /// 字体族名的规范化：UTF-16 → String，去空串、去竖排变体（`@` 开头）。
 /// 竖排族名是 GDI 为同一款字体的竖排字形另立的一族，列进候选表只会让列表里
 /// 出现一对同名条目（`@宋体` / `宋体`）——用户要的永远是横排那一款。
+/// 只有 Windows 收集器产 UTF-16 字面；单测直接测它，故非 Windows 下只在测试构建编入。
+#[cfg(any(windows, test))]
 pub(crate) fn normalize_family_name(raw: &[u16]) -> Option<String> {
     let end = raw.iter().position(|unit| *unit == 0).unwrap_or(raw.len());
     if end == 0 {
@@ -81,50 +83,49 @@ pub async fn list_system_fonts() -> Vec<SystemFont> {
         .unwrap_or_default()
 }
 
+/// FONTSIGNATURE.fsCsb[0] 的 CJK 代码页位：日文 932（bit 17）/ 简中 936（18）/
+/// 韩文 Wansung 949（19）/ 繁中 950（20）/ 韩文 Johab 1361（21）。
+/// 非 Windows 的非测试构建没有调用方（Windows 收集器才产签名）——与
+/// normalize_family_name 同一个 cfg 门。
+#[cfg(any(windows, test))]
+pub(crate) const FSCSB_CJK_MASK: u32 = (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20) | (1 << 21);
+
+#[cfg(any(windows, test))]
+pub(crate) fn fs_csb_is_cjk(fs_csb0: u32) -> bool {
+    fs_csb0 & FSCSB_CJK_MASK != 0
+}
+
 #[cfg(windows)]
 pub(crate) fn collect_system_fonts() -> Vec<SystemFont> {
     let mut map: BTreeMap<String, FontFlags> = BTreeMap::new();
-    // 全部字符集各走一趟：第一趟收全表，其余几趟用来给 CJK 字体打标
-    for charset in CHARSET_PASSES {
-        enumerate_charset(*charset, &mut map);
-    }
+    enumerate_all_fonts(&mut map);
     into_sorted(map)
 }
 
-/// 各趟枚举的字符集：DEFAULT_CHARSET（1）收全表；其余为中/日/韩字符集，
-/// 能出现在这些趟里的字体即有对应字形
+/// 一趟 DEFAULT_CHARSET 收全表。cjk 判定不看枚举趟——按字符集分趟跑会被 GDI
+/// 的字体链接/替换污染（Ebrima、Gadugi、Leelawadee、Lucida Sans Unicode 这类
+/// 大字库在中文趟里也会出现）；改看每款字体自己的签名 fsCsb[0] 代码页位。
 #[cfg(windows)]
-const CHARSET_PASSES: &[u8] = &[
-    1,   // DEFAULT_CHARSET
-    134, // GB2312_CHARSET（简体中文）
-    136, // CHINESEBIG5_CHARSET（繁体中文）
-    128, // SHIFTJIS_CHARSET（日文）
-    129, // HANGUL_CHARSET（韩文）
-    130, // JOHAB_CHARSET（韩文 Johab）
-];
-#[cfg(windows)]
-fn enumerate_charset(charset: u8, map: &mut BTreeMap<String, FontFlags>) {
+fn enumerate_all_fonts(map: &mut BTreeMap<String, FontFlags>) {
+    use windows_sys::Win32::Globalization::NEWTEXTMETRICEXW;
     use windows_sys::Win32::Graphics::Gdi::{
-        EnumFontFamiliesExW, GetDC, ReleaseDC, LOGFONTW, TEXTMETRICW,
+        EnumFontFamiliesExW, GetDC, ReleaseDC, LOGFONTW, TEXTMETRICW, TRUETYPE_FONTTYPE,
     };
 
-    /// lfPitchAndFamily 的低四位：定宽（wingdi.h 的 FIXED_PITCH）
+    /// lfPitchAndFamily 的低位：定宽（wingdi.h 的 FIXED_PITCH）
     const FIXED_PITCH: u8 = 0x01;
-    /// DEFAULT_CHARSET：收全表的那趟（不带 cjk 判定）
-    const DEFAULT_CHARSET_PASS: u8 = 1;
+    /// DEFAULT_CHARSET：空 lfFaceName + 默认字符集 = 枚举全部字体族
+    const DEFAULT_CHARSET: u8 = 1;
 
     /// 回调的取数袋：GDI 的枚举回调不能捕获环境，只能经 lParam 递一根裸指针进来。
-    /// cjk 标记随趟而定，坐在这里一起递进去（不是全局状态，一趟一枚）。
     struct Collector<'a> {
         map: &'a mut BTreeMap<String, FontFlags>,
-        /// 本趟是否算「有 CJK 字形」（非 DEFAULT_CHARSET 的那几趟都算）
-        cjk_pass: bool,
     }
 
     unsafe extern "system" fn callback(
         logfont: *const LOGFONTW,
-        _metric: *const TEXTMETRICW,
-        _font_type: u32,
+        metric: *const TEXTMETRICW,
+        font_type: u32,
         lparam: isize,
     ) -> i32 {
         if lparam == 0 || logfont.is_null() {
@@ -134,7 +135,17 @@ fn enumerate_charset(charset: u8, map: &mut BTreeMap<String, FontFlags>) {
         let logfont = &*logfont;
         if let Some(name) = normalize_family_name(&logfont.lfFaceName) {
             let mono = logfont.lfPitchAndFamily & FIXED_PITCH != 0;
-            insert_family(collector.map, &name, collector.cjk_pass, mono);
+            // TrueType/OpenType 趟递进来的其实是 NEWTEXTMETRICEXW（签名在尾巴上，
+            // 前缀布局与 TEXTMETRICW 兼容，直接换型读）；位图/矢量字体没有签名，
+            // 对 cjk 保守判 false——它们本就不可能是中文字面
+            let cjk = !metric.is_null()
+                && font_type & TRUETYPE_FONTTYPE != 0
+                && fs_csb_is_cjk(
+                    (*(metric as *const NEWTEXTMETRICEXW))
+                        .ntmFontSig
+                        .fsCsb[0],
+                );
+            insert_family(collector.map, &name, cjk, mono);
         }
         // 1 = 继续枚举
         1
@@ -145,14 +156,10 @@ fn enumerate_charset(charset: u8, map: &mut BTreeMap<String, FontFlags>) {
         if hdc.is_null() {
             return;
         }
-        let mut collector = Collector {
-            map,
-            cjk_pass: charset != DEFAULT_CHARSET_PASS,
-        };
+        let mut collector = Collector { map };
         let mut logfont: LOGFONTW = std::mem::zeroed();
-        logfont.lfCharSet = charset;
-        // dwFlags = 0：不加任何字体类型筛选（TrueType / 位图 / 矢量全要）；
-        // 空 lfFaceName + 非零 lfCharSet = 「按字符集枚举该集合下的字体族」
+        logfont.lfCharSet = DEFAULT_CHARSET;
+        // dwFlags = 0：不加任何字体类型筛选（TrueType / 位图 / 矢量全要）
         EnumFontFamiliesExW(
             hdc,
             &logfont,
@@ -164,27 +171,43 @@ fn enumerate_charset(charset: u8, map: &mut BTreeMap<String, FontFlags>) {
     }
 }
 
+/// fc-list 的一次拉取：返回规范化（去空白/拆分逗号族名）后的族名集合
 #[cfg(target_os = "linux")]
-fn collect_system_fonts() -> Vec<SystemFont> {
+fn fc_list_families(pattern: &str) -> std::collections::HashSet<String> {
     use std::process::Command;
 
-    let output = match Command::new("fc-list").args([":", "family"]).output() {
-        Ok(output) if output.status.success() => output,
-        _ => return Vec::new(),
+    let mut out = std::collections::HashSet::new();
+    let Ok(output) = Command::new("fc-list")
+        .args([pattern, "family"])
+        .output()
+    else {
+        return out;
     };
+    if !output.status.success() {
+        return out;
+    }
     let text = String::from_utf8_lossy(&output.stdout);
-    let mut map: BTreeMap<String, FontFlags> = BTreeMap::new();
     for line in text.lines() {
         // 一行可能是「族名1,族名2」（同一个字体文件里的多个族名），逐个收下
         for family in line.split(',') {
             let name = family.trim();
-            if name.is_empty() {
-                continue;
+            if !name.is_empty() {
+                out.insert(name.to_string());
             }
-            // fontconfig 这条路拿不到字符集/间距信息：等宽按名字粗判，CJK 一律标 false
-            let mono = name.to_lowercase().contains("mono");
-            insert_family(&mut map, name, false, mono);
         }
+    }
+    out
+}
+
+#[cfg(target_os = "linux")]
+fn collect_system_fonts() -> Vec<SystemFont> {
+    // cjk / mono 判定走 fontconfig 的语言与间距查询，不猜名字：
+    // 「:lang=zh」是中文（含覆盖到 CJK 的日韩字体），「:spacing=mono」是真等宽
+    let zh = fc_list_families(":lang=zh");
+    let mono = fc_list_families(":spacing=mono");
+    let mut map: BTreeMap<String, FontFlags> = BTreeMap::new();
+    for name in fc_list_families(":") {
+        insert_family(&mut map, &name, zh.contains(&name), mono.contains(&name));
     }
     into_sorted(map)
 }

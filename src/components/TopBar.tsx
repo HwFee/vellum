@@ -5,6 +5,16 @@ import { OutlineToggle } from "./OutlineToggle";
 /// 描边入场的笔顺（kami.css `.icon-draw` 按 --i 依次描出）
 const iconStagger = (n: number) => ({ "--i": n }) as CSSProperties;
 
+/// Windows 的 WebView2 走 CSS `app-region: drag` 原生拖拽 + 原生双击最大化；Tauri
+/// 注入的 `data-tauri-drag-region` 脚本在 Windows 上与原生路径**双重触发**（同一按下
+/// DOM 事件与 OS 拖拽都吃，双击会「最大化即还原」），所以该属性只在非 Windows 挂载——
+/// WebKitGTK 不解析 app-region，Linux 只能靠这条脚本。UA 判定只在自家两个 webview 里跑：
+/// WebView2 恒含 "Windows NT"。
+const DRAG_REGION_ATTR =
+  typeof navigator !== "undefined" && /Windows/.test(navigator.userAgent)
+    ? undefined
+    : true;
+
 function MinimizeIcon() {
   return (
     <svg className="icon-draw" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -155,7 +165,7 @@ export function TopBar({
   const [exportFiring, setExportFiring] = useState(false);
 
   return (
-    <header className="top-bar" data-tauri-drag-region>
+    <header className="top-bar" data-tauri-drag-region={DRAG_REGION_ATTR}>
       <div className="top-bar__actions top-bar__actions--left" data-tauri-drag-region="false">
         {/* 纯工具栏（2026-09-20）：开关居首，历史导航紧随成对，编辑与打开其后；
             分隔线后是设置齿轮与「记录中」小章。路径已退出顶栏（归宿是正文标题
@@ -247,7 +257,7 @@ export function TopBar({
         {isRecording && <span className="top-bar__recording">记录中</span>}
       </div>
       {/* 中列留白：纯工具栏后这里只剩拖动热区（见 kami.css 的 .top-bar__spacer） */}
-      <div className="top-bar__spacer" data-tauri-drag-region aria-hidden="true" />
+      <div className="top-bar__spacer" data-tauri-drag-region={DRAG_REGION_ATTR} aria-hidden="true" />
       <div className="window-controls" data-tauri-drag-region="false">
         <button
           className="window-control"

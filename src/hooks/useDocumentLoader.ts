@@ -26,6 +26,11 @@ export type DocumentLoaderDeps = {
   addRecentTop: (path: string) => void;
   /// 打不开的条目从最近列表摘掉
   removeRecentTop: (path: string) => void;
+  /// 「成功打开一个库」的收口：库根（不是文档路径）进最近库列表。
+  /// `document.library.root` 是 Rust 判定的库根——向上命中的标记祖先或显式文件夹本身
+  addRecentLibraryTop: (entry: { path: string; name: string }) => void;
+  /// 最近库里被搬走的文件夹（load_document 报「路径不存在」时）摘掉
+  removeRecentLibraryTop: (path: string) => void;
   /// 加载成功路径的 mdlog 状态写入（state + 活跃路径 + 复査调度）
   applyLoadedMdlogState: (liveState: MdlogState | null, path: string) => void;
   /// mdlog 状态置回（加载失败兜底写 null）
@@ -42,6 +47,9 @@ export type DocumentLoader = {
   reloadTick: number;
   showReloadNote: boolean;
   loadPath: (path: string, options?: LoadOptions) => Promise<void>;
+  /// 「打开文件夹…」：目录对话框在 Rust 侧弹（open_library 命令），前端不传路径——
+  /// 只把选中的目录交给 loadPath（与拖入文件夹、argv 传目录同一条管线）
+  handleOpenLibrary: () => Promise<void>;
   reloadCurrent: (preloaded?: LoadedDocument) => Promise<void>;
   handleOpen: () => Promise<void>;
   /// 文档 markdown 的唯一写入点（编辑提交的内存侧）
@@ -71,7 +79,7 @@ export function useDocumentLoader(rt: AppRuntime, deps: DocumentLoaderDeps): Doc
   const { navInFlightRef } = rt.nav;
   const { isSettingsOpenRef, isExportOpenRef } = rt.views;
   const { scrollRef, contentRef, documentContentRef } = rt.dom;
-  const { closeSettings, currentScrollRecord, scrollHeadingIntoView, pushNavEntry, resetForwardStack, addRecentTop, removeRecentTop, applyLoadedMdlogState, setMdlogState, resetMdlogForSwitch } = deps;
+  const { closeSettings, currentScrollRecord, scrollHeadingIntoView, pushNavEntry, resetForwardStack, addRecentTop, removeRecentTop, addRecentLibraryTop, removeRecentLibraryTop, applyLoadedMdlogState, setMdlogState, resetMdlogForSwitch } = deps;
 
   const [state, setState] = useState<DocumentState>({ status: "empty" });
   const [reloadTick, setReloadTick] = useState(0);
@@ -269,8 +277,17 @@ export function useDocumentLoader(rt: AppRuntime, deps: DocumentLoaderDeps): Doc
         } else if (source === "direct") {
           resetForwardStack();
         }
-        // 「成功打开」的单一收口：最近打开列表在此置顶（列表状态与持久化同步更新）
-        addRecentTop(document.path);
+        // 「成功打开」的单一收口：最近打开列表在此置顶（列表状态与持久化同步更新）。
+        // 库根（document.library.root）与文档路径分开记——打开库时入的是「最近库」，
+        // 文档路径照旧进「最近打开」（恢复上次会话要的是具体那一篇，不是整个库）。
+        // 空库合成文档（path 为空串，无磁盘文件）不进最近列表。
+        if (document.path !== "") {
+          addRecentTop(document.path);
+        }
+        if (document.library) {
+          const rootName = document.library.root.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() ?? document.library.root;
+          addRecentLibraryTop({ path: document.library.root, name: rootName });
+        }
 
         try {
           const liveState = await invoke<MdlogState | null>("read_mdlog_state");
@@ -294,9 +311,11 @@ export function useDocumentLoader(rt: AppRuntime, deps: DocumentLoaderDeps): Doc
         // 启动恢复命中已删除的文件同理）：摘掉它，列表不残留死条目。
         // removeRecent 对不在列表里的路径是 no-op（不落盘），故从对话框打开失败也不受影响。
         removeRecentTop(path);
+        // 「最近库」里被搬走的文件夹同样摘掉（path 是目录时 load_document 报路径不存在）
+        removeRecentLibraryTop(path);
       }
     },
-    [editorRef, currentPathRef, reloadCurrent, headingsRef, scrollHeadingIntoView, currentScrollRecord, closeSettings, resetMdlogForSwitch, restoreCancelRef, reloadDeferTimerRef, shouldStickToBottomRef, hasStuckToBottomRef, pendingAnchorRef, loadRequestRef, pendingFragmentRef, pendingRestoreRef, navInFlightRef, documentGenerationRef, resolveWikilinks, pushNavEntry, resetForwardStack, addRecentTop, applyLoadedMdlogState, setMdlogState, removeRecentTop]
+    [editorRef, currentPathRef, reloadCurrent, headingsRef, scrollHeadingIntoView, currentScrollRecord, closeSettings, resetMdlogForSwitch, restoreCancelRef, reloadDeferTimerRef, shouldStickToBottomRef, hasStuckToBottomRef, pendingAnchorRef, loadRequestRef, pendingFragmentRef, pendingRestoreRef, navInFlightRef, documentGenerationRef, resolveWikilinks, pushNavEntry, resetForwardStack, addRecentTop, addRecentLibraryTop, removeRecentTop, removeRecentLibraryTop, applyLoadedMdlogState, setMdlogState]
   );
 
   const handleOpen = useCallback(async () => {
@@ -308,6 +327,20 @@ export function useDocumentLoader(rt: AppRuntime, deps: DocumentLoaderDeps): Doc
 
       if (typeof selected === "string") {
         await loadPath(selected);
+      }
+    } catch (error) {
+      setState({ status: "error", message: String(error) });
+    }
+  }, [loadPath]);
+
+  /// 「打开文件夹…」：目录对话框在 Rust 侧弹（open_library 命令）——前端不传路径，
+  /// 只把用户选中的目录原样交给 loadPath（与拖入文件夹、argv 传目录同一条管线，
+  /// 模式判定「向上找标记 → 无标记才把这个文件夹当库根」在 Rust 的 resolve_open_target 里）。
+  const handleOpenLibrary = useCallback(async () => {
+    try {
+      const dir = await invoke<string | null>("open_library");
+      if (typeof dir === "string" && dir) {
+        await loadPath(dir);
       }
     } catch (error) {
       setState({ status: "error", message: String(error) });
@@ -408,6 +441,7 @@ export function useDocumentLoader(rt: AppRuntime, deps: DocumentLoaderDeps): Doc
     reloadTick,
     showReloadNote,
     loadPath,
+    handleOpenLibrary,
     reloadCurrent,
     handleOpen,
     applyMarkdown,
