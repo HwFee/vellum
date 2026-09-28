@@ -47,3 +47,4 @@ nul
 
 # Local run logs / review prompts, never versioned
 outputs/
+release-artifacts/
