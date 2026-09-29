@@ -26,8 +26,10 @@ jobs:
       - run: npm ci && npm run build
       - name: 打包（无签名私钥时结尾报签名错属预期，以产物为准）
         run: |
-          umask 022
-          mkdir -p ~/.cache/tauri
+          # Tauri 构建时才下载 AppRun 等到 ~/.cache/tauri 且权限是 770 → 先跑一遍拉缓存，改 755 后重打包
+          npm run tauri build -- --bundles appimage || true
+          chmod 755 ~/.cache/tauri/*
+          rm -rf src-tauri/target/release/bundle/appimage
           npm run tauri build -- --bundles appimage || true
           ls src-tauri/target/release/bundle/appimage/*.AppImage
       - name: 权限与 glibc 核对
