@@ -184,7 +184,7 @@
 - **落盘**：前端系统保存对话框（`dialog:allow-save` 已入 capabilities）拿路径 → `export_pdf` 命令（`src-tauri/src/main.rs`）→ 对主窗口 WebView2 直接调 CDP `Page.printToPDF`（`webview2-com` 的 `CallDevToolsProtocolMethod`，与 wry 嵌套依赖严格同版 0.38.2 / windows-core 0.61.2，与 katex 同版约束同理）——同一页面上演，不另起隐藏 webview。COM 调用必须在主线程（`with_webview` 派发），CDP 回执异步经消息泵回来，故命令在 `spawn_blocking` 里用 mpsc 等回执（30s 超时）。参数：`printBackground:true`（宣纸底色）、`preferCSSPageSize:true`（`@page` 尺寸与边盒生效）、边距按英寸换算（20mm≈0.7874in、22mm≈0.8661in，与前端 `exportLayout.ts` 常量同值）。路径闸门：只收 .pdf 绝对路径。
 - **真机验收手法**：`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` 起 dev 实例（可带样章路径作首个参数），CDP 直接发同参数的 `Page.printToPDF`（与后端同一条管线），pdftoppm 出 PPM 逐像素量四角/页眉区/版心。注意先读 `docs/agents/tooling.md` 的「嵌入资源缓存」坑——dev 实例可能跑的是二进制里内嵌的旧 dist。
 
-## 图标动效（2026-09-23，原型页 `docs/design/icon-motion.html`）
+## 图标动效（2026-09-23）
 
 - **描边入场**：图标 svg 挂 `.icon-draw`，叶子形（`path|line|circle|rect|polyline`）一律带 `pathLength="1"`——归一化后 `dasharray:1 + dashoffset 1→0` 就是描绘进度，免逐条量长度；笔顺靠组件里 `iconStagger(n)` 写入的内联 `--i`（`calc(var(--i)*.07s)` 延迟）。实色点（`stroke="none"`，如大纲开关的两枚圆点）描不了边，走 `icon-fade` 淡入。
 - **换章是双 svg 叠放，不是条件渲染**：`.edit-swap`（笔↔书，`aria-hidden` 罩在按钮里）与 `.copy-swap`（复制 / 对勾 / 叹号三章）都把全部候选章常驻 DOM，靠 `opacity+rotate+scale` 淡出旧章、描边动画绘入新章——**描入重播的原理是选择器只在激活态开始匹配**（如 `.edit-swap.is-book .icon-book :is(...)`），换回条件渲染会丢掉淡出那一半。
@@ -193,7 +193,7 @@
 - **常动只两枚**：跳底箭头 `icon-jump-bob`（悬停催急）、齿轮按下态 `icon-gear-spin` 9s/圈。`prefers-reduced-motion` 由动效段末尾一条媒体查询整体关停（动画 `none !important` + 过渡 `none !important`）。
 - **加新动效图标**：svg 挂 `.icon-draw` + 叶子补 `pathLength="1"` + `style={iconStagger(n)}`；要位变就先确认 `transform-box` 基准。
 
-## 悬停预览与专注模式（2026-09-26，设计稿 `docs/design/batch2-mockups.html`，定稿 A1/B1/C2）
+## 悬停预览与专注模式（2026-09-26，定稿 A1/B1/C2）
 
 - **预览是「挂在 App 层的委托层」，不进 components 映射**：`HoverPreviewLayer` 在滚动容器上做一次 `pointerover`/`pointerout` 委托，脚注上标（`a[data-footnote-ref]`，200ms）出浮笺、已解析 wikilink（`a.wikilink[href]`；未解析链渲染成 `span.wikilink--missing`，天然落选）350ms 出笺页卡——`markdownComponents.tsx` 与 `MarkdownDocument` 一个字没动。
 - **浮笺正文是 DOM 克隆而非再渲染**：`document.getElementById(href)` 找文尾 `li`（必须在 `documentContentRef` 宿主内），`cloneNode` 后剥 `[data-footnote-backref]` 与全部 `id`（防重复 id），子节点直接搬进卡——不取 innerHTML、不重跑 markdown 管线。
@@ -205,7 +205,7 @@
 
 ## 侧栏页签与库面板（2026-09-26 第三批）
 
-- **模式由「怎么打开」决定**（2026-09-27 第四批，`HANDOFF.md` 本轮主题）：`load_document` 返回契约带 `library` 字段（`LibraryRef { root, explicit, marker }`）——**打开文件夹**（开始页「选择文件夹…」/ 拖入文件夹 / argv 传目录）时向上找标记祖先，无标记则该文件夹本身即库根（explicit=true）；**打开 `.md`** 时同样向上找（8 级帽 + 主目录/盘根早停，见下），命中标记祖先即库模式。模式判定只在 Rust 侧（`resolve_open_target`），文档与库在 `AppState.current: Option<Opened>` 同一临界区原子换代；前端按 `document.library != null` 决定侧栏形态——**单文件模式不传 `header`**，`OutlinePanel` 自动回到 ef96d75 之前的「目錄」题头无页签形态，库命令前端不调（Rust 侧 `Opened.library` 为 None 时三个命令返回固定串 `not in library mode`）。
+- **模式由「怎么打开」决定**（2026-09-27 第四批）：`load_document` 返回契约带 `library` 字段（`LibraryRef { root, explicit, marker }`）——**打开文件夹**（开始页「选择文件夹…」/ 拖入文件夹 / argv 传目录）时向上找标记祖先，无标记则该文件夹本身即库根（explicit=true）；**打开 `.md`** 时同样向上找（8 级帽 + 主目录/盘根早停，见下），命中标记祖先即库模式。模式判定只在 Rust 侧（`resolve_open_target`），文档与库在 `AppState.current: Option<Opened>` 同一临界区原子换代；前端按 `document.library != null` 决定侧栏形态——**单文件模式不传 `header`**，`OutlinePanel` 自动回到 ef96d75 之前的「目錄」题头无页签形态，库命令前端不调（Rust 侧 `Opened.library` 为 None 时三个命令返回固定串 `not in library mode`）。
 - **向上搜索的边界规格（两处 consumer 共用同一常量与同一早停函数）**：`document.rs` 的 `walk_ancestors` 从起始目录（第 1 级）起最多 8 级，遇用户主目录（`dirs::home_dir` 先 canonicalize 再比）或盘符根 / UNC 根（`parent()` 为 None）即停——该级仍会先经 `visit` 判定（主目录带标记时它仍是库根）。`find_library_root`（库根判定）与 `resolve_by_ancestors`（wikilink 逐链接向上解析）共用 `ANCESTOR_WALK_MAX_DEPTH` 与这条 walker——两处深度语义必须逐字一致，否则会出现「模式判定说不是库、链接解析却找到了库」的自相矛盾。每级至多 2 次 `is_dir()`，`parent()` 是纯字面操作、junction / symlink 不成环。
 - **标记目录：`.vellum` 优先、其次 `.obsidian`**（同级都在时 `.vellum` 赢，`marker_at` 一次判两枚）；Obsidian 库只读兼容——`.obsidian` 只用来判定库根，一个字节都不写；`.vellum` 只在用户改库级设置时才创建，打开文件夹一律不写。嵌套库最近者胜。
 - **页签只换内容，侧栏仍是同一枚 `.outline-sidebar`**：库模式下阅读态分支按 `sidebarTab`（App state：`outline | files | search | backlinks`）挂载唯一激活面板，`SidebarTabs` 经各面板的 `header` prop 渲染在 `.outline-panel__header` 槽位上；设置视图分支照旧是 `SettingsNav`（页签不出现）。面板复用 `.outline-panel` / `.outline-panel__scroll` / `.outline-search*` / `.outline-panel__link`（激活态仍是 `--active` 那条 2px 靛青边轨），新增类全在 `library-*` / `sidebar-tabs*` 命名空间下。进单文件模式时 `sidebarTab` 在渲染前复位 `outline`（App.tsx 的渲染期守卫——切走后不能留着上一模式的页签态）。

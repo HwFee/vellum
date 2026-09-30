@@ -126,29 +126,30 @@ pub fn list_library(root: &Path, is_vault: bool) -> Result<LibraryListing, Strin
 
 /// 逐字符小写化：`char::to_lowercase` 可能产出多字符（如 `İ`→`i̇`），折叠成
 /// String 序列再比——多字符扩展不会错位，`ß` 这类单字符小写也保持原义不被误中。
-fn lower_chars(text: &str) -> Vec<String> {
-    text.chars().map(|c| c.to_lowercase().collect()).collect()
+fn lower_chars(text: &str) -> Vec<std::char::ToLowercase> {
+    text.chars().map(|c| c.to_lowercase()).collect()
 }
 
 /// 返回一行内命中的 char 起始索引列表（大小写不敏感，逐字符小写序列比对）。
-fn find_all(line: &str, needle_lower: &[String]) -> Vec<usize> {
-    let hay = lower_chars(line);
+fn find_all(line: &[char], needle_lower: &[std::char::ToLowercase], limit: usize) -> Vec<usize> {
     let n = needle_lower.len();
-    if n == 0 || hay.len() < n {
+    if n == 0 || line.len() < n {
         return Vec::new();
     }
-    let mut hits = Vec::new();
-    for i in 0..=(hay.len() - n) {
-        if hay[i..i + n] == needle_lower[..] {
-            hits.push(i);
-        }
-    }
-    hits
+    line.windows(n)
+        .enumerate()
+        .filter(|(_, left)| {
+            left.iter()
+                .zip(needle_lower)
+                .all(|(c, lower)| c.to_lowercase().eq(lower.clone()))
+        })
+        .map(|(i, _)| i)
+        .take(limit)
+        .collect()
 }
 
 /// 从命中位置裁摘录（前 30 / 后 60 char），补 `…`；match_start 是 snippet 内的 char 索引。
-fn make_match(line_no: usize, line: &str, hit_char: usize, needle_len: usize) -> LibraryMatch {
-    let chars: Vec<char> = line.chars().collect();
+fn make_match(line_no: usize, chars: &[char], hit_char: usize, needle_len: usize) -> LibraryMatch {
     let from = hit_char.saturating_sub(SNIPPET_BEFORE_CHARS);
     let to = (hit_char + needle_len + SNIPPET_AFTER_CHARS).min(chars.len());
     let mut snippet: String = chars[from..to].iter().collect();
@@ -183,11 +184,11 @@ pub fn search_library(root: &Path, query: &str) -> Result<LibrarySearch, String>
         });
     }
     let needle = lower_chars(query);
-    let (files, _) = collect_markdown_files(root);
+    let (files, walk_truncated) = collect_markdown_files(root);
 
     let mut out: Vec<LibrarySearchFile> = Vec::new();
     let mut total = 0usize;
-    let mut truncated = false;
+    let mut truncated = walk_truncated;
     'walk: for (path, rel_path) in files {
         let Some(text) = read_text_capped(&path) else { continue };
         let mut matches: Vec<LibraryMatch> = Vec::new();
@@ -195,9 +196,17 @@ pub fn search_library(root: &Path, query: &str) -> Result<LibrarySearch, String>
             // 行尾 \r 剥掉（CRLF 笔记不把它带进摘录）；tab → 空格在 snippet 内完成
             let line = raw_line.trim_end_matches('\r');
             let tabbed = line.replace('\t', " ");
-            for hit in find_all(&tabbed, &needle) {
-                matches.push(make_match(line_idx + 1, &tabbed, hit, needle.len()));
-                if matches.len() >= SEARCH_MAX_PER_FILE {
+            let chars: Vec<char> = tabbed.chars().collect();
+            let quota = (SEARCH_MAX_PER_FILE - matches.len())
+                .min(SEARCH_MAX_TOTAL - total - matches.len());
+            if quota == 0 {
+                break 'lines;
+            }
+            for hit in find_all(&chars, &needle, quota) {
+                matches.push(make_match(line_idx + 1, &chars, hit, needle.len()));
+                if matches.len() >= SEARCH_MAX_PER_FILE
+                    || total + matches.len() >= SEARCH_MAX_TOTAL
+                {
                     break 'lines;
                 }
             }

@@ -30,6 +30,7 @@ type MarkdownDocumentProps = {
   onMatchCountChange?: (count: number) => void;
   /** 块级就地编辑视图：为真时才给块打标记并响应点击；缺省（阅读视图）不接入标记插件 */
   editable?: boolean;
+  editUnits?: EditUnit[];
   onActivateUnit?: (index: number, caretOffset: number) => void;
   onLockedUnitClick?: (reason: "html" | "widget" | "frontmatter") => void;
   /** 阅读视图里点击任务列表复选框：实参是该列表项的源码起点（`-` / `*` / `1.` 的偏移）。
@@ -151,6 +152,7 @@ export const MarkdownDocument = memo(function MarkdownDocument({
   activeMatchIndex,
   onMatchCountChange,
   editable,
+  editUnits,
   onActivateUnit,
   onLockedUnitClick,
   wikilinks,
@@ -243,7 +245,10 @@ export const MarkdownDocument = memo(function MarkdownDocument({
   );
 
   // 块单元只在编辑视图构建（阅读视图恒为空数组，不接入标记插件、无点击处理）
-  const units = useMemo(() => (editable ? buildEditUnits(markdown) : []), [editable, markdown]);
+  const units = useMemo(
+    () => (editable ? (editUnits ?? buildEditUnits(markdown)) : []),
+    [editable, editUnits, markdown]
+  );
 
   // 点击块 → 索引 + 块内纵向比率换算出的源码光标落点
   const handleClick = useCallback(

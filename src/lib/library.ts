@@ -96,6 +96,41 @@ export function buildFileTree(files: LibraryFile[]): FileTreeNode[] {
   return root.children ?? [];
 }
 
+export type VisibleFileRow = {
+  node: FileTreeNode;
+  depth: number;
+  parentRelPath?: string;
+  indexInParent: number;
+  siblingCount: number;
+};
+
+export function flattenVisibleFileTree(
+  nodes: FileTreeNode[],
+  expanded: ReadonlySet<string>
+): VisibleFileRow[] {
+  const rows: VisibleFileRow[] = [];
+  const walk = (
+    list: FileTreeNode[],
+    depth: number,
+    parentRelPath: string | undefined
+  ) => {
+    list.forEach((node, index) => {
+      rows.push({
+        node,
+        depth,
+        parentRelPath,
+        indexInParent: index + 1,
+        siblingCount: list.length,
+      });
+      if (node.children && expanded.has(node.relPath)) {
+        walk(node.children, depth + 1, node.relPath);
+      }
+    });
+  };
+  walk(nodes, 0, undefined);
+  return rows;
+}
+
 /**
  * 把 snippet 按 matchStart/matchLen 拆成 [前段, 命中, 后段]。
  * 两个索引都是 char 计数（Rust 契约），故用 `Array.from` 走码点序列切片。

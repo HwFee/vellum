@@ -64,20 +64,24 @@ export function useDocumentEditor({
   /// 第二次调用会拿「新 markdown 的同索引单元」当原文比对 ⇒ 草稿改变块结构时重复拼入。
   /// 组件侧的 `committedRef`（F22）只拦得住它自己那条通道，闸门必须落在会话状态机这一层。
   const committingRef = useRef(false);
+  const sessionRevisionRef = useRef(0);
 
-  const units = useMemo<EditUnit[]>(() => buildEditUnits(markdown), [markdown]);
+  const getUnits = useMemo<() => EditUnit[]>(() => {
+    let cached: EditUnit[] | undefined;
+    return () => (cached ??= buildEditUnits(markdown));
+  }, [markdown]);
   const activeUnit =
     activeUnitIndex === null
       ? null
-      : (units.find((unit) => unit.index === activeUnitIndex) ?? null);
+      : (getUnits().find((unit) => unit.index === activeUnitIndex) ?? null);
 
   /// 勾选写回的三面镜子（都只在事件处理器里读，不参与渲染）：在途链上的后续调用与
   /// 失败回滚的判据必须看**此刻**的值，而不是各自那次点击的闭包快照 —— 前一次回滚
   /// 之后源码会退回原文，拿快照当基准就会「以被回滚掉的乐观结果为基准」再翻一次。
   const markdownRef = useRef(markdown);
   markdownRef.current = markdown;
-  const unitsRef = useRef(units);
-  unitsRef.current = units;
+  const getUnitsRef = useRef(getUnits);
+  getUnitsRef.current = getUnits;
   /// 代际 getter 经 ref 存最新一份：调用时刻求值（getter 闭包的是 App 的 ref，
   /// 即便是上一轮渲染的实例也读得到此刻的代际），故不进 useCallback 依赖，勾选回调引用保持稳定
   const getGenerationRef = useRef(getDocumentGeneration);
@@ -125,6 +129,7 @@ export function useDocumentEditor({
   ///    F24 的失败重激活会把会话连同草稿一起留在原地，跨过文档边界后
   ///    就会被按「同序号块」拼进新文档（写到错的文件里）。
   const resetSession = useCallback(() => {
+    sessionRevisionRef.current += 1;
     setActiveUnitIndex(null);
     setDraft("");
     setInitialCaret(0);
@@ -136,13 +141,14 @@ export function useDocumentEditor({
         showToast("记录中 · 编辑已禁用");
         return;
       }
-      const unit = units.find((candidate) => candidate.index === index);
+      const unit = getUnits().find((candidate) => candidate.index === index);
       if (!unit?.editable) return;
+      sessionRevisionRef.current += 1;
       setActiveUnitIndex(index);
       setDraft(toDraftText(markdown.slice(unit.start, unit.end)));
       setInitialCaret(caretOffset);
     },
-    [markdown, mdlogActive, showToast, units]
+    [markdown, mdlogActive, showToast, getUnits]
   );
 
   /// 中断路径共用：尽力把草稿写进剪贴板，然后取消编辑
@@ -187,8 +193,10 @@ export function useDocumentEditor({
     const unitIndex = activeUnit.index;
     const caret = initialCaret;
     const next = spliceUnit(markdown, activeUnit, draft);
+    const generation = getGenerationRef.current?.() ?? 0;
 
     committingRef.current = true;
+    let committedSession = sessionRevisionRef.current;
     try {
       // flushSync 让整篇重解析同步完成，才能量到真实的提交耗时（重文档标记的依据）
       const startedAt = performance.now();
@@ -199,16 +207,23 @@ export function useDocumentEditor({
       if (renderMs > heavyCommitMs) setHeavyDoc(true);
 
       resetSession();
+      committedSession = sessionRevisionRef.current;
       await save(next);
       return true;
     } catch (error) {
       // 失败路径（裁定 F24）：先把父级内存回退到本次提交前的 markdown，
       // 让内存与磁盘重新一致（提交即落盘、落盘失败即回退），
       // 再重新激活同一块并保留草稿与用户原点击的 caret，供其直接重试。
-      flushSync(() => onMarkdownChange(markdown));
-      setActiveUnitIndex(unitIndex);
-      setDraft(draft);
-      setInitialCaret(caret);
+      if (
+        (getGenerationRef.current?.() ?? 0) === generation &&
+        sessionRevisionRef.current === committedSession &&
+        (markdownRef.current === next || markdownRef.current === markdown)
+      ) {
+        flushSync(() => onMarkdownChange(markdown));
+        setActiveUnitIndex(unitIndex);
+        setDraft(draft);
+        setInitialCaret(caret);
+      }
       showToast(`保存失败：${String(error)}`);
       return false;
     } finally {
@@ -252,7 +267,7 @@ export function useDocumentEditor({
       const source = markdownRef.current;
       const generation = getGenerationRef.current?.() ?? 0;
       // 半开区间包含判定：end 取 itemStart + 1，避免命中「恰好结束在 itemStart」的前一块
-      const unit = findUnitForRange(unitsRef.current, itemStart, itemStart + 1);
+      const unit = findUnitForRange(getUnitsRef.current(), itemStart, itemStart + 1);
       // 只读块（HTML / widget / frontmatter）里的任务列表不可点：静默忽略，
       // 与只读块在编辑视图里的「零文字浮层」定稿一致
       if (!unit?.editable) return;
@@ -305,9 +320,9 @@ export function useDocumentEditor({
     }
     // 空态/加载态（无块单元）不进编辑视图（审查 Minor 1）：否则顶栏呈按下态，
     // 宿主还会挂上 T7 会加 position: relative 的 --editing 类，而没有任何块可编辑。
-    if (units.length === 0) return;
+    if (getUnits().length === 0) return;
     setViewMode("editing");
-  }, [commitActive, mdlogActive, showToast, units.length, viewMode]);
+  }, [commitActive, mdlogActive, showToast, getUnits, viewMode]);
 
   const updateDraft = useCallback((text: string) => {
     setDraft(text);
@@ -316,7 +331,9 @@ export function useDocumentEditor({
   return {
     viewMode,
     toggleView,
-    units,
+    get units() {
+      return getUnits();
+    },
     activeUnit,
     draft,
     initialCaret,

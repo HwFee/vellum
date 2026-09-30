@@ -1001,6 +1001,39 @@ textarea {
   text-overflow: ellipsis;
 }
 
+.library-tree--virtual {
+  position: relative;
+  overflow-anchor: none;
+}
+
+.library-tree--virtual > li {
+  position: absolute;
+}
+
+.library-tree--virtual > li::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 0;
+  bottom: 0;
+  width: var(--library-row-indent, 0px);
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--hairline) 0,
+    var(--hairline) 1px,
+    transparent 1px,
+    transparent 19px
+  );
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+.library-tree--virtual .library-tree__folder,
+.library-tree--virtual .library-tree__file {
+  height: var(--library-row-height);
+  box-sizing: border-box;
+}
+
 /* 全库检索结果：按文件分组，题 = serif 13px 近墨 + mono 命中计数；
    命中行是整行可点的幽灵按钮（L行号 mono 石色 + 12px 橄榄摘录） */
 .library-hit {

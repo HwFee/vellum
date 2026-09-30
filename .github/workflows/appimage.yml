@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 上传到哪个 Release（如 v1.13.0）
+        description: 上传到哪个 Release（如 v1.13.1）
         required: true
 permissions:
   contents: write
@@ -39,6 +39,10 @@ jobs:
           d=$(mktemp -d); cd "$d"; "$OLDPWD/$f" --appimage-extract >/dev/null
           max=$(objdump -T squashfs-root/usr/bin/vellum | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)
           echo "vellum 需要 $max"; [ "$max" != "GLIBC_2.39" ]
+      - name: 打 deb
+        run: |
+          npm run tauri build -- --bundles deb || true
+          ls src-tauri/target/release/bundle/deb/*.deb
       - name: 上传到 Release
         env: { GH_TOKEN: "${{ github.token }}" }
-        run: gh release upload "${{ inputs.tag }}" src-tauri/target/release/bundle/appimage/*.AppImage --clobber
+        run: gh release upload "${{ inputs.tag }}" src-tauri/target/release/bundle/appimage/*.AppImage src-tauri/target/release/bundle/deb/*.deb

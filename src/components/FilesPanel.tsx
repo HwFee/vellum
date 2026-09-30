@@ -1,13 +1,26 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useMemo, useState } from "react";
-import { buildFileTree, type FileTreeNode, type LibraryListing } from "../lib/library";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import {
+  buildFileTree,
+  flattenVisibleFileTree,
+  type FileTreeNode,
+  type LibraryListing,
+  type VisibleFileRow,
+} from "../lib/library";
 import { fileNameToTitle } from "../lib/path";
+
+const FilesVirtualTree = lazy(() =>
+  import("./FilesVirtualTree").then((module) => ({ default: module.FilesVirtualTree }))
+);
+
+const VIRTUAL_ROW_LIMIT = 200;
 
 export type FilesPanelProps = {
   /// 题头槽位（侧栏页签）
   header: React.ReactNode;
   /// 当前文档路径：换代即重取列表，并做「当前篇」高亮 + 祖先目录自动展开
   documentPath: string | null;
+  libraryRoot?: string | null;
   onOpenPath: (path: string) => void;
 };
 
@@ -84,11 +97,12 @@ function TreeNodes({
  * 筛选输入命中 relPath 子串（大小写不敏感）时退成扁平命中列表；
  * 当前文档高亮（与大纲激活同一条 2px 靛青边轨）且祖先目录自动展开。
  */
-export function FilesPanel({ header, documentPath, onOpenPath }: FilesPanelProps) {
+export function FilesPanel({ header, documentPath, libraryRoot, onOpenPath }: FilesPanelProps) {
   const [listing, setListing] = useState<LibraryListing | null>(null);
   const [error, setError] = useState(false);
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   // 换文档即重取（命令锚定 AppState.current，换代后列表必须跟着换库）
   useEffect(() => {
@@ -107,7 +121,7 @@ export function FilesPanel({ header, documentPath, onOpenPath }: FilesPanelProps
     return () => {
       alive = false;
     };
-  }, [documentPath]);
+  }, [documentPath, libraryRoot]);
 
   // 当前篇的祖先目录自动展开（每次新清单到手重算一次）
   useEffect(() => {
@@ -134,6 +148,26 @@ export function FilesPanel({ header, documentPath, onOpenPath }: FilesPanelProps
     if (!q || !listing) return null;
     return listing.files.filter((f) => f.relPath.toLowerCase().includes(q));
   }, [filter, listing]);
+
+  const visibleRows = useMemo(
+    () => flattenVisibleFileTree(tree, expanded),
+    [tree, expanded]
+  );
+
+  const filteredRows = useMemo<VisibleFileRow[] | null>(
+    () =>
+      filtered?.map((f, index) => ({
+        node: {
+          name: f.relPath.split("/").pop() ?? f.relPath,
+          relPath: f.relPath,
+          path: f.path,
+        },
+        depth: 0,
+        indexInParent: index + 1,
+        siblingCount: filtered.length,
+      })) ?? null,
+    [filtered]
+  );
 
   const toggleFolder = (relPath: string) => {
     setExpanded((prev) => {
@@ -169,47 +203,75 @@ export function FilesPanel({ header, documentPath, onOpenPath }: FilesPanelProps
           aria-label="筛选库内文件"
         />
       </div>
-      <div className="outline-panel__scroll">
+      <div className="outline-panel__scroll" ref={scrollRef}>
         {error ? (
           <p className="outline-panel__empty">无法读取文件列表</p>
         ) : !listing ? (
           <p className="outline-panel__empty">…</p>
         ) : listing.files.length === 0 ? (
           <p className="outline-panel__empty">库内暂无其他 Markdown 文件</p>
-        ) : filtered ? (
-          <>
-            {filtered.length === 0 ? (
-              <p className="outline-panel__empty">无匹配文件</p>
-            ) : (
-              <ul className="library-tree">
-                {filtered.map((f) => (
-                  <li key={f.relPath}>
-                    <button
-                      type="button"
-                      className={
-                        "outline-panel__link library-tree__file library-tree__file--flat" +
-                        (f.path === documentPath ? " outline-panel__link--active" : "")
-                      }
-                      title={f.relPath}
-                      onClick={() => onOpenPath(f.path)}
-                    >
-                      {fileNameToTitle(f.relPath.split("/").pop() ?? f.relPath)}
-                      <span className="library-tree__dir">{f.relPath}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </>
         ) : (
           <>
-            <TreeNodes
-              nodes={tree}
-              expanded={expanded}
-              onToggle={toggleFolder}
-              currentPath={documentPath}
-              onOpenPath={onOpenPath}
-            />
+            {filtered ? (
+              filtered.length === 0 ? (
+                <p className="outline-panel__empty">无匹配文件</p>
+              ) : filteredRows && filteredRows.length > VIRTUAL_ROW_LIMIT ? (
+                <Suspense fallback={<p className="outline-panel__empty">…</p>}>
+                  <FilesVirtualTree
+                    rows={filteredRows}
+                    scrollRef={scrollRef}
+                    documentPath={documentPath}
+                    onToggle={toggleFolder}
+                    onOpenPath={onOpenPath}
+                    expanded={expanded}
+                    flat
+                    resetKey={filter}
+                    FolderIcon={FolderIcon}
+                  />
+                </Suspense>
+              ) : (
+                <ul className="library-tree">
+                  {filtered.map((f) => (
+                    <li key={f.relPath}>
+                      <button
+                        type="button"
+                        className={
+                          "outline-panel__link library-tree__file library-tree__file--flat" +
+                          (f.path === documentPath ? " outline-panel__link--active" : "")
+                        }
+                        title={f.relPath}
+                        onClick={() => onOpenPath(f.path)}
+                      >
+                        {fileNameToTitle(f.relPath.split("/").pop() ?? f.relPath)}
+                        <span className="library-tree__dir">{f.relPath}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )
+            ) : visibleRows.length > VIRTUAL_ROW_LIMIT ? (
+              <Suspense fallback={<p className="outline-panel__empty">…</p>}>
+                <FilesVirtualTree
+                  rows={visibleRows}
+                  scrollRef={scrollRef}
+                  documentPath={documentPath}
+                  onToggle={toggleFolder}
+                  onOpenPath={onOpenPath}
+                  expanded={expanded}
+                  flat={false}
+                  resetKey={filter}
+                  FolderIcon={FolderIcon}
+                />
+              </Suspense>
+            ) : (
+              <TreeNodes
+                nodes={tree}
+                expanded={expanded}
+                onToggle={toggleFolder}
+                currentPath={documentPath}
+                onOpenPath={onOpenPath}
+              />
+            )}
             {listing.truncated ? (
               <p className="library-note">文件过多，建议选更小的文件夹（仅列出前 50 000 项）</p>
             ) : null}

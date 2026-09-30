@@ -1,16 +1,28 @@
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ExportPdfView } from "./ExportPdfView";
+import { paginatePreview } from "../lib/exportPagination";
+import { stripLeadingOwnTitle } from "../lib/exportDocument";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ save: vi.fn() }));
+vi.mock("../lib/exportPagination", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/exportPagination")>();
+  return { ...actual, paginatePreview: vi.fn(actual.paginatePreview) };
+});
+vi.mock("../lib/exportDocument", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/exportDocument")>();
+  return { ...actual, stripLeadingOwnTitle: vi.fn(actual.stripLeadingOwnTitle) };
+});
 
 const BODY_HTML = "<h2>第一节</h2><p>正文一段。</p><pre><code>const a = 1;</code></pre>";
 
 beforeEach(() => {
   vi.mocked(invoke).mockReset();
   vi.mocked(save).mockReset();
+  vi.mocked(paginatePreview).mockClear();
+  vi.mocked(stripLeadingOwnTitle).mockClear();
 });
 
 test("渲染纸张舞台：规格小字、文件名默认「文档题.pdf」、打印底稿与测量容器就位", () => {
@@ -158,4 +170,127 @@ test("无自带头题时切「居中」：注入题目用文档题文本，正�
   expect(titleEl?.textContent).toBe("我的笔记");
   expect(titleEl?.className).toContain("export-title--center");
   expect(container.querySelector(".export-sheet .markdown-body")?.innerHTML).toBe(BODY_HTML);
+});
+
+const BODY_WITH_IMG_A = "<h2>一</h2><p>段</p><img src=\"a.png\">";
+const BODY_WITH_IMG_B = "<h2>二</h2><p>段</p><img src=\"b.png\"><img src=\"b2.png\">";
+
+test("换代后旧 effect 的迟到事件不再调度：旧快照图片、旧字体回调、待决帧都作废", async () => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let nextFrame = 0;
+  const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    const id = ++nextFrame;
+    frames.set(id, callback);
+    return id;
+  });
+  const cancelSpy = vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+    frames.delete(id);
+  });
+  let resolveFonts!: () => void;
+  const fontsReady = new Promise<void>((resolve) => {
+    resolveFonts = resolve;
+  });
+  const ownFonts = Object.getOwnPropertyDescriptor(document, "fonts");
+  Object.defineProperty(document, "fonts", {
+    configurable: true,
+    value: { ready: fontsReady },
+  });
+  const flushFrames = () => {
+    const pending = [...frames.values()];
+    frames.clear();
+    for (const callback of pending) callback(0);
+  };
+  const paginateSpy = vi.mocked(paginatePreview);
+  try {
+    const { container, rerender } = render(
+      <ExportPdfView title="笔记" ownTitle={null} bodyHtml={BODY_WITH_IMG_A} onExit={() => {}} />
+    );
+    act(flushFrames);
+    const staleImg = container.querySelector<HTMLImageElement>(".export-measure img")!;
+
+    rerender(
+      <ExportPdfView title="笔记" ownTitle={null} bodyHtml={BODY_WITH_IMG_B} onExit={() => {}} />
+    );
+    act(flushFrames);
+    const afterRerender = paginateSpy.mock.calls.length;
+
+    act(() => {
+      staleImg.dispatchEvent(new Event("load"));
+    });
+    act(flushFrames);
+    expect(paginateSpy.mock.calls.length).toBe(afterRerender);
+
+    const liveImg = container.querySelector<HTMLImageElement>(".export-measure img")!;
+    act(() => {
+      liveImg.dispatchEvent(new Event("load"));
+    });
+    act(flushFrames);
+    expect(paginateSpy.mock.calls.length).toBe(afterRerender + 1);
+
+    await act(async () => {
+      resolveFonts();
+      await Promise.resolve();
+    });
+    act(flushFrames);
+    expect(paginateSpy.mock.calls.length).toBe(afterRerender + 2);
+  } finally {
+    if (ownFonts) {
+      Object.defineProperty(document, "fonts", ownFonts);
+    } else {
+      delete (document as unknown as { fonts?: unknown }).fonts;
+    }
+    paginateSpy.mockClear();
+    rafSpy.mockRestore();
+    cancelSpy.mockRestore();
+  }
+});
+
+test("卸载取消待决的分页帧，帧回调不再写已卸载的页面容器", () => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let nextFrame = 0;
+  const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    const id = ++nextFrame;
+    frames.set(id, callback);
+    return id;
+  });
+  const cancelSpy = vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+    frames.delete(id);
+  });
+  const paginateSpy = vi.mocked(paginatePreview);
+  try {
+    const { unmount } = render(
+      <ExportPdfView title="笔记" ownTitle={null} bodyHtml={BODY_HTML} onExit={() => {}} />
+    );
+    expect(frames.size).toBe(1);
+    unmount();
+    expect(frames.size).toBe(0);
+    expect(paginateSpy).not.toHaveBeenCalled();
+  } finally {
+    rafSpy.mockRestore();
+    cancelSpy.mockRestore();
+  }
+});
+
+test("effectiveBodyHtml 记忆化：文档题等无关 prop 变化不再重跑摘头题", () => {
+  const stripSpy = vi.mocked(stripLeadingOwnTitle);
+  const { rerender } = render(
+    <ExportPdfView
+      title="Kimi-K3技术报告通俗解读"
+      ownTitle="Kimi K3 技术报告通俗解读"
+      bodyHtml={DOC_WITH_OWN_TITLE}
+      onExit={() => {}}
+    />
+  );
+  fireEvent.click(screen.getByRole("button", { name: "居中" }));
+  expect(stripSpy).toHaveBeenCalledTimes(1);
+
+  rerender(
+    <ExportPdfView
+      title="改了文档题"
+      ownTitle="Kimi K3 技术报告通俗解读"
+      bodyHtml={DOC_WITH_OWN_TITLE}
+      onExit={() => {}}
+    />
+  );
+  expect(stripSpy).toHaveBeenCalledTimes(1);
 });

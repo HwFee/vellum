@@ -264,7 +264,11 @@ async fn resolve_asset(
             .and_then(|opened| opened.doc.parent().map(|parent| parent.to_path_buf()))
             .ok_or_else(|| "No document is loaded".to_string())?
     };
-    document::resolve_asset_to_data_url(&anchor_dir, &asset_src)
+    tauri::async_runtime::spawn_blocking(move || {
+        document::resolve_asset_to_data_url(&anchor_dir, &asset_src)
+    })
+    .await
+    .map_err(|error| format!("resolve_asset failed: {error}"))?
 }
 
 /// 纯函数：`resolve_wikilinks` 的基准路径闸门——只允许以「当前已加载文档」为
@@ -296,22 +300,30 @@ async fn resolve_wikilinks(
         let current = state.current.lock().unwrap_or_else(|p| p.into_inner());
         require_current_document(current.as_ref().map(|opened| opened.doc.as_path()), &from)?;
     }
-    let map = document::resolve_wikilink_map(&from, &targets);
+    let from_for_scan = from.clone();
+    let map = tauri::async_runtime::spawn_blocking(move || {
+        document::resolve_wikilink_map(&from_for_scan, &targets)
+    })
+    .await
+    .map_err(|error| format!("resolve_wikilinks failed: {error}"))?;
     // 复查闸门（锁序同前：current -> preview_allow）：扫库期间用户可能已经换文档——
     // 那时 load_document 的临界区已按新代际清空/重建白名单，迟到解析的结果表只许带回
     // （前端会按当前文档判时效），绝不许覆写新一代的 allow。
-    {
-        let current = state.current.lock().unwrap_or_else(|p| p.into_inner());
-        if current.as_ref().map(|opened| opened.doc.as_path()) != Some(from.as_path()) {
-            return Ok(map);
-        }
-    }
     let allow: HashSet<PathBuf> = map
         .values()
         .filter_map(|resolved| resolved.as_ref().map(PathBuf::from))
         .collect();
-    *state.preview_allow.lock().unwrap_or_else(|p| p.into_inner()) = allow;
+    publish_preview_allow(&state, &from, allow);
     Ok(map)
+}
+
+fn publish_preview_allow(state: &AppState, from: &Path, allow: HashSet<PathBuf>) -> bool {
+    let current = state.current.lock().unwrap_or_else(|p| p.into_inner());
+    if current.as_ref().map(|opened| opened.doc.as_path()) != Some(from) {
+        return false;
+    }
+    *state.preview_allow.lock().unwrap_or_else(|p| p.into_inner()) = allow;
+    true
 }
 
 /// 库根取自 `Opened.library`（打开时定死、随文档原子换代）；三个库命令共用这一步。
@@ -388,7 +400,11 @@ async fn read_note_preview(
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .clone();
-    document::read_note_preview_file(Path::new(&path), &allow)
+    tauri::async_runtime::spawn_blocking(move || {
+        document::read_note_preview_file(Path::new(&path), &allow)
+    })
+    .await
+    .map_err(|error| format!("read_note_preview failed: {error}"))?
 }
 
 
@@ -901,6 +917,70 @@ mod tests {
     #[test]
     fn resolve_gate_rejects_when_nothing_loaded() {
         assert!(require_current_document(None, Path::new("C:/notes/a.md")).is_err());
+    }
+
+    #[test]
+    fn publish_allow_writes_when_current_matches() {
+        let state = vellum_lib::state::AppState::default();
+        let doc = PathBuf::from("C:/notes/a.md");
+        *state.current.lock().unwrap() = Some(opened(&doc));
+        let allow: std::collections::HashSet<PathBuf> =
+            [PathBuf::from("C:/notes/b.md")].into_iter().collect();
+        assert!(super::publish_preview_allow(&state, &doc, allow.clone()));
+        assert_eq!(*state.preview_allow.lock().unwrap(), allow);
+    }
+
+    #[test]
+    fn publish_allow_stale_from_keeps_newer_allow() {
+        let state = vellum_lib::state::AppState::default();
+        *state.current.lock().unwrap() = Some(opened(Path::new("C:/notes/new-doc.md")));
+        let newer: std::collections::HashSet<PathBuf> =
+            [PathBuf::from("C:/notes/live.md")].into_iter().collect();
+        *state.preview_allow.lock().unwrap() = newer.clone();
+        let stale: std::collections::HashSet<PathBuf> =
+            [PathBuf::from("C:/notes/old.md")].into_iter().collect();
+        assert!(!super::publish_preview_allow(
+            &state,
+            Path::new("C:/notes/old-doc.md"),
+            stale
+        ));
+        assert_eq!(*state.preview_allow.lock().unwrap(), newer);
+    }
+
+    #[test]
+    fn publish_allow_without_current_returns_false() {
+        let state = vellum_lib::state::AppState::default();
+        let allow: std::collections::HashSet<PathBuf> =
+            [PathBuf::from("C:/notes/b.md")].into_iter().collect();
+        assert!(!super::publish_preview_allow(
+            &state,
+            Path::new("C:/notes/a.md"),
+            allow
+        ));
+        assert!(state.preview_allow.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn publish_allow_recovers_from_poisoned_locks() {
+        let state = vellum_lib::state::AppState::default();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = state.current.lock().unwrap();
+            panic!("poison current");
+        }));
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = state.preview_allow.lock().unwrap();
+            panic!("poison allow");
+        }));
+        *state.current.lock().unwrap_or_else(|p| p.into_inner()) =
+            Some(opened(Path::new("C:/notes/a.md")));
+        let doc = PathBuf::from("C:/notes/a.md");
+        let allow: std::collections::HashSet<PathBuf> =
+            [PathBuf::from("C:/notes/b.md")].into_iter().collect();
+        assert!(super::publish_preview_allow(&state, &doc, allow.clone()));
+        assert_eq!(
+            *state.preview_allow.lock().unwrap_or_else(|p| p.into_inner()),
+            allow
+        );
     }
 }
 

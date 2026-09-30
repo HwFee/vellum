@@ -2626,6 +2626,57 @@ test("Ctrl+E 进入编辑视图，点击块激活就地编辑，提交后落盘"
   expect(screen.getByText("Body text edited.")).toBeInTheDocument();
 });
 
+test("编辑提交落盘在途期间切换文档：旧失败不回滚进新文档，也不恢复旧覆盖层", async () => {
+  let rejectSaveA!: (reason: unknown) => void;
+  const docB = {
+    ...loadedDoc,
+    path: "C:/notes/b.md",
+    fileName: "b.md",
+    markdown: "# B 篇\n\nB 段落。",
+  };
+  backendInvoke.mockImplementation(async (command: string) => {
+    if (command === "load_document") return loadedDoc;
+    if (command === "save_document") {
+      return new Promise<void>((_resolve, reject) => {
+        rejectSaveA = reject;
+      });
+    }
+    if (command === "resolve_wikilinks") return {};
+    return undefined;
+  });
+  vi.mocked(open).mockResolvedValueOnce(loadedDoc.path);
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Intro" })).toBeInTheDocument());
+
+  await enterEditingView();
+  const textarea = await activateBlockText("Body text.");
+  fireEvent.change(textarea, { target: { value: "Body text edited." } });
+  fireEvent.keyDown(textarea, { key: "Escape" });
+  await waitFor(() => expect(blockEditorInput()).toBeNull());
+  expect(screen.getByText("Body text edited.")).toBeInTheDocument();
+  expect(saveDocumentCalls()).toHaveLength(1);
+
+  backendInvoke.mockImplementation(async (command: string) => {
+    if (command === "load_document") return docB;
+    if (command === "resolve_wikilinks") return {};
+    return undefined;
+  });
+  vi.mocked(open).mockResolvedValueOnce("C:/notes/b.md");
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "B 篇" })).toBeInTheDocument());
+
+  await act(async () => {
+    rejectSaveA(new Error("磁盘只读"));
+    await Promise.resolve();
+  });
+
+  expect(screen.getByText("B 段落。")).toBeInTheDocument();
+  expect(screen.queryByText("Body text.")).toBeNull();
+  expect(blockEditorInput()).toBeNull();
+  await waitFor(() => expect(screen.getByText(/保存失败/)).toBeInTheDocument());
+});
+
 test("mdlog 记录中不得进入编辑视图", async () => {
   backendInvoke.mockImplementation(async (command: string) => {
     if (command === "load_document") return loadedDoc;
@@ -2713,6 +2764,26 @@ test("Ctrl+P 打开「导出为 PDF」纸张舞台并吞键，再按一次退出
 
   // 再按一次退出：回到阅读视图（Esc / 「‹ 返回阅读」同款动线）
   expect(fireEvent.keyDown(window, { key: "p", ctrlKey: true })).toBe(false);
+  await waitFor(() => {
+    expect(document.querySelector(".export-view")).toBeNull();
+  });
+  expect(document.querySelector(".export-toggle")).toHaveAttribute("aria-pressed", "false");
+});
+
+test("Ctrl+P 惰性装载导出视图：就绪占位、视图随后到达、Esc 退回阅读", async () => {
+  await loadDocument();
+
+  fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+  if (!document.querySelector(".export-view")) {
+    expect(
+      document.querySelector(".empty-state[role='status']")?.textContent
+    ).toContain("正在准备导出预览");
+  }
+  expect(await screen.findByText("A4 · 边距 20/22mm · 宣纸")).toBeInTheDocument();
+  expect(document.querySelector(".export-view")).toBeInTheDocument();
+  expect(document.querySelector(".export-toggle")).toHaveAttribute("aria-pressed", "true");
+
+  fireEvent.keyDown(window, { key: "Escape" });
   await waitFor(() => {
     expect(document.querySelector(".export-view")).toBeNull();
   });

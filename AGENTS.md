@@ -27,10 +27,10 @@ Tauri 2 + React 19 桌面 Markdown 阅读器，Windows 10/11 x64 与 Linux（Web
 | `public/fonts/` | 应用字体（~17MB，随包分发） |
 | `samples/` | 示例 Markdown（`sample.md`；本地图片放 `samples/assets/`） |
 | `docs/agents/` | 四份分册：渲染 / Obsidian 语法 / widget 沙箱 / 工程与发布 |
-| `docs/design/` | 界面设计稿与真机取证截图（`export-pdf-mockups.html`、`shots/`） |
-| 根目录 | `AGENTS.md`（本文件）、`DESIGN.md`、`CHANGELOG.md`、`README.md`、`HANDOFF.md`（**本轮交接，开工先读**）、`TODO.md`（指向 HANDOFF 的指针） |
+| `docs/design/` | 真机取证截图（`shots/`） |
+| 根目录 | `AGENTS.md`（本文件）、`DESIGN.md`、`CHANGELOG.md`、`README.md` |
 
-- **不新建目录**：新素材放进上表已有位置——界面稿与截图给 `docs/design/`，示例文档给 `samples/`，长期文档给 `docs/agents/`。
+- **不新建目录**：新素材放进上表已有位置——真机截图给 `docs/design/`，示例文档给 `samples/`，长期文档给 `docs/agents/`。
 - **临时产物不入库**：`outputs/`、`dist/`、`node_modules/`、`target/` 已在 `.gitignore`，别用 `git add -f` 绕过。
 - **本地联接不入库**：`.pi/skills/<skill-name>` → 全局技能库 `C:/Users/17445/Desktop/HwFee-skills/skills/`；`~/.pi/agent/extensions/mdlog` → `extensions/mdlog/`。新 clone 后按 `docs/agents/tooling.md` 的「技能安装流程」重建。
 
@@ -100,8 +100,11 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 
 | 文档 | 管什么 | 什么时候读 |
 |------|--------|-----------|
-| `HANDOFF.md` | **本轮主题「模式由打开方式定」**：四条已定决策、向上找库的边界规格（8 级 / 主目录 / 盘根 / `.vellum` 优先）、单文件 vs 库的行为矩阵、P0–P3 实施清单与完成判据、5 条待拍板 | **开工前第一份**；动侧栏页签、`library.rs` / `document.rs` 库根判定、打开管线（argv / 对话框 / 拖放）之前 |
 | `docs/agents/rendering.md` | 渲染结构、搜索跳转、大纲跟随、侧栏布局与宽度（含设置视图的侧栏内容切换）、设置视图、阅读位置记忆、热重载恢复、布局过渡窗、`viewportPin`、数学公式、块级就地编辑不变量、任务勾选、打印样式、导出为 PDF、文件索引 | 改渲染管线 / 滚动 / 编辑器 / 大纲 / 设置页 / 打印 / 导出时 |
 | `docs/agents/obsidian.md` | frontmatter 属性卡、callout、wikilink 端到端与片段跳转、文档标题与属性卡/提示块定稿形态、CJK 强调兜底、全库语料检查与真机验收 | 碰三族语法或 `rehypeObsidian` 时 |
 | `docs/agents/widgets.md` | `WidgetSandbox` 存活上限与懒挂载、沙箱根溢出保护、交互块授权台账、停帧降载与静态图指针防线、预载视距与高度夹取、mdlog 状态与吸底、sidecar 清理 | 改 mdlog 或 widget 沙箱时 |
 | `docs/agents/tooling.md` | shell 入口细节、技能安装与 pi 扩展、性能技能表与入口 chunk 尺寸、打包与生产构建坑、签名与发布、真机探针、`custom-protocol` | 配环境、打包发布时 |
+
+## Library search performance benchmark
+
+`node scripts/bench-library-search.mjs` builds the release library and runs the actual `search_library` function on deterministic temporary fixtures (two warmups, nine measured runs per case). It prints raw JSON lines; compare medians only between matching fixtures/build modes. `--compile-only` verifies the runner without collecting timings. The standalone Rust harness requires LTO to match the release library; on Windows/MSVC the runner discovers native Windows import-library directories from Cargo metadata. This measures warmed filesystem/search latency, not UI frame rate or cold startup.

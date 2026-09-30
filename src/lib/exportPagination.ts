@@ -28,6 +28,7 @@ export interface PaginationBlock {
   height: number;
   /** 段落拆分后下半段的起始字符偏移（块内 text 节点文档序累计） */
   fromChar?: number;
+  fromLineTop?: number;
 }
 
 /** 一页的内容：若干片段。整块的 fromChar/toChar 为空；段落拆片段带区间 */
@@ -136,6 +137,7 @@ export function paginatePreview(
   // 首页页顶：首块的上边距不截断（文档起点不是分页断点），可用高度减去这块留白
   let pageTop = blocks[0].top - firstPageTopInset;
   let i = 0;
+  const lineCache = new WeakMap<HTMLElement, Array<{ top: number; bottom: number }>>();
 
   while (i < blocks.length) {
     const block = blocks[i];
@@ -150,11 +152,19 @@ export function paginatePreview(
 
     // 放不下：段落按行拆（孤行寡行约束内），下半段合成新块进入下一轮
     if (block.el.tagName === "P") {
-      const lines = lineBoxes(block.el);
+      let original = lineCache.get(block.el);
+      if (!original) {
+        original = lineBoxes(block.el);
+        lineCache.set(block.el, original);
+      }
+      const fromLineTop = block.fromLineTop ?? 0;
+      const lines = original
+        .filter((line) => line.top >= fromLineTop - LINE_EPS)
+        .map((line) => ({ top: line.top - fromLineTop, bottom: line.bottom - fromLineTop }));
       const fitCount = lines.filter((line) => block.top + line.bottom <= pageBottom + LINE_EPS).length;
       const k = Math.min(fitCount, lines.length - WIDOWS);
       if (k >= ORPHANS && k < lines.length) {
-        const cut = charOffsetAtLine(block.el, lines[k].top);
+        const cut = charOffsetAtLine(block.el, lines[k].top + fromLineTop);
         if (cut > (block.fromChar ?? 0)) {
           segments.push({ el: block.el, fromChar: block.fromChar, toChar: cut, top: block.top });
           pages.push(segments);
@@ -165,6 +175,7 @@ export function paginatePreview(
             top: pageBottom,
             height: block.height - lines[k].top,
             fromChar: cut,
+            fromLineTop: fromLineTop + lines[k].top,
           };
           pageTop = pageBottom;
           continue;

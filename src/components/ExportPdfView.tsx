@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildExportPageStyle, stripLeadingOwnTitle } from "../lib/exportDocument";
 import {
   EXPORT_CONTENT_HEIGHT_PX,
@@ -40,8 +40,10 @@ export function ExportPdfView({ title, ownTitle, bodyHtml, onExit }: ExportPdfVi
   // 工具条上的另一个选项。正文自带头题时「居中」用它顶替注入题目——
   // 并从正文里摘掉同款 h1，同一题目不排两次
   const [titleMode, setTitleMode] = useState<"original" | "center">("original");
-  const effectiveBodyHtml =
-    titleMode === "center" && ownTitle ? stripLeadingOwnTitle(bodyHtml) : bodyHtml;
+  const effectiveBodyHtml = useMemo(
+    () => (titleMode === "center" && ownTitle ? stripLeadingOwnTitle(bodyHtml) : bodyHtml),
+    [bodyHtml, titleMode, ownTitle]
+  );
   const showTitle = titleMode === "center" || !ownTitle;
   const displayTitle = ownTitle ?? title;
   const titleClass =
@@ -100,11 +102,15 @@ export function ExportPdfView({ title, ownTitle, bodyHtml, onExit }: ExportPdfVi
     const measureBody = measureBodyRef.current;
     const pages = pagesRef.current;
     if (!measureBody || !pages) return;
+    let live = true;
     let raf = 0;
+    const pendingImages: HTMLImageElement[] = [];
 
     const rebuild = () => {
+      if (!live) return;
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
+        if (!live) return;
         // 展平一层取块：.markdown-body 包裹的块在它的孩子里；display:contents 的
         // 块单元外壳没有自己的布局盒，同样展平一层量它的孩子
         const blocks: HTMLElement[] = [];
@@ -169,9 +175,18 @@ export function ExportPdfView({ title, ownTitle, bodyHtml, onExit }: ExportPdfVi
     // 字体与图片会改块高：就绪后各重算一次（一次性事件，不长期监听）
     void document.fonts?.ready.then(rebuild).catch(() => {});
     for (const img of Array.from(measureBody.querySelectorAll("img"))) {
-      if (!img.complete) img.addEventListener("load", rebuild, { once: true });
+      if (!img.complete) {
+        pendingImages.push(img);
+        img.addEventListener("load", rebuild, { once: true });
+      }
     }
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      live = false;
+      cancelAnimationFrame(raf);
+      for (const img of pendingImages) {
+        img.removeEventListener("load", rebuild);
+      }
+    };
   }, [effectiveBodyHtml, title, titleMode, ownTitle]);
 
   // 缩放变化只调 zoom，不重建分页（内容与页序不变）

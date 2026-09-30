@@ -39,14 +39,15 @@ export function LibrarySearchPanel({
 
   useEffect(() => {
     const trimmed = query.trim();
+    const id = ++requestRef.current;
     if (!trimmed) {
       setResult(null);
       setPending(false);
       return;
     }
+    setResult(null);
     setPending(true);
     const timer = setTimeout(() => {
-      const id = ++requestRef.current;
       invoke<LibrarySearch>("search_library", { query: trimmed })
         .then((res) => {
           if (requestRef.current === id) {
@@ -62,7 +63,12 @@ export function LibrarySearchPanel({
           }
         });
     }, DEBOUNCE_MS);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      if (requestRef.current === id) {
+        requestRef.current += 1;
+      }
+    };
   }, [query, documentPath]);
 
   const trimmed = query.trim();
@@ -106,7 +112,7 @@ export function LibrarySearchPanel({
                   {fileNameToTitle(basename(file.path))}
                   <span className="library-hit__count">{file.matches.length}</span>
                 </div>
-                {file.matches.map((m) => {
+                {file.matches.map((m, index) => {
                   const [before, match, after] = snippetParts(
                     m.snippet,
                     m.matchStart,
@@ -115,7 +121,7 @@ export function LibrarySearchPanel({
                   return (
                     <button
                       type="button"
-                      key={`${m.line}:${m.matchStart}`}
+                      key={`${m.line}:${index}`}
                       className="library-hit__line"
                       onClick={() => onOpenHit(file.path, trimmed)}
                     >

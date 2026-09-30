@@ -8,6 +8,11 @@ import { widgetRegistry } from "../lib/widgetRegistry";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("../lib/editUnits", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/editUnits")>();
+  return { ...actual, buildEditUnits: vi.fn(actual.buildEditUnits) };
+});
+
 vi.mock("@tauri-apps/plugin-opener", () => ({
   openUrl: vi.fn(),
 }));
@@ -762,6 +767,16 @@ plain block
       />
     );
     expect(container.querySelectorAll("mark.search-match")).toHaveLength(2);
+  });
+
+  it("marks the hit after a Unicode-expanding lowercase char without corrupting text", () => {
+    const { container } = render(
+      <MarkdownDocument markdown={"İx"} searchQuery="x" activeMatchIndex={0} />
+    );
+    const p = container.querySelector("p");
+    expect(p).toHaveTextContent("İx");
+    const mark = container.querySelector("mark.search-match");
+    expect(mark).toHaveTextContent("x");
   });
 
   it("debounces scroll while deleting and resets the timer on each keystroke", () => {
@@ -1701,5 +1716,33 @@ describe("MarkdownDocument · 任务列表勾选", () => {
     expect(boxes[1].disabled).toBe(false);
     fireEvent.click(boxes[1]);
     expect(onToggleTask).toHaveBeenCalledWith(markdown.indexOf("- [ ] real"));
+  });
+});
+
+describe("MarkdownDocument · 外部供给块单元", () => {
+  it("编辑视图传入 editUnits 时不再重复解析；语义标记与点击路径不变", () => {
+    const markdown = "# 标题\n\n正文\n";
+    const spy = vi.mocked(buildEditUnits);
+    const supplied = buildEditUnits(markdown);
+    spy.mockClear();
+
+    const { container } = render(
+      <MarkdownDocument markdown={markdown} editable editUnits={supplied} />
+    );
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(container.querySelectorAll("[data-vellum-unit]").length).toBe(2);
+    expect(container.querySelector('[data-vellum-unit="0"]')?.tagName).toBe("H1");
+    expect(container.querySelector('[data-vellum-unit="1"]')?.tagName).toBe("P");
+    expect(container.querySelector("article")).toHaveClass("markdown-body--editing");
+  });
+
+  it("未传 editUnits 时维持自建路径：编辑视图解析一次", () => {
+    const spy = vi.mocked(buildEditUnits);
+    spy.mockClear();
+    const { container } = render(<MarkdownDocument markdown={"# 标题\n\n正文\n"} editable />);
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(container.querySelectorAll("[data-vellum-unit]").length).toBe(2);
   });
 });

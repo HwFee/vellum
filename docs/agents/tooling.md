@@ -115,6 +115,23 @@ node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/ex
 
 - 逐次优化的取舍记在 `CHANGELOG.md` 的版本条目里。
 
+### 2026-09-30 性能审查证据
+
+本机受控测量，不能直接外推为桌面 WebView 帧率或冷启动改善：
+
+| 场景 | 优化前 | 优化后 | 测量范围 |
+|------|--------|--------|----------|
+| 20 000 个文件，480px 列表视口，组件就绪中位数 | 883.3ms | 96.6ms | Chromium 153、Vite 开发构建，预热 2 次、各测 5 次 |
+| 同一列表首屏挂载文件行 | 20 000 | 23 | 窗口化 DOM；末尾仍可到达并打开 |
+| 1 000 段落文档，阅读态额外编辑单元解析 | 1 次 | 0 次 | `buildEditUnits` 调用次数，不是整篇 Markdown 解析次数 |
+| 同一文档编辑提交时的编辑单元解析 | 2 次 | 1 次 | 源码完整、1 001 个单元和一次落盘不变 |
+
+列表就绪计时包含字体就绪与三个动画帧，不包含后端扫描。该探针不覆盖随后补充的当前文档缺位和焦点祖先回退场景；这些场景由回归测试验证。
+
+原始数据保留在忽略目录：`outputs/files-window-browser.json`（冻结基线）、`outputs/files-window-final-browser.json`、`outputs/editor-work-before.json`、`outputs/editor-work-after.json`；汇总见 `outputs/performance-continuation-summary.json`，此前全应用审查见 `outputs/performance-software-summary.json`。临时探针和源码快照在 `outputs/tmp/`，不入库。
+
+实现保留完整 Markdown 和绝对源码偏移；编辑失败回滚同时检查同步文档代际、当前源码和编辑会话；文件列表超过 200 个可见节点才窗口化，小型列表保持原有结构，窗口化组件按需加载。
+
 ### 入口 chunk（`dist/assets/index-*.js`）尺寸历史
 
 - 143.76 → 158.08 → 158.53 → 158.99 → 160.02 → 160.88 → 161.10KB（逐次增量见 `CHANGELOG`）。

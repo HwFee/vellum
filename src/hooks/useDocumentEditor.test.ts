@@ -1,7 +1,13 @@
 import { act, renderHook } from "@testing-library/react";
 import { useCallback, useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildEditUnits } from "../lib/editUnits";
 import { useDocumentEditor } from "./useDocumentEditor";
+
+vi.mock("../lib/editUnits", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/editUnits")>();
+  return { ...actual, buildEditUnits: vi.fn(actual.buildEditUnits) };
+});
 
 const markdown = "# 标题\n\n第一段。\n\n第二段。\n";
 
@@ -31,7 +37,7 @@ function useControlledEditor(
     save,
     getDocumentGeneration,
   });
-  return { editor, markdown: markdownText, setMdlogActive };
+  return { editor, markdown: markdownText, setMdlogActive, setMarkdownText };
 }
 
 function setup(overrides: Partial<Parameters<typeof useDocumentEditor>[0]> = {}) {
@@ -690,6 +696,256 @@ describe("useDocumentEditor · 任务列表勾选", () => {
 
     expect(save).not.toHaveBeenCalled();
     expect(onMarkdownChange).not.toHaveBeenCalled();
+    expect(result.current.toast).toBeNull();
+  });
+});
+
+describe("useDocumentEditor · commitActive 陈旧失败防护", () => {
+  it("落盘在途期间换文档（代际已变）：旧失败不回滚，不恢复旧草稿", async () => {
+    let rejectSave!: (reason: unknown) => void;
+    const save = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSave = reject;
+        })
+    );
+    const onChange = vi.fn();
+    let generation = 1;
+    const { result } = renderHook(() =>
+      useControlledEditor(markdown, save, onChange, () => generation)
+    );
+
+    act(() => result.current.editor.activateUnit(1, 0));
+    act(() => result.current.editor.updateDraft("改过的第一段。"));
+
+    let pending!: Promise<boolean>;
+    await act(async () => {
+      pending = result.current.editor.commitActive();
+      await Promise.resolve();
+    });
+    const next = "# 标题\n\n改过的第一段。\n\n第二段。\n";
+    expect(result.current.markdown).toBe(next);
+
+    const docB = "# B 篇\n\nB 段。\n";
+    act(() => {
+      generation = 2;
+      result.current.setMarkdownText(docB);
+      result.current.editor.resetSession();
+    });
+
+    await act(async () => {
+      rejectSave(new Error("磁盘只读"));
+      await pending;
+    });
+
+    expect(result.current.markdown).toBe(docB);
+    expect(result.current.editor.activeUnit).toBeNull();
+    expect(result.current.editor.draft).toBe("");
+    expect(result.current.editor.toast?.message).toContain("保存失败");
+  });
+
+  it("代际递增但无重渲染、内存仍是本次写入：失败不回滚", async () => {
+    let rejectSave!: (reason: unknown) => void;
+    const save = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSave = reject;
+        })
+    );
+    const onChange = vi.fn();
+    let generation = 1;
+    const { result } = renderHook(() =>
+      useControlledEditor(markdown, save, onChange, () => generation)
+    );
+
+    act(() => result.current.editor.activateUnit(1, 0));
+    act(() => result.current.editor.updateDraft("改过的第一段。"));
+    const next = "# 标题\n\n改过的第一段。\n\n第二段。\n";
+
+    let pending!: Promise<boolean>;
+    await act(async () => {
+      pending = result.current.editor.commitActive();
+      await Promise.resolve();
+    });
+    expect(result.current.markdown).toBe(next);
+
+    generation = 2;
+
+    await act(async () => {
+      rejectSave(new Error("磁盘只读"));
+      await pending;
+    });
+
+    expect(result.current.markdown).toBe(next);
+    expect(onChange.mock.calls.map((call) => call[0])).toEqual([next]);
+    expect(result.current.editor.activeUnit).toBeNull();
+    expect(result.current.editor.toast?.message).toContain("保存失败");
+  });
+
+  it("同代际但内存已被外部写入顶掉：失败不回滚", async () => {
+    let rejectSave!: (reason: unknown) => void;
+    const save = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSave = reject;
+        })
+    );
+    const onChange = vi.fn();
+    const { result } = renderHook(() => useControlledEditor(markdown, save, onChange, () => 1));
+
+    act(() => result.current.editor.activateUnit(1, 0));
+    act(() => result.current.editor.updateDraft("改过的第一段。"));
+
+    let pending!: Promise<boolean>;
+    await act(async () => {
+      pending = result.current.editor.commitActive();
+      await Promise.resolve();
+    });
+
+    const external = "# 外部写入\n";
+    act(() => {
+      result.current.setMarkdownText(external);
+    });
+
+    await act(async () => {
+      rejectSave(new Error("磁盘只读"));
+      await pending;
+    });
+
+    expect(result.current.markdown).toBe(external);
+    expect(onChange.mock.calls.map((call) => call[0])).toEqual([
+      "# 标题\n\n改过的第一段。\n\n第二段。\n",
+    ]);
+    expect(result.current.editor.activeUnit).toBeNull();
+    expect(result.current.editor.toast?.message).toContain("保存失败");
+  });
+
+  it("在途期间用户激活了别的块：旧失败不得覆盖新会话的草稿与 caret", async () => {
+    let rejectSave!: (reason: unknown) => void;
+    const save = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSave = reject;
+        })
+    );
+    const { result } = renderHook(() =>
+      useControlledEditor(markdown, save, undefined, () => 1)
+    );
+
+    act(() => result.current.editor.activateUnit(1, 0));
+    act(() => result.current.editor.updateDraft("改过的第一段。"));
+
+    let pending!: Promise<boolean>;
+    await act(async () => {
+      pending = result.current.editor.commitActive();
+      await Promise.resolve();
+    });
+    const next = "# 标题\n\n改过的第一段。\n\n第二段。\n";
+    expect(result.current.markdown).toBe(next);
+
+    act(() => result.current.editor.activateUnit(2, 3));
+    act(() => result.current.editor.updateDraft("新会话草稿"));
+    expect(result.current.editor.activeUnit?.index).toBe(2);
+    expect(result.current.editor.draft).toBe("新会话草稿");
+
+    await act(async () => {
+      rejectSave(new Error("磁盘只读"));
+      await pending;
+    });
+
+    expect(result.current.markdown).toBe(next);
+    expect(result.current.editor.activeUnit?.index).toBe(2);
+    expect(result.current.editor.draft).toBe("新会话草稿");
+    expect(result.current.editor.initialCaret).toBe(3);
+    expect(result.current.editor.toast?.message).toContain("保存失败");
+  });
+});
+
+describe("useDocumentEditor · 块单元懒解析", () => {
+  beforeEach(() => {
+    vi.mocked(buildEditUnits).mockClear();
+  });
+
+  it("阅读态渲染与无关状态重渲染都不解析；首次读取才解析且缓存同一数组", () => {
+    const spy = vi.mocked(buildEditUnits);
+    const { result, rerender } = renderHook(() =>
+      useDocumentEditor({
+        markdown,
+        mdlogActive: false,
+        onMarkdownChange: vi.fn(),
+        save: vi.fn(async () => {}),
+      })
+    );
+    expect(spy).not.toHaveBeenCalled();
+
+    act(() => result.current.updateDraft("无关草稿"));
+    act(() => result.current.notifyInterrupted("记录已开始，编辑已取消"));
+    rerender();
+    expect(spy).not.toHaveBeenCalled();
+
+    const units = result.current.units;
+    expect(units).toHaveLength(3);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(result.current.units).toBe(units);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("markdown 换代使缓存失效：下一份源码重新解析", () => {
+    const spy = vi.mocked(buildEditUnits);
+    let text = markdown;
+    const { result, rerender } = renderHook(() =>
+      useDocumentEditor({
+        markdown: text,
+        mdlogActive: false,
+        onMarkdownChange: vi.fn(),
+        save: vi.fn(async () => {}),
+      })
+    );
+    void result.current.units;
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    text = "# 另一篇\n\nX。\n";
+    act(() => rerender());
+    const units = result.current.units;
+    expect(units).toHaveLength(2);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it("toggleTask 首次需要单元时才解析（0 → 1），语义不变", async () => {
+    const spy = vi.mocked(buildEditUnits);
+    const save = vi.fn(async (_next: string) => {});
+    const onChange = vi.fn();
+    const { result } = renderHook(() => useControlledEditor("- [ ] a\n", save, onChange));
+    expect(spy).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.editor.toggleTask(0);
+    });
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(result.current.markdown).toBe("- [x] a\n");
+  });
+
+  it("mdlog 门禁先于单元读取：记录中勾选不触发解析", async () => {
+    const spy = vi.mocked(buildEditUnits);
+    const { result, save } = setup({ markdown: "- [ ] a\n", mdlogActive: true });
+
+    await act(async () => {
+      await result.current.toggleTask(0);
+    });
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+    expect(result.current.toast?.message).toContain("记录中");
+  });
+
+  it("空文档与 mdlog 的编辑入口守卫不变", async () => {
+    const { result } = setup({ markdown: "" });
+    expect(result.current.units).toHaveLength(0);
+    await act(async () => {
+      await result.current.toggleView();
+    });
+    expect(result.current.viewMode).toBe("reading");
     expect(result.current.toast).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-import { buildFileTree, snippetParts, type LibraryFile } from "./library";
+import { buildFileTree, flattenVisibleFileTree, snippetParts, type LibraryFile } from "./library";
 
 const file = (relPath: string): LibraryFile => ({ path: `/root/${relPath}`, relPath });
 
@@ -53,5 +53,55 @@ describe("snippetParts", () => {
     expect(before).toBe("…前面全是中文填充字符，");
     expect(match).toBe("关键字");
     expect(after).toBe("在这里…");
+  });
+});
+
+describe("flattenVisibleFileTree", () => {
+  const files = [
+    file("notes/a.md"),
+    file("notes/b.md"),
+    file("readings/深/x.md"),
+    file("alpha.md"),
+  ];
+
+  it("全折叠时只出顶层节点；展开目录沿 DFS 插入子行并带同级元数据", () => {
+    const tree = buildFileTree(files);
+    const collapsed = flattenVisibleFileTree(tree, new Set());
+    expect(collapsed.map((r) => r.node.relPath)).toEqual(["notes", "readings", "alpha.md"]);
+    expect(collapsed[0]).toMatchObject({
+      depth: 0,
+      parentRelPath: undefined,
+      indexInParent: 1,
+      siblingCount: 3,
+    });
+
+    const open = flattenVisibleFileTree(tree, new Set(["notes"]));
+    expect(open.map((r) => r.node.relPath)).toEqual([
+      "notes",
+      "notes/a.md",
+      "notes/b.md",
+      "readings",
+      "alpha.md",
+    ]);
+    expect(open[1]).toMatchObject({
+      depth: 1,
+      parentRelPath: "notes",
+      indexInParent: 1,
+      siblingCount: 2,
+    });
+    expect(open[2].indexInParent).toBe(2);
+  });
+
+  it("深层展开的深度 / 父路径 / 同级序正确", () => {
+    const tree = buildFileTree(files);
+    const open = flattenVisibleFileTree(tree, new Set(["readings", "readings/深"]));
+    const deep = open.find((r) => r.node.relPath === "readings/深/x.md")!;
+    expect(deep.depth).toBe(2);
+    expect(deep.parentRelPath).toBe("readings/深");
+    expect(deep.indexInParent).toBe(1);
+    expect(deep.siblingCount).toBe(1);
+    const deepFolder = open.find((r) => r.node.relPath === "readings/深")!;
+    expect(deepFolder.depth).toBe(1);
+    expect(deepFolder.siblingCount).toBe(1);
   });
 });

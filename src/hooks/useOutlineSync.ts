@@ -71,12 +71,21 @@ export function useOutlineSync(
       }
     };
 
-    const handleScroll = () => updateActive();
+    let frame: number | null = null;
+    const schedule = () => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        updateActive();
+      });
+    };
+
+    const handleScroll = schedule;
 
     if (typeof window.IntersectionObserver !== "undefined") {
       const observer = new IntersectionObserver(
         () => {
-          updateActive();
+          schedule();
         },
         {
           root: container,
@@ -94,6 +103,7 @@ export function useOutlineSync(
       updateActive();
 
       return () => {
+        if (frame !== null) cancelAnimationFrame(frame);
         container.removeEventListener("scroll", handleScroll);
         observer.disconnect();
       };
@@ -103,6 +113,7 @@ export function useOutlineSync(
     updateActive();
 
     return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
       container.removeEventListener("scroll", handleScroll);
     };
   }, [scrollContainerRef, headingIdsKey, revision]);

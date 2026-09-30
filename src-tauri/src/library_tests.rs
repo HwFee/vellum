@@ -173,6 +173,126 @@ fn search_caps_at_three_hundred_total_and_marks_truncated() {
 }
 
 #[test]
+fn search_total_cap_stops_mid_file_and_counts_exactly_300() {
+    let root = TestDir::new("vellum_library_search_cap_exact_test");
+    for i in 0..14 {
+        write(
+            root.path(),
+            &format!("f{i:02}.md"),
+            &(0..20).map(|_| "hit\n").collect::<String>(),
+        );
+    }
+    write(
+        root.path(),
+        "f14.md",
+        &(0..19).map(|_| "hit\n").collect::<String>(),
+    );
+    write(
+        root.path(),
+        "f15.md",
+        &(0..20).map(|_| "hit\n").collect::<String>(),
+    );
+
+    let result = search_library(root.path(), "hit").unwrap();
+    let total: usize = result.files.iter().map(|f| f.matches.len()).sum();
+    assert_eq!(total, 300);
+    assert!(result.truncated);
+    assert_eq!(result.files.len(), 16);
+    assert_eq!(result.files[15].matches.len(), 1);
+}
+
+#[test]
+fn search_global_quota_bounds_hits_within_a_single_line() {
+    let root = TestDir::new("vellum_library_search_quota_line_test");
+    for i in 0..14 {
+        write(
+            root.path(),
+            &format!("f{i:02}.md"),
+            &(0..20).map(|_| "hit\n").collect::<String>(),
+        );
+    }
+    write(
+        root.path(),
+        "f14.md",
+        &(0..17).map(|_| "hit\n").collect::<String>(),
+    );
+    write(root.path(), "f15.md", "hit hit hit hit hit\nhit\n");
+
+    let result = search_library(root.path(), "hit").unwrap();
+    let total: usize = result.files.iter().map(|f| f.matches.len()).sum();
+    assert_eq!(total, 300);
+    assert!(result.truncated);
+    let last = result.files.last().unwrap();
+    assert_eq!(last.rel_path, "f15.md");
+    assert_eq!(last.matches.len(), 3);
+    assert!(last.matches.iter().all(|m| m.line == 1));
+}
+
+#[test]
+fn search_dense_single_line_still_capped_at_twenty() {
+    let root = TestDir::new("vellum_library_search_dense_line_test");
+    write(root.path(), "dense.md", &"x".repeat(100));
+
+    let result = search_library(root.path(), "x").unwrap();
+    assert_eq!(result.files[0].matches.len(), 20);
+    assert!(!result.truncated);
+}
+
+#[test]
+fn search_overlapping_hits_are_all_reported() {
+    let root = TestDir::new("vellum_library_search_overlap_test");
+    write(root.path(), "o.md", "aaaa\n");
+
+    let result = search_library(root.path(), "aa").unwrap();
+    let matches = &result.files[0].matches;
+    assert_eq!(matches.len(), 3);
+    assert_eq!(
+        matches.iter().map(|m| m.match_start).collect::<Vec<_>>(),
+        vec![0, 1, 2]
+    );
+}
+
+#[test]
+fn search_per_char_lowercase_preserves_expansion_semantics() {
+    let root = TestDir::new("vellum_library_search_expand_test");
+    write(root.path(), "u.md", "İx i\u{307}x Stra\u{1E9E}e\n");
+
+    let dotted = search_library(root.path(), "i\u{307}").unwrap();
+    let m = &dotted.files[0].matches[0];
+    assert_eq!(dotted.files[0].matches.len(), 1);
+    let chars: Vec<char> = m.snippet.chars().collect();
+    let hit: String = chars[m.match_start..m.match_start + m.match_len].iter().collect();
+    assert_eq!(hit, "i\u{307}");
+    assert_eq!(chars[m.match_start - 1], ' ');
+
+    let capital_dotted = search_library(root.path(), "İ").unwrap();
+    let m = &capital_dotted.files[0].matches[0];
+    assert_eq!(capital_dotted.files[0].matches.len(), 1);
+    let chars: Vec<char> = m.snippet.chars().collect();
+    let hit: String = chars[m.match_start..m.match_start + m.match_len].iter().collect();
+    assert_eq!(hit, "İ");
+
+    let sharp = search_library(root.path(), "straße").unwrap();
+    let m = &sharp.files[0].matches[0];
+    let chars: Vec<char> = m.snippet.chars().collect();
+    let hit: String = chars[m.match_start..m.match_start + m.match_len].iter().collect();
+    assert_eq!(hit, "Straẞe");
+}
+
+#[test]
+fn search_snippet_offsets_count_chars_past_supplementary_codepoints() {
+    let root = TestDir::new("vellum_library_search_supplementary_test");
+    write(root.path(), "s.md", "𠀀𠀁 needle 𠀂\n");
+
+    let result = search_library(root.path(), "needle").unwrap();
+    let m = &result.files[0].matches[0];
+    let chars: Vec<char> = m.snippet.chars().collect();
+    let hit: String = chars[m.match_start..m.match_start + m.match_len].iter().collect();
+    assert_eq!(hit, "needle");
+    assert_eq!(m.match_start, 3);
+}
+
+#[test]
 fn search_empty_query_and_oversized_query() {
     let root = TestDir::new("vellum_library_search_edge_test");
     write(root.path(), "a.md", "content\n");

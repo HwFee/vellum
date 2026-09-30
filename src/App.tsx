@@ -8,7 +8,6 @@ import { JumpToBottom } from "./components/JumpToBottom";
 import { OutlinePanel } from "./components/OutlinePanel";
 import { SettingsNav } from "./components/SettingsNav";
 import { SettingsView } from "./components/SettingsView";
-import { ExportPdfView } from "./components/ExportPdfView";
 import { SidebarTabs } from "./components/SidebarTabs";
 import { FilesPanel } from "./components/FilesPanel";
 import { LibrarySearchPanel } from "./components/LibrarySearchPanel";
@@ -44,6 +43,9 @@ import type { SidebarTab } from "./lib/library";
 // 代码分割：react-markdown + rehype/remark + 语法高亮是体积最大的依赖，
 // 懒加载后首屏（顶栏/空状态）先行渲染，文档引擎在后台加载。
 const MarkdownDocument = lazy(() => import("./components/MarkdownDocument"));
+const ExportPdfView = lazy(() =>
+  import("./components/ExportPdfView").then((module) => ({ default: module.ExportPdfView }))
+);
 // 悬停预览层自带 react-markdown 依赖：懒加载，不进入口 chunk
 const HoverPreviewLayer = lazy(() => import("./components/HoverPreviewLayer"));
 
@@ -401,6 +403,7 @@ export default function App() {
               <FilesPanel
                 header={sidebarTabs}
                 documentPath={state.status === "ready" ? state.document.path : null}
+                libraryRoot={activeDocument?.library?.root ?? null}
                 onOpenPath={openLibraryPath}
               />
             ) : sidebarTab === "search" ? (
@@ -482,12 +485,20 @@ export default function App() {
                 onExit={closeSettings}
               />
             ) : exportDoc ? (
-              <ExportPdfView
-                title={exportDoc.title}
-                ownTitle={exportDoc.ownTitle}
-                bodyHtml={exportDoc.bodyHtml}
-                onExit={closeExport}
-              />
+              <Suspense
+                fallback={
+                  <section className="empty-state" role="status">
+                    正在准备导出预览…
+                  </section>
+                }
+              >
+                <ExportPdfView
+                  title={exportDoc.title}
+                  ownTitle={exportDoc.ownTitle}
+                  bodyHtml={exportDoc.bodyHtml}
+                  onExit={closeExport}
+                />
+              </Suspense>
             ) : (
               <>
                 <div ref={documentContentRef} className="document-content">
@@ -546,6 +557,7 @@ export default function App() {
                           activeMatchIndex={activeMatchIndex}
                           onMatchCountChange={handleMatchCountChange}
                           editable={editor.viewMode === "editing"}
+                          editUnits={editor.viewMode === "editing" ? editor.units : undefined}
                           onActivateUnit={handleActivateUnit}
                           onToggleTask={handleToggleTask}
                           wikilinks={state.wikilinks}

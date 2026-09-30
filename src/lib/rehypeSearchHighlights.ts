@@ -13,6 +13,28 @@ export type HastNode = HastText | HastElement | { type: string; children?: HastN
 
 const SEARCH_SKIP_TAGS = new Set(["mark", "script", "style", "pre", "code"]);
 
+type LowerMap = { start: number[]; end: number[] };
+
+function buildLowerMap(text: string, lowerLength: number): LowerMap {
+  const start = new Array<number>(lowerLength);
+  const end = new Array<number>(lowerLength);
+  let lowerIndex = 0;
+  let origin = 0;
+  for (const ch of text) {
+    const lowered = ch.toLowerCase().length;
+    for (let k = 0; k < lowered && lowerIndex < lowerLength; k += 1, lowerIndex += 1) {
+      start[lowerIndex] = origin;
+      end[lowerIndex] = origin + ch.length;
+    }
+    origin += ch.length;
+  }
+  for (; lowerIndex < lowerLength; lowerIndex += 1) {
+    start[lowerIndex] = origin;
+    end[lowerIndex] = origin;
+  }
+  return { start, end };
+}
+
 // 搜索高亮只负责生成 <mark class="search-match">；「当前匹配」的
 // search-match--current 类由 MarkdownDocument 的 layout effect 直接操作 DOM 添加。
 // 这样切换上一个/下一个匹配不会改动插件参数，也就不会触发整篇文档重新解析。
@@ -29,26 +51,39 @@ export function rehypeSearchHighlights({ query }: { query: string }) {
         if (child.type === "text") {
           const text = (child as HastText).value;
           const lowerText = text.toLowerCase();
+          const shifted = lowerText.length !== text.length;
           let lastIndex = 0;
+          let lowerMap: LowerMap | null = null;
           let matchIndex = lowerText.indexOf(normalizedQuery);
 
           while (matchIndex !== -1) {
-            if (matchIndex > lastIndex) {
-              nextChildren.push({ type: "text", value: text.slice(lastIndex, matchIndex) });
+            let start = matchIndex;
+            let end = matchIndex + normalizedQuery.length;
+            if (shifted) {
+              lowerMap ??= buildLowerMap(text, lowerText.length);
+              start = lowerMap.start[matchIndex];
+              end = lowerMap.end[matchIndex + normalizedQuery.length - 1];
             }
 
-            const mark: HastElement = {
-              type: "element",
-              tagName: "mark",
-              properties: { className: ["search-match"] },
-              children: [{
-                type: "text",
-                value: text.slice(matchIndex, matchIndex + normalizedQuery.length),
-              }],
-            };
-            nextChildren.push(mark);
-            lastIndex = matchIndex + normalizedQuery.length;
-            matchIndex = lowerText.indexOf(normalizedQuery, lastIndex);
+            if (end > lastIndex) {
+              const markStart = Math.max(start, lastIndex);
+              if (markStart > lastIndex) {
+                nextChildren.push({ type: "text", value: text.slice(lastIndex, markStart) });
+              }
+
+              const mark: HastElement = {
+                type: "element",
+                tagName: "mark",
+                properties: { className: ["search-match"] },
+                children: [{
+                  type: "text",
+                  value: text.slice(markStart, end),
+                }],
+              };
+              nextChildren.push(mark);
+              lastIndex = end;
+            }
+            matchIndex = lowerText.indexOf(normalizedQuery, matchIndex + normalizedQuery.length);
           }
 
           if (lastIndex === 0) {
