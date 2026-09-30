@@ -39,7 +39,10 @@ nul
 
 # Agent runtime: project-local skill junctions, session logs, delegate state
 .agents/
-.pi/
+# .pi/ 整体不入库，唯一例外是 settings.json——它声明 mdlog 只在本仓库加载
+# （extensions: ["../extensions/mdlog"]），是「实体在 extensions/mdlog/、别的项目读不到」的接线本身
+.pi/*
+!.pi/settings.json
 .commandcode/
 .kimi-code/
 .opencode/

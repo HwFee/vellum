@@ -25,7 +25,7 @@
 ### 仓库结构
 
 - 全局技能仓库：`C:/Users/17445/Desktop/HwFee-skills/skills/`
-- 每个项目通过**目录联接**引用仓库中的技能，**不拷贝**（`.pi/skills/<skill-name>` 均为联接，永不入库；`.gitignore` 已忽略 `.pi/`）。
+- 每个项目通过**目录联接**引用仓库中的技能，**不拷贝**（`.pi/skills/<skill-name>` 均为联接，永不入库；`.gitignore` 忽略 `.pi/*`，唯一例外是入库的 `.pi/settings.json`——它是 mdlog 的加载声明，见下方 pi 扩展小节）。
 - **git 会跟随联接读到真实内容**——所以这些路径可以被误 `git add` 进来，历史上就发生过。
   - 判据只有一条：`git ls-files .pi/skills/` 有输出就是错，用 `git rm -r --cached .pi/skills/<skill-name>/` 解除跟踪（`--cached` 只动索引）。
   - **别用 `rm -rf` 删那个路径**——它会顺着联接删掉全局库里的真身。
@@ -80,16 +80,18 @@ cmd //c "mklink /J .pi\\skills\\<skill-name> C:\\Users\\17445\\Desktop\\HwFee-sk
 - 图示经该工具投递（草稿路径 → 扩展回一枚 `<!-- mdlog-fig:ID -->` 标记 → 写入器落盘前展开回围栏），**源码不进对话记录，日志文件与手写围栏逐字节同形**。
 - 细则见 `extensions/mdlog/README.md`。
 
-### pi 扩展（本项目，与技能同一套联接思路）
+### pi 扩展（只在本仓库加载，不占全局加载位）
 
-- 实体在**本仓库** `extensions/mdlog/`（2026-09-16 从 `~/.pi/agent/extensions/mdlog` 迁入，原目录内层 git 仓库一并撤销，历史以 Vellum 文档为准）；pi 的加载位是指向它的目录联接：
+- 实体在**本仓库** `extensions/mdlog/`（2026-09-16 从 `~/.pi/agent/extensions/mdlog` 迁入，原目录内层 git 仓库一并撤销，历史以 Vellum 文档为准）；加载声明写在**入库的** `.pi/settings.json`，路径相对该文件解析（`.pi/` → 仓库根）：
 
-```bash
-node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/extensions/mdlog','C:/Users/17445/.pi/agent/extensions/mdlog','junction')"
+```json
+{ "extensions": ["../extensions/mdlog"] }
 ```
 
-- **外部 clone 拿不到它**：pi 只扫 `~/.pi/agent/extensions/`，克隆后必须按上面这条重建联接，否则实时日志整体失效（静默失效——pi 不会报错）。
-  - 验证方式：临时在扩展工厂里加一行 `console.error` 跑 `pi -p "..."`，输出里出现即说明联接被跟随（pi 的扩展发现显式接受 `isSymbolicLink()` 目录项，`core/extensions/loader.js`）。
+- **不给别的项目读到**：`~/.pi/agent/extensions/` 里不留 mdlog（2026-10 起删掉了原先的目录联接）——全局加载位会让每个项目都多出一整套 mdlog 命令与 `vellum_figure` 工具；现在只有在本仓库根目录启动 pi 才加载它。
+- **外部 clone 开箱可用**：`.pi/settings.json` 随仓库走，不需要重建任何联接。加载走项目资源通道，仍需项目信任（`~/.pi/agent/trust.json` 里 `C:\Users\17445\Desktop` 一条已覆盖本仓库，Print/RPC 模式同样命中保存的决定）。
+  - 验证方式一（路径解析，不执行扩展代码）：用 pi 自带的 `DefaultPackageManager#resolve()` 算 resolved extensions——本仓库命中 `extensions/mdlog/index.ts`，别的项目命中 0 条。
+  - 验证方式二（真机加载）：临时在扩展工厂里加一行 `console.error` 跑 `pi -p "..."`，本仓库输出里出现、别的项目不出现；跑完 `git checkout -- extensions/mdlog/index.ts` 还原。
 - **`node_modules` 里三个联接是指向 pi 自带那份的**（`typebox` / `@earendil-works/pi-tui` / `@earendil-works/pi-coding-agent`）。
   - pi 加载扩展时走 jiti 别名，`node --test` 与 `tsc` 走 Node 原生解析——两套解析必须都能找到，且刻意指向同一份以防版本漂移。重建命令见 `extensions/mdlog/README.md`。
 - **它的 TS 不属于前端构建面**：app 的 `tsconfig.json` 只 `include: ["src"]`，`vite.config.ts` 的 `test.exclude` 已排除 `extensions/**`（那边的测试跑 `node:test`，被 vitest 拾取会必挂）。

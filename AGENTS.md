@@ -22,7 +22,7 @@ Tauri 2 + React 19 桌面 Markdown 阅读器，Windows 10/11 x64 与 Linux（Web
 |------|------|
 | `src/` | 前端：组件、hooks、`lib/`、样式 `styles/kami.css` |
 | `src-tauri/` | Rust 后端：`src/main.rs` 命令、`capabilities/`、`tauri.conf.json` |
-| `extensions/mdlog/` | pi 扩展实体（独立 npm 包，自带测试与 tsconfig） |
+| `extensions/mdlog/` | pi 扩展实体（独立 npm 包，自带测试与 tsconfig）；由入库的 `.pi/settings.json` 声明加载，**只在本仓库生效** |
 | `scripts/` | 真机 CDP 探针 `cdp-*.mjs`、基准、语料检查、widget 模板校验 |
 | `public/fonts/` | 应用字体（~17MB，随包分发） |
 | `samples/` | 示例 Markdown（`sample.md`；本地图片放 `samples/assets/`） |
@@ -32,7 +32,8 @@ Tauri 2 + React 19 桌面 Markdown 阅读器，Windows 10/11 x64 与 Linux（Web
 
 - **不新建目录**：新素材放进上表已有位置——真机截图给 `docs/design/`，示例文档给 `samples/`，长期文档给 `docs/agents/`。
 - **临时产物不入库**：`outputs/`、`dist/`、`node_modules/`、`target/` 已在 `.gitignore`，别用 `git add -f` 绕过。
-- **本地联接不入库**：`.pi/skills/<skill-name>` → 全局技能库 `C:/Users/17445/Desktop/HwFee-skills/skills/`；`~/.pi/agent/extensions/mdlog` → `extensions/mdlog/`。新 clone 后按 `docs/agents/tooling.md` 的「技能安装流程」重建。
+- **本地联接不入库**：`.pi/skills/<skill-name>` → 全局技能库 `C:/Users/17445/Desktop/HwFee-skills/skills/`；`extensions/mdlog/node_modules/{typebox,@earendil-works/*}` → 全局 pi 安装位。新 clone 后按 `docs/agents/tooling.md` 的「技能安装流程」重建。
+- **`.pi/settings.json` 是 `.pi/` 唯一的入库例外**（`.gitignore` 写 `.pi/*` 再 `!.pi/settings.json`）：它只声明 mdlog 的加载位 `extensions: ["../extensions/mdlog"]`——**不给别的项目读到**，全局 `~/.pi/agent/extensions/` 里不留 mdlog。
 
 ## 命令
 
@@ -72,7 +73,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 9. 热重载滚动恢复不要改回纯像素恢复；阅读位置恢复不要改回一次性 `ratio × scrollHeight`。 → `docs/agents/rendering.md`
 10. 打包前必须先 `taskkill /IM vellum.exe /F`（`Get-Process vellum` 为空），否则链接阶段报 `os error 5 拒绝访问`。 → `docs/agents/tooling.md`
 11. capabilities 必须有 `core:window:allow-destroy`、`core:window:allow-set-title`、`core:window:allow-start-dragging`（Linux 顶栏拖拽走的 Tauri 脚本 IPC）、`core:window:allow-internal-toggle-maximize`（同脚本的双击最大化）与 `updater:default`；CSP 必须含 `connect-src ipc: http://ipc.localhost`。`data-tauri-drag-region` 只在非 Windows 挂（Windows 上 CSS app-region 与该脚本双重触发）。 → `docs/agents/tooling.md`
-12. `.pi/skills/` 与 `extensions/mdlog` 是目录联接：`git ls-files .pi/skills/` 有输出就是错，别用 `git add -f` 绕过忽略；删这些路径时只删联接条目本身（`Remove-Item` 单条 或 `[System.IO.Directory]::Delete`），别用会顺着联接递归的 `rmdir /s`——会删掉全局技能库里的真身。 → `docs/agents/tooling.md`
+12. `.pi/skills/` 与 `extensions/mdlog/node_modules/` 下的条目是目录联接：`git ls-files .pi/skills/` 有输出就是错（`.pi/` 唯一的入库例外是 `.pi/settings.json`），别用 `git add -f` 绕过忽略；删这些路径时只删联接条目本身（`Remove-Item` 单条 或 `[System.IO.Directory]::Delete`），别用会顺着联接递归的 `rmdir /s`——会删掉全局技能库 / 全局 pi 安装位里的真身。 → `docs/agents/tooling.md`
 13. kami.css 新规则只要含 `.mdlog-widget` 字样，就必须放在首个该选择器出现处**之后**。 → `docs/agents/widgets.md`
 14. katex 版本必须与 rehype-katex 嵌套依赖的 katex 严格同版（当前均 0.16.47）。 → `docs/agents/rendering.md`
 15. 顶栏不显示文件名与路径（`.top-bar__title` / `.top-bar__path` / `.top-bar__meta` 均已移除，中列只剩拖动热区）；完整路径的归宿只有两处——正文标题 `h1.document-title` 的 `title` tooltip 与设置页「关于与数据 · 当前文档」，换文档的判据一律看 `h1.document-title`。 → `docs/agents/obsidian.md`
@@ -92,7 +93,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 - 设置页与界面偏好：`src/components/SettingsView.tsx`（四节内容栏；`SETTINGS_SECTIONS` / `settingsSectionElementId` 是分节清单的唯一来源，侧栏导航据此生成）、`src/components/SettingsNav.tsx`（设置视图的侧栏内容）、`src/lib/appPreferences.ts`（Store key `sidebarOpenOnLaunch` / `autoCheckUpdates` / `theme` / `ctrlWheelFontSize` / `headingScript`，读盘失败回退出厂值）、`src/hooks/useTheme.ts` 与 `src/lib/theme.ts`（外观主题：写 `data-theme`/`colorScheme`，导出视图强制 light，偏好镜像 localStorage `vellum-theme` 供 main.tsx 首帧同步解算）、`src/hooks/useWheelFontSize.ts`（Ctrl+滚轮改字号：window 捕获段非被动监听，导出视图只吞不改）、`src/lib/updater.ts`（`checkForUpdates(manual?)`：启动静默检查 + 设置页「立即检查」）。
 - 导出为 PDF：`src/components/ExportPdfView.tsx`（纸张舞台）、`src/lib/exportDocument.ts`（消毒后的正文底稿）、`src/lib/exportLayout.ts`（模板常量）、`src/lib/exportPagination.ts`（按行摹 Chromium 分页）、Rust 侧 `export_pdf` 命令（对主窗口 WebView2 调 CDP `Page.printToPDF`）。
 - 库面板：`src-tauri/src/library.rs`（`list_library` / `search_library` / `find_backlinks`，锚定 `AppState.current: Option<Opened>`——模式由打开方式决定：`Opened.library` 为 None 即单文件模式，三命令返回 `not in library mode`；库根判定与向上搜索的 8 级/主目录/盘根边界在 `document.rs` 的 `walk_ancestors` + `find_library_root`）、`src/components/SidebarTabs.tsx` 与 `FilesPanel` / `LibrarySearchPanel` / `BacklinksPanel`（同一枚 `.outline-sidebar` 内换内容）、`src/lib/library.ts`（契约类型 + `buildFileTree` + `snippetParts`）。
-- pi 扩展实体：`extensions/mdlog/`（pi 的加载位 `~/.pi/agent/extensions/mdlog` 是指向它的目录联接）。
+- pi 扩展实体：`extensions/mdlog/`（**只在本仓库加载**——加载声明是入库的 `.pi/settings.json`，全局 `~/.pi/agent/extensions/` 里没有 mdlog）。
 - 真机探针：`scripts/cdp-*.mjs`（`cdp-verify` / `cdp-perf-scroll` / `cdp-sidebar-jump` / `cdp-anchor-synthetic` / `cdp-obsidian-verify` / `cdp-reader-fonts`）。
 - 设计语言：`DESIGN.md`；变更记录：`CHANGELOG.md`。
 

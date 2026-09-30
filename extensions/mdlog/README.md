@@ -4,12 +4,15 @@ Pi 对话实时记录扩展（Live Markdown Logger for Vellum）。运行依赖�
 `@earendil-works/pi-coding-agent` 仅作类型用途。
 
 **源码住在本仓库**（`Vellum/extensions/mdlog/`，2026-09-16 从 `~/.pi/agent/extensions/mdlog` 迁入）。
-pi 只扫 `~/.pi/agent/extensions/`，所以那个位置是一条指向本目录的目录联接——**克隆仓库后必须重建**，
-否则实时日志会静默失效（pi 不会报错，只是当扩展不存在）：
+加载声明是仓库里入库的 `.pi/settings.json`，路径相对该文件解析：
 
-```bash
-node -e "const fs=require('fs');fs.symlinkSync('C:/Users/17445/Desktop/Vellum/extensions/mdlog','C:/Users/17445/.pi/agent/extensions/mdlog','junction')"
+```json
+{ "extensions": ["../extensions/mdlog"] }
 ```
+
+所以它**只在本仓库生效**：`~/.pi/agent/extensions/` 里不留 mdlog，别的项目读不到它；
+clone 后也不需要重建任何联接（加载仍需项目信任，见 pi 文档 Project trust）。
+2026-10 之前靠一条指向本目录的全局目录联接加载，那条已删除——全局加载位会让每个项目都多出一整套命令。
 
 ## 特性
 
@@ -61,8 +64,8 @@ vellum_figure(path: "/tmp/vellum-widget-draft.html", title: "傅里叶级数逐�
   断开连接时也会补写，不留给下次连接。
 - **屏幕不脏**：工具行与结果行都是压缩的一行；另一条 markdown transformer 把标记在 pi 的
   交互式记录里改写成 `▤ 图 · 标题 · 8 KB`（只作用于 TUI 渲染，不碰落盘路径）。
-- **只在记录期间可用**：mdlog 是全局扩展，未连接时工具会被摘出工具表（`setActiveTools`），
-  不在无关项目里多出一个工具。
+- **只在记录期间可用**：mdlog 是**本仓库的项目扩展**（加载声明写在 `.pi/settings.json`），未连接时
+  工具会被摘出工具表（`setActiveTools`）；别的项目根本不加载它，不会多出一个工具。
 - **回填不丢图**：图随 `pi.appendEntry("mdlog:figure", …)` 落进会话条目，`--full` 回填时从
   branch 还原 id→HTML，标记照旧能展开。
 
@@ -74,7 +77,7 @@ vellum_figure(path: "/tmp/vellum-widget-draft.html", title: "傅里叶级数逐�
 ## 文件布局
 
 ```
-~/.pi/agent/extensions/mdlog/
+Vellum/extensions/mdlog/          # 加载声明：Vellum/.pi/settings.json
 ├── index.ts          # 扩展入口：命令注册与五个生命周期事件的接线
 ├── config.json       # 可选配置（工具白名单 / 图片扩展名与体积 / 唤起路径）
 ├── src/
@@ -87,7 +90,7 @@ vellum_figure(path: "/tmp/vellum-widget-draft.html", title: "傅里叶级数逐�
 │   ├── writer.ts     # 串行实时写入器（防抖、重试、碎片合并、图展开与兜底、断开闸）
 │   ├── sidecar.ts    # sidecar 状态机与心跳（异常隔离 + unref）
 │   └── command.ts    # 命令解析、状态输出、唤起 Vellum
-└── test/             # node:test 套件（152 用例 / 41 套件）
+└── test/             # node:test 套件（157 用例 / 41 套件）
 ```
 
 两条实现纪律（都是被 Node 的类型剥离解析器咬过的）：

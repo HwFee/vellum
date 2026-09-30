@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### 更改
+
+- **pi 扩展 mdlog 改为「只在本仓库加载」**：删掉 `~/.pi/agent/extensions/mdlog` 全局目录联接，改由入库的 `.pi/settings.json` 声明 `extensions: ["../extensions/mdlog"]`（`.gitignore` 由 `.pi/` 改为 `.pi/*` + `!.pi/settings.json` 例外）——别的 pi 项目不再加载它，也不会多出一套 `/mdlog` 命令与 `vellum_figure` 工具；clone 后无需重建联接（加载仍需项目信任）。
+
 ## [1.13.1] - 2026-09-30
 
 ### 优化
