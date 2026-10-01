@@ -3,11 +3,11 @@
 Pi 对话实时记录扩展（Live Markdown Logger for Vellum）。运行依赖只有 Node.js 内置模块；
 `@earendil-works/pi-coding-agent` 仅作类型用途。
 
-**源码住在本仓库**（`Vellum/extensions/mdlog/`，2026-09-16 从 `~/.pi/agent/extensions/mdlog` 迁入）。
+**源码住在本仓库**（`Vellum/pi/extensions/mdlog/`，2026-09-16 从 `~/.pi/agent/extensions/mdlog` 迁入）。
 加载声明是仓库里入库的 `.pi/settings.json`，路径相对该文件解析：
 
 ```json
-{ "extensions": ["../extensions/mdlog"] }
+{ "extensions": ["../pi/extensions/mdlog"], "skills": ["../pi/skills"] }
 ```
 
 所以它**只在本仓库生效**：`~/.pi/agent/extensions/` 里不留 mdlog，别的项目读不到它；
@@ -77,7 +77,7 @@ vellum_figure(path: "/tmp/vellum-widget-draft.html", title: "傅里叶级数逐�
 ## 文件布局
 
 ```
-Vellum/extensions/mdlog/          # 加载声明：Vellum/.pi/settings.json
+Vellum/pi/extensions/mdlog/       # 加载声明：Vellum/.pi/settings.json
 ├── index.ts          # 扩展入口：命令注册与五个生命周期事件的接线
 ├── config.json       # 可选配置（工具白名单 / 图片扩展名与体积 / 唤起路径）
 ├── src/
@@ -151,9 +151,7 @@ npm run typecheck   # tsc --noEmit（strict + erasableSyntaxOnly）
 本目录曾于 2026-09 被清空（`~/.pi` 重建时丢失，无 git 远端、无回收站副本）。
 本次重建的权威来源：
 
-- 设计契约、基线实现与复审意见：`Vellum/docs/superpowers/**`（已于 2026-09-21 清理，从 git 历史取回）；
-- 修复清单：`Vellum/outputs/mdlog/*-fix-log.md`（同上，git 历史）；
-- 当时的验收语料：`Vellum/outputs/mdlog/acceptance-fixtures/`（同上）；
+- 设计契约、基线实现、复审意见、修复清单与验收语料（`docs/superpowers/**`、`outputs/mdlog/**`）均已清理，需要时从 git 历史取回。
 
 与原实现的已知差异：图片处理被提到重试圈外（原实现重试会重复复制图片、留下孤儿资产）；
 `ensureTrailingNewlinesOnFile` 改为按文件尾部实测（原为每实例一次守卫，外部剥尾换行后接缝会黏连）。

@@ -72,7 +72,7 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/test/setup.ts",
-    // extensions/ 是 pi 扩展（node:test 用例、另一套 tsconfig），不属于前端测试面
-    exclude: [...defaultExclude, "dist/**", "extensions/**"],
+    // pi/ 下是 pi 扩展与技能（node:test 用例、另一套 tsconfig），不属于前端测试面
+    exclude: [...defaultExclude, "dist/**", "pi/**"],
   },
 });

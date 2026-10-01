@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图名写在这里（显示在宿主标题栏）</title>
+<style>
+  :root {
+    --parchment: #f5f4ed; --ivory: #faf9f5; --warm-sand: #e8e6dc;
+    --near-black: #141413; --dark-warm: #3d3d3a; --stone: #6b6a64;
+    --brand: #1B365D; --hairline: #dddacc; --border: #e8e6dc;
+    --pine: #2F5D50; --ochre: #8C5B2E;
+    --font-serif: "TsangerJinKai02", "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", Charter, Georgia, Palatino, serif;
+    --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", Consolas, Monaco, "TsangerJinKai02", "Source Han Serif SC", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--ivory); color: var(--dark-warm);
+    font-family: var(--font-serif); font-size: 15px; line-height: 1.6;
+    padding: 12px; overflow-x: hidden; -webkit-font-smoothing: antialiased;
+  }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { font-family: var(--font-serif); }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+  <!-- 示范：两个节点 + 一条箭头。框宽 ≥ 最长行估算宽 + 左右各 12px；框间沟槽 ≥ 24px；
+       小于 56px 的图元，标签放形外；viewBox 上下各留 ≥ 16px。 -->
+  <svg viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="图的一句话描述">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 1 L10 5 L0 9 z" fill="#1B365D"/>
+      </marker>
+    </defs>
+
+    <rect x="24" y="40" width="190" height="56" rx="4" fill="#f5f4ed" stroke="#1B365D" stroke-width="1"/>
+    <text x="119" y="74" text-anchor="middle" font-size="15" fill="#141413">起点节点</text>
+
+    <line x1="214" y1="68" x2="346" y2="68" stroke="#1B365D" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="280" y="58" text-anchor="middle" font-size="15" fill="#6b6a64">动作</text>
+
+    <rect x="346" y="40" width="190" height="56" rx="4" fill="#f5f4ed" stroke="#2F5D50" stroke-width="1"/>
+    <text x="441" y="74" text-anchor="middle" font-size="15" fill="#141413">终点节点</text>
+
+    <text x="280" y="128" text-anchor="middle" font-size="12.5" fill="#6b6a64">图注：一句话说明这张图的焦点</text>
+  </svg>
+
+  <!-- 通信 IIFE：高度与标题上报（宿主契约，逐字保留，勿改）。注释必须放在 script 外：
+       脚本块里多出任何内容，宿主都会把这张静态图判成交互块。 -->
+  <script>
+    (function() {
+      function report() {
+        const h = Math.ceil(document.documentElement.getBoundingClientRect().height);
+        window.parent.postMessage({
+          type: "vellum-widget:resize",
+          height: h,
+          title: document.title
+        }, "*");
+      }
+      window.addEventListener("load", report);
+      if (window.ResizeObserver) {
+        new ResizeObserver(report).observe(document.body);
+      }
+    })();
+  </script>
+</body>
+</html>

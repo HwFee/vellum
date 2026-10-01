@@ -1,5 +1,4 @@
 {
-  "extensions": [
-    "../extensions/mdlog"
-  ]
+  "extensions": ["../pi/extensions/mdlog"],
+  "skills": ["../pi/skills"]
 }

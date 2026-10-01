@@ -8,6 +8,7 @@ dist/
 target/
 
 # Logs
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -39,8 +40,8 @@ nul
 
 # Agent runtime: project-local skill junctions, session logs, delegate state
 .agents/
-# .pi/ 整体不入库，唯一例外是 settings.json——它声明 mdlog 只在本仓库加载
-# （extensions: ["../extensions/mdlog"]），是「实体在 extensions/mdlog/、别的项目读不到」的接线本身
+# .pi/ 整体不入库（会话、任务、委托状态与别处来的本地技能），唯一例外是 settings.json——
+# 它把 pi/ 下的扩展与技能声明为「只在本仓库加载」，是接线本身；实体都在 pi/ 里入库
 .pi/*
 !.pi/settings.json
 .commandcode/

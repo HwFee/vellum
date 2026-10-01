@@ -122,7 +122,7 @@ export function createFigureTool(deps: FigureToolDeps) {
     ): Promise<AgentToolResult<FigureToolDetails>> {
       if (!deps.isConnected()) {
         return failure(
-          "当前没有 mdlog 记录连接。非记录态的文档请按技能把 vellum-widget 围栏直接写进正文。"
+          "当前没有 mdlog 记录连接。非记录态的文档请按 vellum-widget-md 技能把 vellum-widget 围栏直接写进正文。"
         );
       }
 
