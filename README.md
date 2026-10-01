@@ -2,171 +2,103 @@
 
 # Vellum · 素笺
 
-_A warm, parchment-toned Markdown viewer for Windows and Linux._
+_A warm, parchment-toned Markdown reader for Windows and Linux._
 
 **给 Markdown 一张纸。** 暖纸底色、今楷正文、一笔靛青 —— 一个把长文档认真排出来的窗口。
 
 [下载](https://github.com/HwFee/vellum/releases) ·
 [设计语言](./DESIGN.md) ·
-[更新日志](./CHANGELOG.md)
+[更新日志](./CHANGELOG.md) ·
+[让 Agent 写带图与演示的文档](./docs/vellum-widget-md.md)
 
 </div>
 
-## Download
+![Vellum 渲染的《二分查找》：条形图、公式、逐步演示都在文档里](./samples/assets/binary-search.png)
 
-The easiest way to get started is to download the latest installer from
-[GitHub Releases](https://github.com/HwFee/vellum/releases).
+上图是 Vellum 打开 [`samples/binary-search.md`](./samples/binary-search.md) 的样子：这篇文档由 Agent 一次写成，其中的条形图和可拖动的演示是文档里的 `vellum-widget` 围栏渲染出来的。GitHub 只会把围栏显示成代码块，要看真的，请用 Vellum 打开。
 
-A single Windows installer is provided:
+## 下载与安装
 
-- **NSIS Setup** — `Vellum_<版本>_x64-setup.exe`
-  单用户轻量安装。
+从 [GitHub Releases](https://github.com/HwFee/vellum/releases) 下载最新版：
 
-The installer automatically registers `.md` and `.markdown` file associations, so you can open
-Markdown files directly from File Explorer.
+- **Windows**：`Vellum_<版本>_x64-setup.exe`（NSIS，单用户安装）。安装时自动关联 `.md` / `.markdown`，之后可直接在资源管理器里双击打开。
+- **Linux**：提供 `.deb` 与 `.AppImage`。`.deb` 在桌面入口里声明了 `text/markdown`，文件管理器可以直接用它打开 `.md`。
 
-On Linux, `.deb` and `.AppImage` packages are provided. The `.deb` declares `text/markdown`
-in its desktop entry, so `.md` files can open with Vellum from the file manager.
+系统要求：Windows 10 1809+ 或 Windows 11（x64，需要 WebView2，多数系统已预装）；Linux 需要 WebKitGTK 4.1 与 GTK 3（`.deb` 已声明依赖）。自动更新目前只支持 Windows。
 
-> **Platform note:** Vellum · 素笺 is built and tested for **Windows 10/11 x64** and
-> **Linux** (WebKitGTK 4.1 / GTK 3). Auto-update is Windows-only for now.
+## 它能做什么
 
-## Features
+**读**
+- 纸墨排版：正文 14px / 1.55 行高，层级只靠字号、字重与留白，不画装饰线。
+- GFM（表格、任务列表、脚注）、KaTeX 数学公式（含 `$5 和 $10` 的货币保护）、20 种语言的代码高亮、本地图片与 GIF、图片点击放大。
+- Obsidian 常用语法：frontmatter 属性卡、`> [!tip]` callout、`[[wikilink]]`（悬停预览、前进/后退）。
+- 设置页：字号、栏宽、行高，中文 / 西文 / 代码三槽字体，主题，启动行为，更新检查。
+- 专注模式（<kbd>F11</kbd>）、导出 PDF（<kbd>Ctrl</kbd>+<kbd>P</kbd>）。
 
-### 读 · Reading
+**寻**
+- 侧栏四个页签：目录、库内文件、库内全文检索（<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd>）、反向链接。
+- 文内检索（<kbd>Ctrl</kbd>+<kbd>K</kbd>），命中就地高亮，<kbd>F3</kbd> 逐个跳。
+- 阅读位置按文件记住；开关侧栏、拖宽时钉住你正在看的那一行，不跳位。
 
-- **纸墨排版。** 正文 14px / 1.55 行高 / 0.4px 字距，列宽 `min(800px, 100%)` 居中；
-  层级只靠字号、字重、留白与 ivory 填充承担——标题没有前导短线，引用没有侧线，表格默认没有斑马纹。
-- **阅读设置页。** 顶栏齿轮打开整页设置视图（正文区整块替换，侧栏换成「設定」分节导航）：
-  阅读一节调正文字号 13 / 14 / 16 / 18、栏宽 720 / 800 / 960、行高 1.5 / 1.55 / 1.7
-  （字号也可用 <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> 步进与复位，
-  或拨开「<kbd>Ctrl</kbd> + 滚轮改字号」直接滚，出厂即开），
-  以及**中文字体 / 西文字体 / 代码字体**三槽——候选项是本机已装字体（随包楷体与
-  JetBrains Mono 排在最前），列表可搜索、每行用它自己的字面渲染；出厂不动时正文
-  仍是原来那套字（西文跟随中文），改动即时生效并记住（标题字号阶梯与版式不受影响，
-  改栏宽时会先把视口钉在原来那一行上，不跳位）；界面一节设「启动时展开侧栏」；
-  更新一节可关掉启动自动检查、看当前版本、手动「立即检查」；关于与数据一节显示当前
-  文档路径、清空最近打开列表、列出快捷键。<kbd>Esc</kbd> 或「‹ 返回阅读」退出，退出后回到进入前的阅读位置。
-- **GitHub Flavored Markdown。** 表格、任务列表、删除线、引用、围栏代码，以及脚注。
-- **数学公式。** KaTeX 行内与行间公式，含 Pandoc 式货币保护（`$5 和 $10` 不会被误判成公式）。
-- **代码高亮。** 20 种常用语言（PrismLight，不会为每种语言生成 chunk），带语言标签与复制按钮。
-- **本地图片与 GIF。** 相对路径按文档位置解析，GIF 保持动画。
-- **图片点击查看器。** 点击正文图片就地放大：宣纸底色近全屏遮罩上滚轮 1–5 倍缩放、
-  拖拽平移、双击 1↔2 倍切换，<kbd>Esc</kbd> 或点背底收起（链接里的图与编辑视图不受影响）。
-- **脚注浮笺。** 悬停脚注上标 200ms 就地出小卡读注文，卡片可移入续读；滚动、点按或
-  <kbd>Esc</kbd> 即收。
-- **wikilink 笺页卡。** 悬停已解析的 `[[wikilink]]` 350ms 出预览卡——题目、路径与笔记开头，
-  点卡片即打开这篇；未解析的链接不出卡。
-- **专注模式「留一线」。** <kbd>F11</kbd> 进入：顶栏隐去、侧栏收回、窗口全屏，顶缘留
-  2px 靛青阅读进度线；指针探入顶缘暂驻顶栏，<kbd>F11</kbd> / <kbd>Esc</kbd> 退出。
-- **安全 raw HTML。** 放行常见排版标签后再净化。
-- **6px 自定义滚动条**，平时透明、滚动时淡入；距底超过 300px 时右下角浮现跳底按钮。
+**写**
+- <kbd>Ctrl</kbd>+<kbd>E</kbd> 块级就地编辑：不切分屏，点哪块改哪块；<kbd>Ctrl</kbd>+<kbd>S</kbd> 临时文件加原子重命名落盘。
+- 阅读视图里直接勾选任务列表，改动立即写回文件；写盘失败会回滚并告诉你原因。
 
-### 寻 · Finding
+**图与演示**
+- 文档里的 `vellum-widget` 围栏渲染成隔离沙箱里的图示或可交互演示：自包含 HTML，不联网、不存储。
+- 每个演示首次需要点一次「点击加载」，同一份内容之后被记住。全局最多保留 10 个存活窗口，离屏自动停帧。
 
-- **侧栏页签。** 同一枚侧栏顶着四枚页签——目錄 / 文件 / 檢索 / 反鏈，只换内容不换壳。
-- **大纲。** h1–h6 收成左侧目录（h4–h6 缩进更深、字号更小），随正文滚动实时高亮当前章节，点击缓动跳转。
-- **库内文件。** 「文件」页签列出当前文档所属库的 Markdown 文件树（库根 = 含 `.obsidian`
-  的最近祖先目录，否则文档所在目录），目录可折叠、当前篇高亮并自动展开所在目录；
-  筛选输入命中即退成扁平清单，点条目直接打开。
-- **反向链接。** 「反鏈」页签列出库里哪些笔记 `[[链到本篇]]`——含别名、片段与 `![[嵌入]]`
-  写法，代码围栏里的不算；每条来文带至多五行命中摘录，点题名即打开。
-- **库内全文检索。** <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> 直达「檢索」页签：
-  对全库逐行大小写不敏感检索，命中片段就地高亮、按文件分组；点命中行打开该篇并把
-  关键词交给文内检索继续高亮。
-- **全文检索。** <kbd>Ctrl</kbd>+<kbd>K</kbd>（或 <kbd>Ctrl</kbd>+<kbd>F</kbd>）聚焦，
-  匹配项在正文里就地高亮，<kbd>F3</kbd> / <kbd>Shift</kbd>+<kbd>F3</kbd>（或搜索框内
-  Enter / Shift+Enter）逐个跳。
-- **可调侧栏。** 200–320px 拖拽调宽，双击手柄复位；窄屏自动收成浮层。
-- **文档内锚点。** `[文字](#id)` 由应用接管：缓动滚到目标并顺带点亮大纲，不改写 URL 与历史。
-- **前进 / 后退。** <kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>Alt</kbd>+<kbd>→</kbd>（或顶栏的 ‹ ›）
-  退回刚才经 wikilink 打开的上一条笔记，并回到你离开它时的位置。
-- **阅读位置记忆。** 标题锚点 → 顶层块序号 → 比例兜底的三级记录，图片与字体把版面撑开时持续重锚。
-- **换版不跳位。** 开关侧栏 / 拖宽会改正文宽度、整篇重排，此时用视口锚点钉住你正在看的那一行
-  （Chromium 原生滚动锚定不补偿「行内尺寸变化驱动的重排」，这一步必须自己做）。
+**底子**
+- Tauri 2 + WebView2，无框原生窗口。离线优先：除启动时的一次版本检查外不联网，没有账号，打开和写回的都是磁盘上的那个文件。
+- 双击几个 `.md` 就开几个窗口，各自独立。
 
-### 写 · Writing
+## 让 Agent 写带图与演示的文档
 
-- **块级就地编辑。** <kbd>Ctrl</kbd>+<kbd>E</kbd> 进入编辑视图，点任意可编辑块直接改——
-  不动版式、不切分屏：源码覆盖层与渲染态同字号同行高，草稿变长就自增高把下文推下去。
-- **勾选写回。** 阅读视图里点任务列表的复选框就直接改源码（读、写都不用先进编辑视图），
-  已勾项换成靛青钤印方框、同项文字灰化加一道删除线，写盘失败会回滚并把失败原因告诉你。
-- **编辑信号在页边。** hover 浮出淡 `¶`；只读块（原生 HTML / 交互块）常驻灰 `×`；
-  正在编辑的块由一道靛青边轨与页边的 `¶` 标记，正文本身保持阅读时的样子。
-- **提交即落盘。** <kbd>Ctrl</kbd>+<kbd>S</kbd> 或失焦提交，临时文件 + 原子重命名写回；
-  外部改动与自身回声都能识别，不误判、不覆盖。
-- **记录中只读。** mdlog 记录期间禁止编辑（入口、提交口、Rust 侧三重门禁）。
+仓库自带一个 pi 技能 [`vellum-widget-md`](./pi/skills/vellum-widget-md/)：Agent 按它判断什么时候该画图、怎么画、怎么检查、怎么交给你。在本仓库里启动 pi，说一句：
 
-### 流 · Streaming
+```text
+用 vellum-widget-md 写一篇二分查找的讲解，保存到 samples/binary-search.md。
+```
 
-- **mdlog 现场日志。** 连接建立后 agent 每写一段，文档尾部就多一段——不抢你的滚动位置，
-  不重打没有变化的块。
-- **沙箱交互块。** 文档里的 `vellum-widget` 代码块渲染成跨源 iframe 里的实时界面；
-  全局最多保留 10 个存活窗口，离屏停帧降载、滑回来自动恢复。
-- **信任台账。** 交互块默认停在占位块上；点过一次 `[点击加载]`，这一份内容就被记住
-  （按源码指纹落盘），换文档、热重载、重启应用都不必再点第二次。
+不需要任何连接或配置。完整说明与另一篇示例见 [docs/vellum-widget-md.md](./docs/vellum-widget-md.md)。
 
-### 底子 · Foundations
+仓库里还有 [mdlog 扩展](./pi/extensions/mdlog/)：把 Agent 的对话实时写成一份 Markdown，Vellum 热重载显示，像看着它边写边排版。
 
-- **Tauri 2 + WebView2。** 约 21 MB 安装包；无框原生窗口，整栏可拖拽，方形窗口控制件。
-- **最近打开与拖放。** 启动回到上次读的那一篇；空态与错误页都列出最近 8 篇，也可以直接把
-  `.md` 文件拖进窗口打开。
-- **多实例。** 双击几个 `.md` 就开几个窗口，各自加载各自的文档，阅读位置按文件路径键控。
-- **窗口标题随文档。** 任务栏显示「文件名 — 素笺」（顶栏是纯工具栏，文件名与路径都不显示）。
-- **自动更新。** 启动时静默检查新版本（可在设置页关掉，也可手动「立即检查」），有更新先提示再下载安装；失败一律不打扰。
-- **离线优先。** 除启动时的一次版本更新检查外不联网；没有云、没有账号。打开的是磁盘上的那个文件，写回的也是它。
-- **真机验收。** 数学 / 搜索 / 编辑 / 滚动这类热路径都有 CDP 真机探针与回归测试
-  （56 个测试文件 / 1050 个用例）。
+## 常用快捷键
 
-## Usage
+| 键 | 作用 |
+|---|---|
+| <kbd>Ctrl</kbd>+<kbd>O</kbd> | 打开文件（也可拖放，或从空态的「最近打开」选） |
+| <kbd>Ctrl</kbd>+<kbd>K</kbd> / <kbd>Ctrl</kbd>+<kbd>F</kbd> | 文内检索 |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> | 库内检索 |
+| <kbd>Ctrl</kbd>+<kbd>B</kbd> | 开关侧栏 |
+| <kbd>Ctrl</kbd>+<kbd>E</kbd> | 编辑视图 |
+| <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> | 字号步进与复位（也可 <kbd>Ctrl</kbd>+滚轮） |
+| <kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>→</kbd> | 经 wikilink 打开后，前进 / 后退 |
+| <kbd>F11</kbd> | 专注模式 |
 
-1. Run the installer and finish setup.
-2. Double-click any `.md` or `.markdown` file in File Explorer.
-3. To open another file, click the folder icon in the top-left corner — or drag a `.md` file onto
-   the window, or pick one from **最近打开** in the empty state.
-4. Press <kbd>Ctrl</kbd>+<kbd>O</kbd> to open a file, <kbd>Ctrl</kbd>+<kbd>K</kbd> or
-   <kbd>Ctrl</kbd>+<kbd>F</kbd> to search (<kbd>F3</kbd> / <kbd>Shift</kbd>+<kbd>F3</kbd> steps
-   through matches), <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> to adjust the
-   type size, <kbd>Ctrl</kbd>+<kbd>E</kbd> to edit in place, <kbd>Ctrl</kbd>+<kbd>B</kbd> to
-   toggle the outline, <kbd>F11</kbd> for focus mode.
-5. The sidebar has four tabs — 目錄 outline, 文件 library files, 檢索 library-wide search
-   (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd>), 反鏈 backlinks. The "library" is the
-   nearest ancestor folder containing `.obsidian`, or the document's own folder.
-6. Follow a `[[wikilink]]`, then <kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>Alt</kbd>+<kbd>→</kbd> to step
-   back and forward through the notes you visited.
-7. Click a task list checkbox in the reading view to write the change straight back to the file.
-8. Open the settings view from the gear button in the top bar: type size, column width and line
-   height, launch behaviour, update checks, and the current document path. <kbd>Esc</kbd> returns
-   to your reading position.
+「库」是含 `.obsidian` 的最近祖先目录，否则就是文档所在目录。
 
-## System Requirements
+## 从源码构建
 
-- Windows 10 version 1809+ or Windows 11
-- 64-bit (x64) processor
-- WebView2 runtime (pre-installed on most modern Windows systems)
-- Linux: WebKitGTK 4.1 + GTK 3 (declared as dependencies of the `.deb`)
+```bash
+npm install
+npm run dev        # Vite 开发服务器（端口 1420）
+npm test           # 前端测试（Vitest）
+npm run build      # tsc + vite build
+npm run tauri build
+```
 
-## Tech Stack
+需要 Node.js、Rust 工具链与 [Tauri 2 的系统依赖](https://tauri.app/start/prerequisites/)。仓库结构、不可回退的约束与发布流程见 [AGENTS.md](./AGENTS.md) 和 `docs/agents/`。
 
-- [Tauri 2](https://tauri.app/) — Rust-powered desktop framework
-- [React 19](https://react.dev/) — UI layer
-- [react-markdown](https://github.com/remarkjs/react-markdown) — Markdown parsing
-- [remark-math](https://github.com/remarkjs/remark-math) + [KaTeX](https://katex.org/) — mathematics
-- [react-syntax-highlighter](https://github.com/react-syntax-highlighter/react-syntax-highlighter) — code highlighting
-- [TypeScript](https://www.typescriptlang.org/) — type safety across the frontend
-- [Cargo](https://doc.rust-lang.org/cargo/) / [Rust](https://www.rust-lang.org/) — native backend and asset resolution
+## 技术栈
 
-## Credits
+[Tauri 2](https://tauri.app/) · [React 19](https://react.dev/) · [Vite](https://vite.dev/) · [react-markdown](https://github.com/remarkjs/react-markdown) · [KaTeX](https://katex.org/) · [react-syntax-highlighter](https://github.com/react-syntax-highlighter/react-syntax-highlighter) · TypeScript · Rust
 
-The visual language — warm paper tones, serif body type, and restrained navy accents — is directly
-inspired by **[Kami](https://github.com/tw93/kami)**, Tw93's beautiful document system.
-Vellum · 素笺 brings that same reading feeling to Markdown files on Windows.
-Body type is set in **仓耳今楷 TsangerJinKai02**, code in **JetBrains Mono**.
+## 致谢
 
-## License
+视觉语言——暖纸色、衬线正文、克制的靛青——直接受 Tw93 的文档系统 **[Kami](https://github.com/tw93/kami)** 启发，素笺把同样的阅读感带到 Windows 与 Linux 上的 Markdown 文件。正文字体是**仓耳今楷 TsangerJinKai02**，代码字体是 **JetBrains Mono**。
+
+## 许可
 
 MIT
-
----
-
-Built for focused reading.

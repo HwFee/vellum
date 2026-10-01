@@ -1,8 +1,7 @@
 # Sample Assets
 
-Place local verification assets here:
+`samples/` 里示例文档的配图：
 
-- `local-image.png` for still-image rendering.
-- `local-animation.gif` for animated GIF rendering.
+- `binary-search.png`、`warp-shuffle.png`：`binary-search.md` 与 `warp-shuffle.md` 在 Vellum 里渲染的截图，供 README 与 `docs/vellum-widget-md.md` 引用。
 
-Then uncomment the matching image lines in `../sample.md`.
+要验证本地图片或 GIF 的渲染，把文件放在这里，再到 `../sample.md` 取消对应的注释行。
