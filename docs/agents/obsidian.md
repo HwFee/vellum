@@ -114,7 +114,7 @@
 ## 强调定界符贴 CJK / 标点
 
 - 由**渲染层软件兜底**：`remark-cjk-friendly` + `remark-cjk-friendly-gfm-strikethrough`（在 `REMARK_PLUGINS` 中位于 remarkMath 之前），并有渲染级回归测试锁定（`MarkdownDocument.test.tsx`）。
-- `vellum-mdlog` 技能侧的写法要求仅为跨渲染器可移植性建议，不再是硬禁令。
+- `vellum-widget-md` 技能侧的写法要求仅为跨渲染器可移植性建议，不再是硬禁令。
 
 ## 全库语料检查（三族语法有没有真处理干净的收口证据）
 

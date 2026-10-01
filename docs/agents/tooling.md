@@ -1,113 +1,66 @@
 # 工程环境、技能、宣传品与发布
 
-`AGENTS.md` 的详情分册。收录三个执行入口的真实 shell、技能安装流程与 pi 扩展、性能优化技能表与死规则、入口 chunk 尺寸历史，以及打包与生产构建的注意事项、签名与发布、真机探针、`tauri/custom-protocol` feature。
+`AGENTS.md` 的详情分册。收录三个执行入口的真实 shell、项目技能与 vellum-widget-md 要点、pi 扩展、性能优化技能表与死规则、入口 chunk 尺寸历史，以及打包与生产构建的注意事项、签名与发布、真机探针、`tauri/custom-protocol` feature。
 
 ## 跑命令用哪个 shell（三个入口不是一个 shell）
 
 | 入口 | 实际 shell | 语法 |
 |------|-----------|------|
 | 前台 `bash` 工具 | Git Bash / MSYS，bash 5.3.15 | POSIX（`&&`、`$(…)`、`for … do … done`） |
-| `bg_run` 后台任务 | **会变，别按表猜** | 不保证，先探明 |
-| `powershell` 工具 | PowerShell 7.6.6（Core） | 同上 |
+| `bg_run` 后台任务 | Git Bash（`PI_BG_SHELL=bash`，**会变，先探明**） | POSIX |
+| `powershell` 工具 | PowerShell 7.6.6（Core） | PowerShell 7（`&&`、`?:`、`??` 均可用） |
 
-- **后台任务用哪个 shell 会变，别按表猜**：表里那一栏是**当时的**实测值。
-- 2026-09-18 复核时它已不成立——同一条 `npm run tauri build 2>&1 | Select-Object -Last 25` 报的是 `/usr/bin/bash: line 1: Select-Object: command not found`，即后台跑的是 Git Bash，`PI_BG_SHELL` 那条用户级变量显然丢了或被 harness 覆盖。
+- **后台任务用哪个 shell 会变，别按表猜**：表里是 2026-10-01 的实测值，换机器或升级 pi 后先 `echo $0` 复核。
+- **当前实测**：`PI_BG_SHELL=bash`，`bg_run` 走 `C:\Program Files\Git\bin\bash.exe -c`，写 Bash 语法即可。历史上（2026-09-18 之前）它曾是 PowerShell，所以别假设。
 - 历史教训仍然有效：`npm test 2>&1 | tail -40` 曾在 PowerShell 下报「术语 'tail' 不会被识别为 cmdlet」，命令压根没执行、退出码却是 1——本项目已误读过一次，当成「测试失败」去查代码。
 - **稳妥做法**：后台命令只用跨 shell 都成立的部分（`&&`、`;`、重定向都不要依赖），或先跑一次 `echo $0` / `Write-Output $PSVersionTable` 探明。
 - 截尾与匹配优先交给前台 `bash` 工具（那边确定是 Git Bash）。
-- **这条靠用户级环境变量撑着**：`PI_BG_SHELL=pwsh` + `PI_BG_SHELL_PATH=…\PowerShell\7\pwsh.exe`（User 与 Process 作用域均已设）。
-  - 变量一旦丢失，`pi-background-tasks` 会回落到 `cmd.exe`（取 `ComSpec`），上面这条就不再成立。
 - **`bash -lc "…"` 不是逃生口**：把 `PI_BG_SHELL` 改成 `bash`、或在 PowerShell 里直接调 `bash`，拿到的都是 `C:\WINDOWS\system32\bash.exe`（WSL，bash 5.2.21）。
   - 而 **WSL 里没有 node/npm**（实测 `node: command not found`）。要跑 POSIX 就放前台 `bash` 工具。
 
-## 技能安装流程
+## 项目技能
 
-### 仓库结构
+`vellum-widget-md` 技能要点（2026-10 由 `vellum-mdlog` 更名并重写，定位从「mdlog 连接时出图」改为「任何 Vellum 渲染的 md 里写图示与交互」）：
 
-- 全局技能仓库：`C:/Users/17445/Desktop/HwFee-skills/skills/`
-- 每个项目通过**目录联接**引用仓库中的技能，**不拷贝**（`.pi/skills/<skill-name>` 均为联接，永不入库；`.gitignore` 忽略 `.pi/*`，唯一例外是入库的 `.pi/settings.json`——它是 mdlog 的加载声明，见下方 pi 扩展小节）。
-- **git 会跟随联接读到真实内容**——所以这些路径可以被误 `git add` 进来，历史上就发生过。
-  - 判据只有一条：`git ls-files .pi/skills/` 有输出就是错，用 `git rm -r --cached .pi/skills/<skill-name>/` 解除跟踪（`--cached` 只动索引）。
-  - **别用 `rm -rf` 删那个路径**——它会顺着联接删掉全局库里的真身。
-- 2026-09-12 记录：`vellum-mdlog` 单一归属全局技能库（`C:\Users\17445\Desktop\HwFee-skills\skills\vellum-mdlog`；该库自身是 git 仓库，远端 `HwFee/skills-manager-backup`，备份由 Skills Manager 维护）。
-  - 此前「项目专属、不迁库、开箱即用」的例外不再成立：本仓库只留目录联接，外部 clone **不会**得到该技能，需按「安装新技能」第 5 步重建联接。
-  - 2026-09-10 的迁移当时只删了磁盘目录、漏了解除跟踪，已于 2026-09-12 补齐。
+- 技能实体在 `pi/skills/vellum-widget-md/`（入库）；与扩展 `pi/extensions/mdlog/` 是两件事，扩展只管实时日志。两者都由 `.pi/settings.json` 声明加载（`skills: ["../pi/skills"]`）。
+- 三个分支：写文档文件（默认，**不需要连接**）、给已有文档补图、mdlog 实时日志（工具表有 `vellum_figure` 才走，规则在 `references/mdlog-live.md`）。
+- 主流程五步：选形态 → 起草 → 自查 → `tools/check-widgets.mjs` → 交付；契约 1–7 在 `references/widget-contracts.md`，交互配方在 `references/interaction-patterns.md`，速查在 `references/troubleshooting.md`。
+- 非 mdlog 文档里 widget 首次停在「点击加载」（授权门禁，见 `widgets.md`），技能要求交付时告知用户。
+- 其「强调定界符跨汉字+括号」写法要求已降级为可移植性建议——渲染层由 remark-cjk-friendly 软件兼容（见 `docs/agents/obsidian.md`）。
 
-### 安装新技能
-
-1. 用 `npx skills find <关键词>` 搜索全网技能。
-2. 评估质量：优先选 1K+ 安装量、官方源（vercel-labs、anthropics 等）。
-3. 安装到当前项目目录（不用 `-g`，避免污染全局 `~/.agents/skills/`）：
-
-```bash
-npx skills add <owner/repo@skill> -a kimi-code-cli -y
-```
-
-4. 将安装的技能目录**移动**到全局仓库：
-
-```bash
-mv .agents/skills/<skill-name> /c/Users/17445/Desktop/HwFee-skills/skills/
-```
-
-5. 从仓库创建目录联接（Windows 上 `ln -s` 不可靠，用 `mklink /J`）：
-
-```bash
-cmd //c "mklink /J .pi\\skills\\<skill-name> C:\\Users\\17445\\Desktop\\HwFee-skills\\skills\\<skill-name>"
-```
-
-### 已安装的技能（本项目）
-
-| 技能 | 用途 |
-|------|------|
-| `react-performance-optimization` | React memo/useMemo/code-splitting/virtualization |
-| `bundle-size-optimization` | Bundle 分析、tree-shaking、code splitting |
-| `design-md` | 按 google-labs DESIGN.md 规范提取/校验设计语言（项目设计语言见根目录 `DESIGN.md`，校验：`npx -p @google/design.md designmd lint DESIGN.md`） |
-| `tauri-v2` | Tauri 2 架构、IPC 通信、插件与原生桌面事件开发规范 |
-| `web-artifacts-builder` | 交互式 HTML / React / 可视化 Artifacts 沙箱构建规范 |
-| `superpowers` | 工程化研发方法论套件（头脑风暴、TDD、系统化调试、执行计划、工作流规约） |
-| `vellum-mdlog` | Vellum 纸墨 Markdown 与 `vellum-widget` 契约（2026-09-10 起迁入全局仓库，本地为目录联接）；要点见下方小节 |
-
-`vellum-mdlog` 技能要点：
-
-- 三个触发分支：mdlog 连接（逐回合强制）、**写本机 Vellum 阅读的 md 笔记**（2026-09-12 新增）、无提示出图。
-- 契约 1–6 全文在技能内 `references/widget-contracts.md`，速查在 `references/troubleshooting.md`——主体 `SKILL.md` 只留分支路由、图承载禁令、出图流程与最小清单。
-- 其「强调定界符跨汉字+括号」写法要求已于 2026-09 起降级为可移植性建议——渲染层由 remark-cjk-friendly 软件兼容（见 `docs/agents/obsidian.md`）。
-
-`vellum-mdlog` 的记录态判据与出图通道：
+mdlog 的记录态判据与出图通道（技能侧分支见上）：
 
 - **记录态判据是工具表里有 `vellum_figure`**（pi 扩展只在记录连接期间激活它）。
 - 技能里那条「系统提示出现 `mdlog live log: CONNECTED`」的注入是 2026-09-14 重建扩展时丢的——`CHANGELOG.md` 未发布段仍留着它当年的修复记录与回归测试，2026-09-16 起由工具激活门禁与 `promptGuidelines` 承担同一作用。
 - 图示经该工具投递（草稿路径 → 扩展回一枚 `<!-- mdlog-fig:ID -->` 标记 → 写入器落盘前展开回围栏），**源码不进对话记录，日志文件与手写围栏逐字节同形**。
-- 细则见 `extensions/mdlog/README.md`。
+- 细则见 `pi/extensions/mdlog/README.md`。
 
-### pi 扩展（只在本仓库加载，不占全局加载位）
+### pi 技能与扩展（只在本仓库加载，不占全局加载位）
 
-- 实体在**本仓库** `extensions/mdlog/`（2026-09-16 从 `~/.pi/agent/extensions/mdlog` 迁入，原目录内层 git 仓库一并撤销，历史以 Vellum 文档为准）；加载声明写在**入库的** `.pi/settings.json`，路径相对该文件解析（`.pi/` → 仓库根）：
+- 实体在**本仓库** `pi/skills/` 与 `pi/extensions/mdlog/`（扩展 2026-09-16 从 `~/.pi/agent/extensions/mdlog` 迁入，2026-10-01 与技能一起收进 `pi/`；原目录内层 git 仓库已撤销，历史以 Vellum 文档为准）；加载声明写在**入库的** `.pi/settings.json`，路径相对该文件解析（`.pi/` → 仓库根）：
 
 ```json
-{ "extensions": ["../extensions/mdlog"] }
+{
+  "extensions": ["../pi/extensions/mdlog"],
+  "skills": ["../pi/skills"]
+}
 ```
 
 - **不给别的项目读到**：`~/.pi/agent/extensions/` 里不留 mdlog（2026-10 起删掉了原先的目录联接）——全局加载位会让每个项目都多出一整套 mdlog 命令与 `vellum_figure` 工具；现在只有在本仓库根目录启动 pi 才加载它。
 - **外部 clone 开箱可用**：`.pi/settings.json` 随仓库走，不需要重建任何联接。加载走项目资源通道，仍需项目信任（`~/.pi/agent/trust.json` 里 `C:\Users\17445\Desktop` 一条已覆盖本仓库，Print/RPC 模式同样命中保存的决定）。
-  - 验证方式一（路径解析，不执行扩展代码）：用 pi 自带的 `DefaultPackageManager#resolve()` 算 resolved extensions——本仓库命中 `extensions/mdlog/index.ts`，别的项目命中 0 条。
-  - 验证方式二（真机加载）：临时在扩展工厂里加一行 `console.error` 跑 `pi -p "..."`，本仓库输出里出现、别的项目不出现；跑完 `git checkout -- extensions/mdlog/index.ts` 还原。
+  - 验证方式一（路径解析，不执行扩展代码）：用 pi 自带的 `DefaultPackageManager#resolve()` 算 resolved extensions——本仓库命中 `pi/extensions/mdlog/index.ts` 与 `pi/skills/vellum-widget-md/SKILL.md`，别的项目命中 0 条（2026-10-01 实测）。
+  - 验证方式二（真机加载）：临时在扩展工厂里加一行 `console.error` 跑 `pi -p "..."`，本仓库输出里出现、别的项目不出现；跑完 `git checkout -- pi/extensions/mdlog/index.ts` 还原。
 - **`node_modules` 里三个联接是指向 pi 自带那份的**（`typebox` / `@earendil-works/pi-tui` / `@earendil-works/pi-coding-agent`）。
-  - pi 加载扩展时走 jiti 别名，`node --test` 与 `tsc` 走 Node 原生解析——两套解析必须都能找到，且刻意指向同一份以防版本漂移。重建命令见 `extensions/mdlog/README.md`。
-- **它的 TS 不属于前端构建面**：app 的 `tsconfig.json` 只 `include: ["src"]`，`vite.config.ts` 的 `test.exclude` 已排除 `extensions/**`（那边的测试跑 `node:test`，被 vitest 拾取会必挂）。
-- 常用命令（在 `extensions/mdlog/` 里）：`npm test`、`npm run typecheck`。
+  - pi 加载扩展时走 jiti 别名，`node --test` 与 `tsc` 走 Node 原生解析——两套解析必须都能找到，且刻意指向同一份以防版本漂移。重建命令见 `pi/extensions/mdlog/README.md`。
+- **它的 TS 不属于前端构建面**：app 的 `tsconfig.json` 只 `include: ["src"]`，`vite.config.ts` 的 `test.exclude` 已排除 `pi/**`（那边的测试跑 `node:test`，被 vitest 拾取会必挂）。
+- 常用命令（在 `pi/extensions/mdlog/` 里）：`npm test`、`npm run typecheck`。
 
 ## 性能优化
 
 ### 遇到性能需求时
 
-**先参考已安装的技能**，让技能指导优化方向，不要凭空发挥：
+**先看已有的证据再动手**：`CHANGELOG.md` 版本条目记着逐次优化的取舍，下方「2026-09-30 性能审查证据」与 `scripts/bench-*` 是可复现的基线。凭印象改性能容易回退已有的优化。
 
-| 技能 | 适用场景 |
-|------|----------|
-| `react-performance-optimization` | React 渲染慢、重渲染、大列表 |
-| `bundle-size-optimization` | 打包体积大、构建产物多 |
-| `vercel-react-best-practices` | 70 条 React 性能规则（仓库中，需要时联接） |
 
 ### 一条死规则
 

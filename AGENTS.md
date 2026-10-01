@@ -16,24 +16,26 @@ Tauri 2 + React 19 桌面 Markdown 阅读器，Windows 10/11 x64 与 Linux（Web
 
 ## 仓库结构
 
-只留源码、资源与四份分册；过程产物（历史计划 / 评审记录 / 预览页 / 临时输出）已清理，需要时从 git 历史取回。
+只留源码、资源、`pi/`（技能与扩展）与分册；过程产物（历史计划 / 评审记录 / 预览页 / 临时输出）已清理，需要时从 git 历史取回。
 
 | 路径 | 内容 |
 |------|------|
 | `src/` | 前端：组件、hooks、`lib/`、样式 `styles/kami.css` |
 | `src-tauri/` | Rust 后端：`src/main.rs` 命令、`capabilities/`、`tauri.conf.json` |
-| `extensions/mdlog/` | pi 扩展实体（独立 npm 包，自带测试与 tsconfig）；由入库的 `.pi/settings.json` 声明加载，**只在本仓库生效** |
+| `pi/skills/vellum-widget-md/` | pi 技能：教 Agent 写带图示与交互的 Markdown（含 `check-widgets` 检查脚本） |
+| `pi/extensions/mdlog/` | pi 扩展实体（独立 npm 包，自带测试与 tsconfig）；两者都由入库的 `.pi/settings.json` 声明加载，**只在本仓库生效** |
 | `scripts/` | 真机 CDP 探针 `cdp-*.mjs`、基准、语料检查、widget 模板校验 |
 | `public/fonts/` | 应用字体（~17MB，随包分发） |
-| `samples/` | 示例 Markdown（`sample.md`；本地图片放 `samples/assets/`） |
+| `samples/` | 示例 Markdown（`sample.md` 排版验证、`binary-search.md` / `warp-shuffle.md` 技能产出示例）；配图放 `samples/assets/` |
 | `docs/agents/` | 四份分册：渲染 / Obsidian 语法 / widget 沙箱 / 工程与发布 |
+| `docs/` 根 | 面向读者的长期文档（现有 `vellum-widget-md.md`：技能介绍与示例） |
 | `docs/design/` | 真机取证截图（`shots/`） |
 | 根目录 | `AGENTS.md`（本文件）、`DESIGN.md`、`CHANGELOG.md`、`README.md` |
 
-- **不新建目录**：新素材放进上表已有位置——真机截图给 `docs/design/`，示例文档给 `samples/`，长期文档给 `docs/agents/`。
+- **不新建目录**：新素材放进上表已有位置——真机截图给 `docs/design/`，示例文档与它的配图给 `samples/`，面向读者的文档放 `docs/`，Agent 用的分册放 `docs/agents/`，pi 技能与扩展放 `pi/`。
 - **临时产物不入库**：`outputs/`、`dist/`、`node_modules/`、`target/` 已在 `.gitignore`，别用 `git add -f` 绕过。
-- **本地联接不入库**：`.pi/skills/<skill-name>` → 全局技能库 `C:/Users/17445/Desktop/HwFee-skills/skills/`；`extensions/mdlog/node_modules/{typebox,@earendil-works/*}` → 全局 pi 安装位。新 clone 后按 `docs/agents/tooling.md` 的「技能安装流程」重建。
-- **`.pi/settings.json` 是 `.pi/` 唯一的入库例外**（`.gitignore` 写 `.pi/*` 再 `!.pi/settings.json`）：它只声明 mdlog 的加载位 `extensions: ["../extensions/mdlog"]`——**不给别的项目读到**，全局 `~/.pi/agent/extensions/` 里不留 mdlog。
+- **本地联接不入库**：`pi/extensions/mdlog/node_modules/{typebox,@earendil-works/*}` → 全局 pi 安装位。新 clone 后按 `pi/extensions/mdlog/README.md` 重建。
+- **`.pi/settings.json` 是 `.pi/` 唯一的入库例外**（`.gitignore` 写 `.pi/*` 再 `!.pi/settings.json`）：它声明 `extensions: ["../pi/extensions/mdlog"]` 与 `skills: ["../pi/skills"]`——**不给别的项目读到**，全局 `~/.pi/agent/` 里不留它们。`.pi/` 里其余内容（会话、任务、委托状态、别处来的本地技能）都不入库。
 
 ## 命令
 
@@ -50,7 +52,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 | 入口 | 实际 shell | 语法 |
 |------|-----------|------|
 | 前台 `bash` 工具 | Git Bash / MSYS，bash 5.3.15 | POSIX（`&&`、`$(…)`、`for … do … done`） |
-| `bg_run` 后台任务 | **会变，别按表猜**（表里原写 PowerShell 7.6.6；2026-09-18 复核实测跑的是 Git Bash） | 不保证，先探明 |
+| `bg_run` 后台任务 | Git Bash（`PI_BG_SHELL=bash`，2026-10-01 实测；**会变，先探明**） | POSIX |
 | `powershell` 工具 | PowerShell 7.6.6（Core） | PowerShell 7（`&&`、`? :`、`??` 均可用） |
 
 - 后台命令只用跨 shell 都成立的部分（`&&`、`;`、重定向都不要依赖），或先跑 `echo $0` / `Write-Output $PSVersionTable` 探明。
@@ -73,7 +75,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 9. 热重载滚动恢复不要改回纯像素恢复；阅读位置恢复不要改回一次性 `ratio × scrollHeight`。 → `docs/agents/rendering.md`
 10. 打包前必须先 `taskkill /IM vellum.exe /F`（`Get-Process vellum` 为空），否则链接阶段报 `os error 5 拒绝访问`。 → `docs/agents/tooling.md`
 11. capabilities 必须有 `core:window:allow-destroy`、`core:window:allow-set-title`、`core:window:allow-start-dragging`（Linux 顶栏拖拽走的 Tauri 脚本 IPC）、`core:window:allow-internal-toggle-maximize`（同脚本的双击最大化）与 `updater:default`；CSP 必须含 `connect-src ipc: http://ipc.localhost`。`data-tauri-drag-region` 只在非 Windows 挂（Windows 上 CSS app-region 与该脚本双重触发）。 → `docs/agents/tooling.md`
-12. `.pi/skills/` 与 `extensions/mdlog/node_modules/` 下的条目是目录联接：`git ls-files .pi/skills/` 有输出就是错（`.pi/` 唯一的入库例外是 `.pi/settings.json`），别用 `git add -f` 绕过忽略；删这些路径时只删联接条目本身（`Remove-Item` 单条 或 `[System.IO.Directory]::Delete`），别用会顺着联接递归的 `rmdir /s`——会删掉全局技能库 / 全局 pi 安装位里的真身。 → `docs/agents/tooling.md`
+12. `pi/extensions/mdlog/node_modules/` 下的三个条目（`typebox` / `@earendil-works/pi-tui` / `@earendil-works/pi-coding-agent`）是指向**全局 pi 安装位**的 Junction：删它们时只删联接条目本身（`Remove-Item` 单条 或 `[System.IO.Directory]::Delete`），别用会顺着联接递归的 `rmdir /s`——会删掉全局安装位里的真身；重建命令见 `pi/extensions/mdlog/README.md`。 → `docs/agents/tooling.md`
 13. kami.css 新规则只要含 `.mdlog-widget` 字样，就必须放在首个该选择器出现处**之后**。 → `docs/agents/widgets.md`
 14. katex 版本必须与 rehype-katex 嵌套依赖的 katex 严格同版（当前均 0.16.47）。 → `docs/agents/rendering.md`
 15. 顶栏不显示文件名与路径（`.top-bar__title` / `.top-bar__path` / `.top-bar__meta` 均已移除，中列只剩拖动热区）；完整路径的归宿只有两处——正文标题 `h1.document-title` 的 `title` tooltip 与设置页「关于与数据 · 当前文档」，换文档的判据一律看 `h1.document-title`。 → `docs/agents/obsidian.md`
@@ -93,7 +95,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 - 设置页与界面偏好：`src/components/SettingsView.tsx`（四节内容栏；`SETTINGS_SECTIONS` / `settingsSectionElementId` 是分节清单的唯一来源，侧栏导航据此生成）、`src/components/SettingsNav.tsx`（设置视图的侧栏内容）、`src/lib/appPreferences.ts`（Store key `sidebarOpenOnLaunch` / `autoCheckUpdates` / `theme` / `ctrlWheelFontSize` / `headingScript`，读盘失败回退出厂值）、`src/hooks/useTheme.ts` 与 `src/lib/theme.ts`（外观主题：写 `data-theme`/`colorScheme`，导出视图强制 light，偏好镜像 localStorage `vellum-theme` 供 main.tsx 首帧同步解算）、`src/hooks/useWheelFontSize.ts`（Ctrl+滚轮改字号：window 捕获段非被动监听，导出视图只吞不改）、`src/lib/updater.ts`（`checkForUpdates(manual?)`：启动静默检查 + 设置页「立即检查」）。
 - 导出为 PDF：`src/components/ExportPdfView.tsx`（纸张舞台）、`src/lib/exportDocument.ts`（消毒后的正文底稿）、`src/lib/exportLayout.ts`（模板常量）、`src/lib/exportPagination.ts`（按行摹 Chromium 分页）、Rust 侧 `export_pdf` 命令（对主窗口 WebView2 调 CDP `Page.printToPDF`）。
 - 库面板：`src-tauri/src/library.rs`（`list_library` / `search_library` / `find_backlinks`，锚定 `AppState.current: Option<Opened>`——模式由打开方式决定：`Opened.library` 为 None 即单文件模式，三命令返回 `not in library mode`；库根判定与向上搜索的 8 级/主目录/盘根边界在 `document.rs` 的 `walk_ancestors` + `find_library_root`）、`src/components/SidebarTabs.tsx` 与 `FilesPanel` / `LibrarySearchPanel` / `BacklinksPanel`（同一枚 `.outline-sidebar` 内换内容）、`src/lib/library.ts`（契约类型 + `buildFileTree` + `snippetParts`）。
-- pi 扩展实体：`extensions/mdlog/`（**只在本仓库加载**——加载声明是入库的 `.pi/settings.json`，全局 `~/.pi/agent/extensions/` 里没有 mdlog）。
+- pi 技能与扩展：`pi/skills/vellum-widget-md/`（写带图示/交互的 md，不依赖连接）与 `pi/extensions/mdlog/`（实时日志；**只在本仓库加载**——加载声明是入库的 `.pi/settings.json`）。
 - 真机探针：`scripts/cdp-*.mjs`（`cdp-verify` / `cdp-perf-scroll` / `cdp-sidebar-jump` / `cdp-anchor-synthetic` / `cdp-obsidian-verify` / `cdp-reader-fonts`）。
 - 设计语言：`DESIGN.md`；变更记录：`CHANGELOG.md`。
 
@@ -104,7 +106,7 @@ node scripts/check-obsidian-corpus.mjs   # Obsidian 全库语料检查（走 wis
 | `docs/agents/rendering.md` | 渲染结构、搜索跳转、大纲跟随、侧栏布局与宽度（含设置视图的侧栏内容切换）、设置视图、阅读位置记忆、热重载恢复、布局过渡窗、`viewportPin`、数学公式、块级就地编辑不变量、任务勾选、打印样式、导出为 PDF、文件索引 | 改渲染管线 / 滚动 / 编辑器 / 大纲 / 设置页 / 打印 / 导出时 |
 | `docs/agents/obsidian.md` | frontmatter 属性卡、callout、wikilink 端到端与片段跳转、文档标题与属性卡/提示块定稿形态、CJK 强调兜底、全库语料检查与真机验收 | 碰三族语法或 `rehypeObsidian` 时 |
 | `docs/agents/widgets.md` | `WidgetSandbox` 存活上限与懒挂载、沙箱根溢出保护、交互块授权台账、停帧降载与静态图指针防线、预载视距与高度夹取、mdlog 状态与吸底、sidecar 清理 | 改 mdlog 或 widget 沙箱时 |
-| `docs/agents/tooling.md` | shell 入口细节、技能安装与 pi 扩展、性能技能表与入口 chunk 尺寸、打包与生产构建坑、签名与发布、真机探针、`custom-protocol` | 配环境、打包发布时 |
+| `docs/agents/tooling.md` | shell 入口细节、`vellum-widget-md` 技能与 pi 扩展（`pi/`）、性能技能表与入口 chunk 尺寸、打包与生产构建坑、签名与发布、真机探针、`custom-protocol` | 配环境、打包发布时 |
 
 ## Library search performance benchmark
 
