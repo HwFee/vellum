@@ -143,24 +143,32 @@ export function useDocumentLoader(rt: AppRuntime, deps: DocumentLoaderDeps): Doc
         // 换代：热重载换掉的是本篇的内容（外部改写 / mdlog 追加），针对旧内容的在途
         // 勾选回滚同样作废——把旧 markdown 写回去等于把外部变更整篇抹掉
         documentGenerationRef.current += 1;
-        // 热重载（含 mdlog 每次追加）对延迟敏感：先沿用上一份表提交，绝不在此 await IPC。
-        // 表里缺目标时（追加内容引入新链接）异步补齐，补齐前那些链接按未解析渲染成
-        // 纯文本 + 提示；目标集合无变化时（绝大多数追加）一次多余调用都不发。
-        const carried = wikilinksRef.current;
-        const targets = extractWikilinkTargets(document.markdown);
-        setState({ status: "ready", document, wikilinks: carried });
-        if (targets.some((target) => !carried.has(target))) {
-          void resolveWikilinks(document.path, document.markdown)
-            .then((map) => {
-              if (loadRequestRef.current !== requestId) return;
-              setState((previous) =>
-                previous.status === "ready" && previous.document === document
-                  ? { ...previous, wikilinks: map }
-                  : previous
-              );
-            })
-            // 解析失败（IPC 抖动）：保留原有表，别把已经点得动的链接降级成纯文本
-            .catch(() => {});
+        // wikilink 表随 load_document 一并返回时直接采用（在场即权威，不发第二次 IPC）。
+        // 字段缺席（旧后端）走原管线：热重载对延迟敏感，先沿用上一份表提交、绝不 await IPC；
+        // 缺的目标异步补齐（失败保留原表），目标集合无变化时一次多余调用都不发。
+        if (document.wikilinks !== undefined) {
+          setState({
+            status: "ready",
+            document,
+            wikilinks: new Map(Object.entries(document.wikilinks)),
+          });
+        } else {
+          const carried = wikilinksRef.current;
+          const targets = extractWikilinkTargets(document.markdown);
+          setState({ status: "ready", document, wikilinks: carried });
+          if (targets.some((target) => !carried.has(target))) {
+            void resolveWikilinks(document.path, document.markdown)
+              .then((map) => {
+                if (loadRequestRef.current !== requestId) return;
+                setState((previous) =>
+                  previous.status === "ready" && previous.document === document
+                    ? { ...previous, wikilinks: map }
+                    : previous
+                );
+              })
+              // 解析失败（IPC 抖动）：保留原有表，别把已经点得动的链接降级成纯文本
+              .catch(() => {});
+          }
         }
         setReloadTick((tick) => tick + 1);
         if (!isMdlogActiveRef.current) {
@@ -253,16 +261,20 @@ export function useDocumentLoader(rt: AppRuntime, deps: DocumentLoaderDeps): Doc
         currentPathRef.current = document.path;
         // 换代：本篇的内容即将被装入，之前针对旧文档的在途勾选回滚就此作废
         documentGenerationRef.current += 1;
-        // wikilink 解析必须在 setState 之前完成：ready 态一次就带上表，
-        // 否则首帧全部是「未找到」纯文本、第二帧才变链接（闪烁 + 整篇重解析）。
-        // 解析失败只退化成空表——绝不让它冒泡到外层 catch 把文档变成错误页
+        // wikilink 表随 load_document 一并返回（字段在场即权威——空表 = 无目标或全落空，
+        // 都不再补第二次 IPC）。字段缺席（旧后端）才回退原管线：提 ready 前再补一次
+        // resolve_wikilinks，保证首帧带表不闪「未找到」。
         let wikilinks: ReadonlyMap<string, string | null> = EMPTY_WIKILINKS;
-        try {
-          wikilinks = await resolveWikilinks(document.path, document.markdown);
-        } catch {
-          wikilinks = EMPTY_WIKILINKS;
+        if (document.wikilinks !== undefined) {
+          wikilinks = new Map(Object.entries(document.wikilinks));
+        } else {
+          try {
+            wikilinks = await resolveWikilinks(document.path, document.markdown);
+          } catch {
+            wikilinks = EMPTY_WIKILINKS;
+          }
+          if (loadRequestRef.current !== requestId) return;
         }
-        if (loadRequestRef.current !== requestId) return;
         setState({ status: "ready", document, wikilinks });
         // 有文档重新显示 ⇒ 本次换文档不再在途（解除点之一，另一个是下面的 catch）
         navInFlightRef.current = false;

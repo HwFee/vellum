@@ -42,6 +42,7 @@ const windowMock = vi.hoisted(() => {
     instances: [] as Array<{
       close: ReturnType<typeof vi.fn>;
       destroy: ReturnType<typeof vi.fn>;
+      show: ReturnType<typeof vi.fn>;
     }>,
     /// 按序记录的 setTitle 参数：窗口标题由 App 在多个 getCurrentWindow() 实例上写入，
     /// 逐实例断言会漏（每次调用都新建实例），故集中记在一个桶里
@@ -331,6 +332,8 @@ test("renders a file load error", async () => {
 });
 
 test("loads the latest queued startup Markdown file", async () => {
+  // drain 只回路径串：resolve_open_target 挪进 loadPath 里异步跑，
+  // drain 本身不持锁做库遍历（大库上那趟遍历就是几秒白屏）。
   vi.mocked(invoke).mockResolvedValueOnce([
     "C:/notes/older.md",
     "C:/notes/startup.md",
@@ -349,6 +352,94 @@ test("loads the latest queued startup Markdown file", async () => {
   });
   await waitFor(() => expect(screen.getByRole("heading", { name: "Startup" })).toBeInTheDocument());
   expect(invoke).not.toHaveBeenCalledWith("load_document", { path: "C:/notes/older.md" });
+});
+
+test("startup: queued pending file renders without waiting for the recentFiles store read", async () => {
+  const resolvers: Array<(value: unknown) => void> = [];
+  storeGet.mockImplementation((key: string): Promise<unknown> => {
+    if (key === "recentFiles") {
+      return new Promise((resolve) => {
+        resolvers.push(resolve);
+      });
+    }
+    return key === "lastOpenedPath" ? lastOpenedGet() : Promise.resolve(undefined);
+  });
+  drainInvoke.mockResolvedValueOnce(["C:/notes/queued.md"]);
+  backendInvoke.mockImplementation(async (command: string) => {
+    if (command === "load_document") {
+      return {
+        path: "C:/notes/queued.md",
+        fileName: "queued.md",
+        parentPath: "C:/notes",
+        markdown: "# Queued",
+      };
+    }
+    return null;
+  });
+
+  render(<App />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Queued" })).toBeInTheDocument());
+  await act(async () => {
+    resolvers.forEach((resolve) => resolve([]));
+  });
+});
+
+const windowShowCount = () =>
+  windowMock.instances.reduce((n, i) => n + i.show.mock.calls.length, 0);
+
+test("startup: window shows once the document body is committed, before deferred read_mdlog_state resolves", async () => {
+  let resolveMdlog: ((value: unknown) => void) | undefined;
+  backendInvoke.mockImplementation(async (command: string) => {
+    if (command === "load_document") {
+      return {
+        path: "C:/vault/note.md",
+        fileName: "note.md",
+        parentPath: "C:/vault",
+        markdown: "# 笔记\n\n正文。",
+        wikilinks: {},
+      };
+    }
+    if (command === "read_mdlog_state") {
+      return new Promise((resolve) => {
+        resolveMdlog = resolve;
+      });
+    }
+    return null;
+  });
+  vi.mocked(open).mockResolvedValueOnce("C:/vault/note.md");
+
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(document.querySelector(".markdown-body")).toBeInTheDocument());
+  await waitFor(() => expect(windowShowCount()).toBeGreaterThan(0));
+  expect(resolveMdlog).toBeDefined();
+  await act(async () => {
+    resolveMdlog?.(null);
+  });
+});
+
+test("startup: initial empty state does not show while the pending drain is in flight", async () => {
+  let resolveDrain: ((paths: string[]) => void) | undefined;
+  drainInvoke.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolveDrain = resolve;
+      })
+  );
+
+  render(<App />);
+  await waitFor(() => expect(drainInvoke).toHaveBeenCalled());
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  });
+  expect(windowShowCount()).toBe(0);
+
+  await act(async () => {
+    resolveDrain?.([]);
+  });
+  await waitFor(() => expect(windowShowCount()).toBeGreaterThan(0));
 });
 
 test("wikilink：打开文档时先解析目标再进入 ready，首帧就是已解析的锚点", async () => {
@@ -407,6 +498,89 @@ test("wikilink：解析失败（IPC 抛错）不阻断打开，全部按未找�
   expect(await screen.findByRole("heading", { name: "笔记" })).toBeInTheDocument();
   expect(document.querySelector("a.wikilink")).not.toBeInTheDocument();
   expect(document.querySelector(".wikilink--missing")).toHaveTextContent("wiki/x");
+});
+
+test("wikilink：load_document 随文档带回解析表时首帧即锚点、不再发 resolve_wikilinks", async () => {
+  backendInvoke.mockImplementation(async (command: string) => {
+    if (command === "load_document") {
+      return {
+        path: "C:/vault/note.md",
+        fileName: "note.md",
+        parentPath: "C:/vault",
+        markdown: "# 笔记\n\n见 [[wiki/x]] 与 [[wiki/missing]]。",
+        wikilinks: { "wiki/x": "C:/vault/wiki/x.md", "wiki/missing": null },
+      };
+    }
+    return null;
+  });
+  vi.mocked(open).mockResolvedValueOnce("C:/vault/note.md");
+
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "笔记" })).toBeInTheDocument());
+  const anchor = document.querySelector("a.wikilink") as HTMLAnchorElement;
+  expect(anchor).toHaveAttribute("data-wikilink", "wiki/x");
+  expect(document.querySelector(".wikilink--missing")).toHaveTextContent("wiki/missing");
+  expect(backendInvoke).not.toHaveBeenCalledWith("resolve_wikilinks", expect.anything());
+});
+
+test("wikilink：随文档带回的空表是权威结果——markdown 有目标也不补 resolve_wikilinks", async () => {
+  backendInvoke.mockImplementation(async (command: string) => {
+    if (command === "load_document") {
+      return {
+        path: "C:/vault/note.md",
+        fileName: "note.md",
+        parentPath: "C:/vault",
+        markdown: "见 [[wiki/x]]。",
+        wikilinks: {},
+      };
+    }
+    return null;
+  });
+  vi.mocked(open).mockResolvedValueOnce("C:/vault/note.md");
+
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+
+  await waitFor(() =>
+    expect(document.querySelector(".wikilink--missing")).toHaveTextContent("wiki/x")
+  );
+  expect(backendInvoke).not.toHaveBeenCalledWith("resolve_wikilinks", expect.anything());
+});
+
+test("wikilink：热重载直接用随文档带回的表——新增链接也不发 resolve_wikilinks", async () => {
+  vi.mocked(listen).mockClear();
+
+  let disk: { path: string; fileName: string; parentPath: string; markdown: string; wikilinks: Record<string, string | null> } = {
+    path: "C:/vault/note.md",
+    fileName: "note.md",
+    parentPath: "C:/vault",
+    markdown: "见 [[wiki/x]]。",
+    wikilinks: { "wiki/x": "C:/vault/wiki/x.md" },
+  };
+  backendInvoke.mockImplementation(async (command: string) => {
+    if (command === "load_document") return disk;
+    return null;
+  });
+  vi.mocked(open).mockResolvedValueOnce("C:/vault/note.md");
+
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "打开文件" }));
+  await waitFor(() => expect(document.querySelector("a.wikilink")).toBeInTheDocument());
+
+  disk = {
+    ...disk,
+    markdown: "见 [[wiki/x]] 与 [[wiki/y]]。",
+    wikilinks: { "wiki/x": "C:/vault/wiki/x.md", "wiki/y": "C:/vault/wiki/y.md" },
+  };
+  const fileChangedCall = vi.mocked(listen).mock.calls.find(([event]) => event === "file-changed");
+  await act(async () => {
+    (fileChangedCall![1] as (payload: unknown) => void)({ payload: {} });
+  });
+
+  await waitFor(() => expect(document.querySelectorAll("a.wikilink")).toHaveLength(2));
+  expect(backendInvoke).not.toHaveBeenCalledWith("resolve_wikilinks", expect.anything());
 });
 
 test("wikilink：点击库内链接用解析出的路径加载目标笔记", async () => {

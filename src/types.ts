@@ -6,6 +6,10 @@ export type LoadedDocument = {
   /** 本次打开判定出的库（不存在 = 单文件模式）。Rust 侧在打开时定死并随文档原子换代，
    *  前端不自行向上探测——它只决定侧栏形态（四页签 vs 目錄题头）与库命令是否可发。 */
   library?: LibraryRef | null;
+  /** 打开时一并解析好的 wikilink 表（目标 → 绝对路径 / null）。
+   *  Rust 在 `load_document` 里一次算完随文档返回——前端不再等第二次 IPC 才进 ready。
+   *  缺省 / 空表 = 无 wikilink 或全落空；旧前端忽略此字段，走原 `resolve_wikilinks` 管线。 */
+  wikilinks?: Record<string, string | null>;
 };
 
 /// 「库」的锚定信息（Rust `LibraryRef` 的 camelCase 契约）：

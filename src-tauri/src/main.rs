@@ -41,11 +41,15 @@ impl PendingOpenPaths {
 }
 
 #[tauri::command]
-fn drain_pending_open_paths(state: tauri::State<PendingOpenPaths>) -> Result<Vec<String>, String> {
+fn drain_pending_open_paths(
+    state: tauri::State<PendingOpenPaths>,
+) -> Result<Vec<String>, String> {
     let mut paths = state
         .paths
         .lock()
         .map_err(|_| "Pending open paths lock poisoned".to_string())?;
+    // 只取路径——resolve_open_target 在持锁状态下跑会把库遍历 + wikilink 解析塞进
+    // drain 临界区（大库上就是几秒白屏），回到「drain 快、loadPath 里异步解析」的原位。
     Ok(paths.drain(..).collect())
 }
 
@@ -57,14 +61,40 @@ fn drain_pending_open_paths(state: tauri::State<PendingOpenPaths>) -> Result<Vec
 ///
 /// 遍历与向上搜索都在持锁**之前**做完——临界区里只写状态，绝不做 I/O（红线）。
 fn resolve_open_target(path: &str) -> Result<(LoadedDocument, Option<LibraryRef>), String> {
-    let (mut doc, library) = resolve_open_target_inner(path)?;
+    // inner 返回三元组：(文档, 库锚点, 目录扫描结果)——第三项只在目录打开时在场，
+    // 是拣代表文档的那趟清单；库根恰等于被打开目录时可直接折叠成 basename 索引复用。
+    let (mut doc, library, dir_scan) = resolve_open_target_inner(path)?;
     // library 随文档一起进返回契约：前端按 `doc.library` 存在性决定侧栏形态，
     // 不另开一次 IPC 探模式。
     doc.library = library.clone();
+    // wikilink 在打开时一次算完（前端不再等第二次 IPC）：只在文档确有可解析目标时
+    // 才建 basename 索引——无双链或纯代码链接的文档不为「可能存在的链接」白扫整库。
+    // 空库合成文档的 path 是空串哨兵（不指向磁盘文件），跳过解析。
+    if !doc.path.is_empty() {
+        let targets = document::extract_wikilink_targets(&doc.markdown);
+        if !targets.is_empty() {
+            let index = library.as_ref().map(|lib| match &dir_scan {
+                Some((dir, files)) if *dir == lib.root => {
+                    document::basename_index_from_files(files)
+                }
+                _ => document::build_basename_index(&lib.root),
+            });
+            doc.wikilinks = document::resolve_wikilinks_for_document(
+                Path::new(&doc.path),
+                &targets,
+                index.as_ref(),
+            );
+        }
+    }
     Ok((doc, library))
 }
 
-fn resolve_open_target_inner(path: &str) -> Result<(LoadedDocument, Option<LibraryRef>), String> {
+fn resolve_open_target_inner(
+    path: &str,
+) -> Result<
+    (LoadedDocument, Option<LibraryRef>, Option<(PathBuf, Vec<(PathBuf, String)>)>),
+    String,
+> {
     let canonical =
         dunce::canonicalize(Path::new(path)).map_err(|error| format!("Cannot open path: {error}"))?;
 
@@ -87,6 +117,8 @@ fn resolve_open_target_inner(path: &str) -> Result<(LoadedDocument, Option<Libra
                 marker: None,
             },
         };
+        // 遍历只为拣代表文档；basename 索引不在此建——文档确有 wikilink 目标时才
+        // 由调用方建（库根恰是本目录时折叠这份清单，否则按真库根另扫一次）。
         let (files, _truncated) = document::collect_markdown_files(&canonical);
         // 第一篇打不开（>50MB / 编码损坏）不就该把整个文件夹判死——找下一篇候选；
         // 全部候选都打不开时落「空库」合成文档，与「没有 Markdown」同一个空态。
@@ -108,13 +140,16 @@ fn resolve_open_target_inner(path: &str) -> Result<(LoadedDocument, Option<Libra
                 parent_path: canonical.to_string_lossy().to_string(),
                 markdown: String::new(),
                 library: Some(library.clone()),
+                wikilinks: std::collections::HashMap::new(),
             };
-            return Ok((doc, Some(library)));
+            return Ok((doc, Some(library), Some((canonical, files))));
         };
-        return Ok((doc, Some(library)));
+        return Ok((doc, Some(library), Some((canonical, files))));
     }
 
     let doc = document::load_markdown_file(&canonical)?;
+    // 单文件模式：命中标记 → 库模式（explicit=false），未命中 → 单文件模式；
+    // basename 索引不预建——文档确有 wikilink 目标时才由调用方按库根扫一次。
     let library = doc
         .parent_path
         .is_empty()
@@ -128,7 +163,7 @@ fn resolve_open_target_inner(path: &str) -> Result<(LoadedDocument, Option<Libra
                 }
             })
         });
-    Ok((doc, library))
+    Ok((doc, library, None))
 }
 
 #[tauri::command]
@@ -164,14 +199,16 @@ async fn load_document(
         if path_changed {
             let mut registry = widget_state.0.lock().unwrap_or_else(|p| p.into_inner());
             apply_rebind(&mut registry, &mut current_lock, &canonical, library, path_changed);
-            // 预览白名单随文档切换整批作废：上一篇允许预览的笔记集合不带给新文档，
-            // 由下一次 resolve_wikilinks 重建。
-            state
-                .preview_allow
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .clear();
         }
+
+        // 预览白名单随每次载入整批换成「打开时已解析命中」的集合：换文档不带旧集，
+        // 同路径热重载增删的链接也换代；resolve_wikilinks 仍会随后覆写（兼容旧前端），
+        // 但打开即预览不等第二趟 IPC。
+        *state.preview_allow.lock().unwrap_or_else(|p| p.into_inner()) = doc
+            .wikilinks
+            .values()
+            .filter_map(|resolved| resolved.as_ref().map(PathBuf::from))
+            .collect();
 
         if rebuild_watcher {
             *watcher_lock = None;
@@ -300,9 +337,18 @@ async fn resolve_wikilinks(
         let current = state.current.lock().unwrap_or_else(|p| p.into_inner());
         require_current_document(current.as_ref().map(|opened| opened.doc.as_path()), &from)?;
     }
+    // 库根取 `Opened.library`（打开时定死、随文档原子换代），不再现场向上搜——
+    // 与三个库命令同一锚点；单文件模式本就无 basename 兜底，索引缺席即可。
+    let root = {
+        let current = state.current.lock().unwrap_or_else(|p| p.into_inner());
+        current
+            .as_ref()
+            .and_then(|opened| opened.library.as_ref().map(|lib| lib.root.clone()))
+    };
     let from_for_scan = from.clone();
     let map = tauri::async_runtime::spawn_blocking(move || {
-        document::resolve_wikilink_map(&from_for_scan, &targets)
+        let index = root.as_deref().map(document::build_basename_index);
+        document::resolve_wikilink_map(&from_for_scan, &targets, index.as_ref())
     })
     .await
     .map_err(|error| format!("resolve_wikilinks failed: {error}"))?;
@@ -650,15 +696,48 @@ fn apply_rebind(
 mod tests {
     use super::{
         apply_rebind, first_openable_from_args, needs_watcher_rebuild, require_current_document,
-        should_clear_registry,
+        resolve_open_target, should_clear_registry,
     };
-    use vellum_lib::state::Opened;
+    use vellum_lib::state::{LibraryMarker, Opened};
     use std::path::{Path, PathBuf};
 
     fn opened(path: &Path) -> Opened {
         Opened {
             doc: path.to_path_buf(),
             library: None,
+        }
+    }
+
+    struct OpenDir(PathBuf);
+
+    impl OpenDir {
+        fn new(name: &str) -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "vellum_test_{}_{}",
+                name,
+                uuid::Uuid::new_v4().simple()
+            ));
+            std::fs::create_dir_all(&root).unwrap();
+            Self(dunce::canonicalize(&root).unwrap())
+        }
+
+        fn write(&self, rel: &str, body: &str) -> PathBuf {
+            let path = self.0.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, body).unwrap();
+            path
+        }
+
+        fn mkdir(&self, rel: &str) -> PathBuf {
+            let path = self.0.join(rel);
+            std::fs::create_dir_all(&path).unwrap();
+            path
+        }
+    }
+
+    impl Drop for OpenDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
         }
     }
 
@@ -982,6 +1061,113 @@ mod tests {
             allow
         );
     }
+
+    #[test]
+    fn tauri_conf_main_window_starts_hidden() {
+        let conf_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json");
+        let content = std::fs::read_to_string(&conf_path).expect("read tauri.conf.json");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&content).expect("parse tauri.conf.json");
+
+        assert_eq!(
+            parsed["app"]["windows"][0]["visible"],
+            serde_json::json!(false)
+        );
+    }
+
+    #[test]
+    fn open_file_without_wikilinks_returns_empty_map_and_library_anchor() {
+        let dir = OpenDir::new("vellum_open_no_links");
+        dir.mkdir(".vellum");
+        let note = dir.write("note.md", "# 纯文本\n\n没有任何链接。\n");
+
+        let (doc, library) = resolve_open_target(&note.to_string_lossy()).unwrap();
+
+        assert!(doc.wikilinks.is_empty());
+        let library = library.expect("marked ancestor must anchor library mode");
+        assert_eq!(library.root, dir.0);
+        assert!(!library.explicit);
+        assert_eq!(library.marker, Some(LibraryMarker::Vellum));
+        assert_eq!(doc.library.as_ref().unwrap().root, dir.0);
+    }
+
+    #[test]
+    fn open_file_with_links_only_in_code_returns_empty_wikilinks() {
+        let dir = OpenDir::new("vellum_open_code_only_links");
+        dir.mkdir(".vellum");
+        dir.write("real-target.md", "t\n");
+        let note = dir.write(
+            "note.md",
+            "# 样例\n\n```\n[[real-target]]\n```\n\ninline `[[real-target]]` code\n",
+        );
+
+        let (doc, _library) = resolve_open_target(&note.to_string_lossy()).unwrap();
+
+        assert!(doc.wikilinks.is_empty());
+    }
+
+    #[test]
+    fn open_directory_inside_marked_ancestor_resolves_basename_from_true_root() {
+        let dir = OpenDir::new("vellum_open_dir_ancestor");
+        dir.mkdir(".vellum");
+        dir.mkdir("sub");
+        dir.write("other/uniq-sib-target.md", "u\n");
+        dir.write("sub/note.md", "# 子目录文档\n\n见 [[uniq-sib-target]]。\n");
+
+        let sub = dir.0.join("sub");
+        let (doc, library) = resolve_open_target(&sub.to_string_lossy()).unwrap();
+
+        let library = library.unwrap();
+        assert_eq!(library.root, dir.0);
+        assert_eq!(library.marker, Some(LibraryMarker::Vellum));
+        assert_eq!(
+            doc.wikilinks.get("uniq-sib-target").cloned().flatten(),
+            Some(
+                dunce::canonicalize(dir.0.join("other/uniq-sib-target.md"))
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn open_file_bundles_resolved_wikilinks_with_document() {
+        let dir = OpenDir::new("vellum_open_links_bundled");
+        dir.mkdir(".vellum");
+        dir.write("other/linked-note.md", "l\n");
+        let note = dir.write(
+            "note.md",
+            "# 文档\n\n见 [[other/linked-note]] 与 [[missing-xq-target]]。\n",
+        );
+
+        let (doc, _library) = resolve_open_target(&note.to_string_lossy()).unwrap();
+
+        assert_eq!(
+            doc.wikilinks.get("other/linked-note").cloned().flatten(),
+            Some(
+                dunce::canonicalize(dir.0.join("other/linked-note.md"))
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string()
+            )
+        );
+        assert!(doc.wikilinks.contains_key("missing-xq-target"));
+        assert_eq!(doc.wikilinks.get("missing-xq-target").cloned().flatten(), None);
+    }
+
+    #[test]
+    fn open_empty_directory_returns_synthetic_doc_with_empty_wikilinks() {
+        let dir = OpenDir::new("vellum_open_empty_dir");
+        dir.mkdir(".vellum");
+
+        let (doc, library) = resolve_open_target(&dir.0.to_string_lossy()).unwrap();
+
+        assert_eq!(doc.path, "");
+        assert!(doc.wikilinks.is_empty());
+        let library = library.unwrap();
+        assert_eq!(library.root, dir.0);
+    }
 }
 
 fn main() {
@@ -1029,15 +1215,10 @@ fn main() {
             vellum_lib::widget::read_mdlog_state,
             vellum_lib::fonts::list_system_fonts,
         ])
-        .setup(|app| {
-            // 兜底：3 秒后强制显示窗口，防止前端 JS 加载失败导致窗口永久隐藏。
-            let window = app
-                .get_webview_window("main")
-                .expect("main window not found");
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(3));
-                let _ = window.show();
-            });
+        .setup(|_app| {
+            // visible: false——窗口初始隐藏，由前端 useStartupWindow 在首个可绘制内容
+            // 提交后（正文 onRendered / 空态落定 / 错误页提交，再叠字体就绪与两帧绘制）
+            // 调 show()；不设兜底定时器——盲亮只会把白窗当首帧。
             Ok(())
         })
         // 窗口级拖放：文件夹路径不进前端 onDragDropEvent 那套「只认 .md」的管线——

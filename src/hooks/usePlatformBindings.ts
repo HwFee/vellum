@@ -13,6 +13,8 @@ const APP_NAME = "素笺";
 export type PlatformBindings = {
   /// 拖放提示态：文件悬停在窗口上时正文区亮一道靛青内描边
   isDropTarget: boolean;
+  /// 启动序列是否已落定（pending drain + 最近恢复都已消化或失败收尾）
+  startupResolved: boolean;
 };
 
 /**
@@ -37,6 +39,7 @@ export function usePlatformBindings(
   const lastFolderDropRef = useRef<{ path: string; at: number } | null>(null);
   const { loadPath, reloadCurrent, setState, loadRecent, state } = deps;
   const [isDropTarget, setIsDropTarget] = useState(false);
+  const [startupResolved, setStartupResolved] = useState(false);
   const startupLoaded = useRef(false);
   const openRequestSeenRef = useRef(false);
   const drainChainRef = useRef(Promise.resolve());
@@ -142,17 +145,6 @@ export function usePlatformBindings(
   useEffect(() => {
     let cancelled = false;
     let unlistenClose: (() => void) | undefined;
-    let shown = false;
-
-    async function revealWindow() {
-      if (shown || cancelled) return;
-      shown = true;
-      try {
-        await getCurrentWindow().show();
-      } catch {
-        // 非关键路径：窗口可能已经可见
-      }
-    }
 
     function drainPendingPaths() {
       drainChainRef.current = drainChainRef.current.catch(() => {}).then(async () => {
@@ -180,55 +172,58 @@ export function usePlatformBindings(
       // 就是这个问题 —— 消费者的 editorRef 是上一轮渲染的快照，不能用来判定）；
       // 不拦时的窗口销毁由 JS 包装层自己做（onCloseRequested → destroy，
       // 且它会 await 本处理器，故晚到的 preventDefault 依然生效）。
-      const closeUnlisten = await getCurrentWindow().onCloseRequested(async (event) => {
-        // 关窗路径的**绝对不变量**：绝不能因本处理器抛错/卡住而让窗口关不掉。
-        // 任何意外都放行（不 preventDefault），最多损失一次未提交的草稿；
-        // 真正做到拦截的只有「提交返回 false」那一条路径。
-        try {
-          const current = editorRef.current;
-          if (!current?.activeUnit) return;
-          // 提交成功（含 mdlog 门禁把会话中断掉）⇒ 不拦，包装层 destroy；
-          // 落盘失败 ⇒ 草稿仍在框里，拦下本次关闭让用户处理，绝不重试关闭。
-          const cleared = await current.commitActive();
-          if (!cleared) {
-            event.preventDefault();
+      void getCurrentWindow()
+        .onCloseRequested(async (event) => {
+          // 关窗路径的**绝对不变量**：绝不能因本处理器抛错/卡住而让窗口关不掉。
+          // 任何意外都放行（不 preventDefault），最多损失一次未提交的草稿；
+          // 真正做到拦截的只有「提交返回 false」那一条路径。
+          try {
+            const current = editorRef.current;
+            if (!current?.activeUnit) return;
+            // 提交成功（含 mdlog 门禁把会话中断掉）⇒ 不拦，包装层 destroy；
+            // 落盘失败 ⇒ 草稿仍在框里，拦下本次关闭让用户处理，绝不重试关闭。
+            const cleared = await current.commitActive();
+            if (!cleared) {
+              event.preventDefault();
+            }
+          } catch (error) {
+            console.error("close-requested handler failed, closing anyway", error);
           }
-        } catch (error) {
-          console.error("close-requested handler failed, closing anyway", error);
-        }
-      });
-      if (cancelled) {
-        closeUnlisten();
-      } else {
-        unlistenClose = closeUnlisten;
-      }
+        })
+        .then((closeUnlisten) => {
+          if (cancelled) {
+            closeUnlisten();
+          } else {
+            unlistenClose = closeUnlisten;
+          }
+        })
+        .catch((error) => {
+          console.error("close-requested registration failed", error);
+        });
 
+      // 最近列表与 pending drain 并行：互不依赖，谁先到谁先用；
+      // 原来串行把「drain → loadRecent」叠在一起，白屏时间直接加倍。
+      const recentsPromise = loadRecent().catch(() => [] as string[]);
       await drainPendingPaths();
       if (!openRequestSeenRef.current && !startupLoaded.current) {
         startupLoaded.current = true;
-        // 最近打开列表（新→旧）：列表供空态渲染，首条即「启动恢复」的目标。
-        const recents = await loadRecent();
+        const recents = await recentsPromise;
         const lastPath = recents[0] ?? null;
         if (lastPath && !openRequestSeenRef.current) {
           await loadPath(lastPath);
         }
       }
-      // 等待 React 将 loadPath 的状态更新提交到 DOM，避免窗口先显示空状态再闪现文档
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-      });
-      await revealWindow();
+      // 启动序列落定（drain 与恢复都已消化）：亮窗交给 useStartupWindow 按
+      // 「首个可绘制内容」决策，这里不再等 React 提交、不调 show()。
+      setStartupResolved(true);
     }
 
-    void bindStartup().catch(async (error) => {
+    void bindStartup().catch((error) => {
       if (!cancelled) {
         setState({ status: "error", message: String(error) });
       }
-      // 同样等待 React 提交错误状态到 DOM 再显示窗口
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-      });
-      await revealWindow();
+      // 启动失败同样落定：错误页经 useStartupWindow 的「提交后显示」路径亮窗
+      setStartupResolved(true);
     });
 
     return () => {
@@ -311,5 +306,5 @@ export function usePlatformBindings(
       .catch(() => {});
   }, [windowTitle]);
 
-  return { isDropTarget };
+  return { isDropTarget, startupResolved };
 }

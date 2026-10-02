@@ -34,6 +34,7 @@ import { useRecentFiles } from "./hooks/useRecentFiles";
 import { useRecentLibraries } from "./hooks/useRecentLibraries";
 import { useScrollMemory } from "./hooks/useScrollMemory";
 import { useScrollPosition } from "./hooks/useScrollPosition";
+import { useStartupWindow } from "./hooks/useStartupWindow";
 import { useSearchState } from "./hooks/useSearchState";
 import { useSmoothNav } from "./hooks/useSmoothNav";
 import { useTheme } from "./hooks/useTheme";
@@ -54,7 +55,7 @@ const HoverPreviewLayer = lazy(() => import("./components/HoverPreviewLayer"));
  * 跨域共享 ref 集中在 `rt`（见 hooks/useAppRuntime.ts 的总线注释）；
  * 每个领域 hook 的实现与裁定注释都在各自文件里逐字保留。
  */
-export default function App() {
+export default function App({ onStartupVisible }: { onStartupVisible?: () => void }) {
   const rt = useAppRuntime();
   const { scrollRef, contentRef, documentContentRef, searchInputRef, librarySearchInputRef } = rt.dom;
   const { loadPathRef } = rt.doc;
@@ -261,13 +262,21 @@ export default function App() {
   });
 
   // 平台侧绑定（拖放 / 启动管线 / file-changed 分流 / 窗口标题）
-  const { isDropTarget } = usePlatformBindings(rt, {
+  const { isDropTarget, startupResolved } = usePlatformBindings(rt, {
     loadPath,
     reloadCurrent,
     setState,
     loadRecent,
     state,
   });
+
+  // 初始隐藏窗口的亮窗决策（useStartupWindow 独占 show()）：真实正文要等
+  // MarkdownDocument 的 onRendered（布局提交），空态/错误页等 startupResolved
+  const notifyStartupRendered = useStartupWindow(state, startupResolved, onStartupVisible);
+  const handleContentRenderedAndReveal = useCallback(() => {
+    handleContentRendered();
+    notifyStartupRendered();
+  }, [handleContentRendered, notifyStartupRendered]);
 
   // 启动时把最近库列表也拉进 state（空态的「最近库」分组与文件分组共用一次挂载）
   useEffect(() => {
@@ -551,7 +560,7 @@ export default function App() {
                         <MarkdownDocument
                           markdown={state.document.markdown}
                           headings={headings}
-                          onRendered={handleContentRendered}
+                          onRendered={handleContentRenderedAndReveal}
                           searchQuery={deferredSearchQuery}
                           searchQueryPending={searchQueryPending}
                           activeMatchIndex={activeMatchIndex}

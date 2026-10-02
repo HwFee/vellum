@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use crate::document::{
     load_markdown_file, resolve_asset_to_data_url, resolve_local_asset_path, AssetRef,
+    LoadedDocument,
 };
 
 /// Removes the temporary test directory when the test ends, even on panic.
@@ -25,6 +26,20 @@ impl Drop for TestDir {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
     }
+}
+
+#[test]
+fn loaded_document_always_serializes_wikilinks() {
+    let doc = LoadedDocument {
+        path: "C:/notes/a.md".to_string(),
+        file_name: "a.md".to_string(),
+        parent_path: "C:/notes".to_string(),
+        markdown: String::new(),
+        library: None,
+        wikilinks: std::collections::HashMap::new(),
+    };
+    let value = serde_json::to_value(&doc).unwrap();
+    assert_eq!(value["wikilinks"], serde_json::json!({}));
 }
 
 #[test]
@@ -396,7 +411,7 @@ mod save_tests {
 
 mod wikilink_tests {
     use super::*;
-    use crate::document::resolve_wikilink_map;
+    use crate::document::{build_basename_index, resolve_wikilink_map};
     use std::collections::HashMap;
 
     /// 建一篇笔记（自动补目录）并返回路径。
@@ -419,7 +434,11 @@ mod wikilink_tests {
 
     fn resolve(from: &std::path::Path, targets: &[&str]) -> HashMap<String, Option<String>> {
         let owned: Vec<String> = targets.iter().map(|target| target.to_string()).collect();
-        resolve_wikilink_map(from, &owned)
+        let index = from
+            .parent()
+            .and_then(crate::document::find_library_root)
+            .map(|(root, _)| build_basename_index(&root));
+        resolve_wikilink_map(from, &owned, index.as_ref())
     }
 
     fn path_of(map: &HashMap<String, Option<String>>, target: &str) -> Option<String> {
@@ -660,7 +679,8 @@ mod note_preview_tests {
 mod library_root_tests {
     use super::*;
     use crate::document::{
-        find_library_root, marker_at, resolve_wikilink_map, ANCESTOR_WALK_MAX_DEPTH,
+        build_basename_index, find_library_root, marker_at, resolve_wikilink_map,
+        ANCESTOR_WALK_MAX_DEPTH,
     };
     use crate::state::LibraryMarker;
 
@@ -781,7 +801,7 @@ mod library_root_tests {
         let doc = write(&deep_dir, "note.md", "# n\n");
 
         // 目标在 root = 第 9 级（deep 的 8 级祖先之上）：超出共享帽，必须 None
-        let map = resolve_wikilink_map(&canonical(&doc), &["target".to_string()]);
+        let map = resolve_wikilink_map(&canonical(&doc), &["target".to_string()], None);
         assert_eq!(map.get("target").cloned().flatten(), None);
         // 目标文件确实存在——只是太深（判据是深度帽不是「不在」）
         assert!(target.is_file());
@@ -789,7 +809,7 @@ mod library_root_tests {
         // 帽外目录：再往文档目录下叠 1 级（目标仍在同一相对深度），同样必须 None
         let deeper = canonical(&nest(&deep_dir, 1));
         let deep_doc = write(&deeper, "note2.md", "# n\n");
-        let map2 = resolve_wikilink_map(&canonical(&deep_doc), &["target".to_string()]);
+        let map2 = resolve_wikilink_map(&canonical(&deep_doc), &["target".to_string()], None);
         assert_eq!(map2.get("target").cloned().flatten(), None);
     }
 
@@ -802,10 +822,103 @@ mod library_root_tests {
         let doc = write(&sub, "note.md", "# n\n");
         let target = write(root.path(), "elsewhere/unique.md", "u\n");
 
-        let map = resolve_wikilink_map(&canonical(&doc), &["unique".to_string()]);
+        let index = build_basename_index(root.path());
+        let map = resolve_wikilink_map(&canonical(&doc), &["unique".to_string()], Some(&index));
         assert_eq!(
             map.get("unique").cloned().flatten(),
             Some(canonical(&target).to_string_lossy().to_string())
+        );
+    }
+}
+
+mod wikilink_extract_tests {
+    use crate::document::extract_wikilink_targets;
+
+    fn targets(markdown: &str) -> Vec<String> {
+        extract_wikilink_targets(markdown)
+    }
+
+    #[test]
+    fn extracts_targets_dedup_preserving_first_occurrence() {
+        assert_eq!(
+            targets("见 [[a]] 与 [[b]]，再来一次 [[a]]。"),
+            vec!["a", "b"]
+        );
+    }
+
+    #[test]
+    fn strips_markdown_extension_case_insensitively() {
+        assert_eq!(
+            targets("[[Note.MD]] [[Doc.MARKDOWN]] [[keep.txt]] [[plain]]"),
+            vec!["Note", "Doc", "keep.txt", "plain"]
+        );
+    }
+
+    #[test]
+    fn splits_alias_then_fragment_with_cjk_and_spaces() {
+        assert_eq!(
+            targets("[[中文笔记|别名]] [[目标#章节]] [[dir/带 空格#片段|别名]]"),
+            vec!["中文笔记", "目标", "dir/带 空格"]
+        );
+    }
+
+    #[test]
+    fn fragment_only_and_blank_inner_yield_no_target() {
+        assert!(targets("[[#标题]] [[ ]]").is_empty());
+    }
+
+    #[test]
+    fn fenced_code_is_masked_including_unterminated() {
+        assert_eq!(
+            targets("[[outer]]\n```\n[[fenced]]\n```\n~~~\n[[tilde]]\n~~~\n[[after]]"),
+            vec!["outer", "after"]
+        );
+        assert_eq!(
+            targets("[[outer]]\n```rust\n[[fenced]]\n[[also-fenced]]"),
+            vec!["outer"]
+        );
+        assert_eq!(
+            targets("```\n~~~\n[[still-fenced]]\n```\n[[after]]"),
+            vec!["after"]
+        );
+        assert_eq!(targets("   ```\n[[x]]\n   ```"), Vec::<String>::new());
+        assert_eq!(targets("    ```\n[[x]]\n    ```"), vec!["x"]);
+    }
+
+    #[test]
+    fn inline_code_is_masked_but_unterminated_run_stays_verbatim() {
+        assert_eq!(targets("a `[[x]]` b [[y]]"), vec!["y"]);
+        assert_eq!(targets("a `[[x]]"), vec!["x"]);
+        assert_eq!(targets("`` ` [[x]] `` 与 [[y]]"), vec!["y"]);
+    }
+
+    #[test]
+    fn malformed_brackets_match_js_regex_semantics() {
+        assert!(targets("[[a]b]]").is_empty());
+        assert_eq!(targets("[[[a]]"), vec!["a"]);
+        assert_eq!(targets("[[x [[y]] z]]"), vec!["y"]);
+        assert_eq!(targets("text [[ok]] tail ]]"), vec!["ok"]);
+    }
+
+    #[test]
+    fn js_whitespace_set_is_matched_exactly() {
+        assert_eq!(targets("[[\u{FEFF}中文.MD\u{FEFF}]]"), vec!["中文"]);
+        assert_eq!(
+            targets("[[\u{0085}a\u{0085}]]"),
+            vec!["\u{0085}a\u{0085}"]
+        );
+        assert_eq!(targets("\u{0085}```\n[[x]]"), vec!["x"]);
+        assert_eq!(
+            targets("\u{FEFF}```\n[[x]]\n```"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn handles_crlf_and_cjk_utf8() {
+        assert_eq!(
+            targets("[[a]]\r\n```rust\r\n[[code]]\r\n```\r\n[[中文]]\r\n"),
+            vec!["a", "中文"]
         );
     }
 }

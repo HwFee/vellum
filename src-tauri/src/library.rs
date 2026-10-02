@@ -232,6 +232,7 @@ pub fn search_library(root: &Path, query: &str) -> Result<LibrarySearch, String>
 
 /// 一行里的全部 `[[…]]` 目标（`![[…]]` 内嵌式同样命中——`[[` 是同一个模式）。
 /// inner 取 `|` 别名前、`#` 片段前，去首尾空白与 `.md` / `.markdown` 后缀（大小写不敏感）。
+/// 只服务反链统计（出现即计，不掩代码）；打开管线用的是 document::extract_wikilink_targets。
 fn wikilink_targets(line: &str) -> Vec<String> {
     let mut targets = Vec::new();
     let mut rest = line;

@@ -6,6 +6,14 @@
 
 ## [Unreleased]
 
+## [1.13.2] - 2026-10-02
+
+### 优化
+
+- **双击 → 窗口显现 ~2.2s → ~1.0s**：亮窗路径两处等待改掉——`useStartupWindow` 里等两帧绘制的双 `requestAnimationFrame` 在 `visible:false` 起始态的窗口里被 WebView2 节流到极低频，是之前卡住亮窗的主因，加 `setTimeout(100)` 兑底（rAF 先到算绘制完成，超时照样放行）；`document.fonts.ready` 会等到全部声明 face（含未用到的 KaTeX 一族）落定才放行 `show()`，改为只 `document.fonts.load()` 首屏实际用到的字重子集（正文 400 / 题头 500 / mono 两档，采样字串「素笺正文阅读題頭0123456789」），加 400ms 超时兑底。
+- **随包字体 subset 化**：`TsangerJinKai02-W04/W05.woff2` 各 8.5MB → 4.7MB（-44%）。保留字符集：GB2312 简体全 + Big5 繁体全 + ASCII / Latin-1 / 拉丁扩展-A / 希腊字母 / 通用标点 / 上下标货币 / 序号带圈 / 框线几何 / 杂项符号 / 箭头 / 数学运算 / 技术符号 / CJK 标点 / 假名 / 注音 / 全角 ≈ 1.79 万字——简繁正文、UI 题头（含繁体「設定」「目錄」）、代码注释、公式照常；缺的只是 CJK 扩展 B+ 区生僻字形，这类字回退到 `--font-cjk-tail` 的系统宋体/思源宋体。
+- **wikilink 打开即解析**：`load_document` 一次返回 `wikilinks` 表（祖先逐级向上 → 库根 basename 兑底），前端不再在拿到正文后发第二次 `resolve_wikilinks` IPC——悬停预览白名单随文档换代同批换成「本次命中集」，打开即预览不等第二趟。`resolve_wikilinks` 命令仍保留（兼容旧前端与热重载期间异步补链）。
+
 ### 更改
 
 - **技能与扩展收进 `pi/`**：`extensions/mdlog/` → `pi/extensions/mdlog/`，`vellum-widget-md` 技能入库到 `pi/skills/vellum-widget-md/`（此前技能只在被忽略的 `.pi/skills/` 里，clone 后拿不到）。入库的 `.pi/settings.json` 同时声明 `extensions` 与 `skills`；用 pi 的 `DefaultPackageManager#resolve()` 实测：本仓库命中扩展与技能各 1 条，别的项目命中 0 条。`vite.config.ts` 的测试排除、`scripts/verify-widget-template.mjs` 的模板路径同步改；扩展 157 个用例与类型检查在新位置全部通过。

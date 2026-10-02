@@ -22,6 +22,10 @@ pub struct LoadedDocument {
     /// 前端据此决定侧栏形态与库命令是否可发，不自行向上探测。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub library: Option<crate::state::LibraryRef>,
+    /// 文档内 wikilink 目标的解析表（打开时一次算好随文档返回，字段恒序列化——
+    /// 前端以存在性判「是否已在打开时解析」，缺席才退回第二次 resolve_wikilinks IPC）。
+    /// 空表 = 无 wikilink 或解析全落空；命中路径同步进 preview_allow（悬停预览白名单）。
+    pub wikilinks: std::collections::HashMap<String, Option<String>>,
 }
 
 /// `save_document` 的返回契约（严格 camelCase）。
@@ -112,6 +116,7 @@ pub fn load_markdown_file(path: &Path) -> Result<LoadedDocument, String> {
         parent_path,
         markdown,
         library: None,
+        wikilinks: std::collections::HashMap::new(),
     })
 }
 
@@ -404,7 +409,8 @@ fn resolve_by_ancestors(from_dir: &Path, target: &str) -> Option<PathBuf> {
 }
 
 /// 全库 basename 索引：`<去扩展名的小写 basename>` → 命中文件。
-type BasenameIndex = HashMap<String, Vec<PathBuf>>;
+/// 打开时只在文档确有 wikilink 目标才建：目录打开的清单可直接折叠，否则按库根扫一次。
+pub type BasenameIndex = HashMap<String, Vec<PathBuf>>;
 
 /// 递归遍历库根（跳过点目录与 node_modules、限深限项），返回全部 Markdown 文件的
 /// `(绝对路径, 相对库根的 '/' 分隔路径)`，按 rel 排序；条目预算耗尽时 truncated=true。
@@ -472,11 +478,8 @@ fn collect_dir(
     }
 }
 
-/// 递归遍历库根（跳过点目录与 node_modules、限深限项），建一次索引供本次调用的
-/// 全部目标共用——逐个目标重扫整库会让一篇 160 处链接的笔记扫 160 遍。
-fn build_basename_index(root: &Path) -> BasenameIndex {
+pub fn basename_index_from_files(files: &[(PathBuf, String)]) -> BasenameIndex {
     let mut index: BasenameIndex = HashMap::new();
-    let (files, _truncated) = collect_markdown_files(root);
     for (path, _rel) in files {
         let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
             continue;
@@ -486,15 +489,22 @@ fn build_basename_index(root: &Path) -> BasenameIndex {
                 index
                     .entry(stem.to_ascii_lowercase())
                     .or_default()
-                    .push(path);
+                    .push(path.clone());
             }
         }
     }
     index
 }
 
+/// 递归遍历库根（跳过点目录与 node_modules、限深限项），建一次索引供本次调用的
+/// 全部目标共用——逐个目标重扫整库会让一篇 160 处链接的笔记扫 160 遍。
+pub fn build_basename_index(root: &Path) -> BasenameIndex {
+    let (files, _truncated) = collect_markdown_files(root);
+    basename_index_from_files(&files)
+}
+
 /// 文件名去掉 `.md` / `.markdown` 后的主名；不是 Markdown 文件返回 None。
-pub(crate) fn markdown_stem(name: &str) -> Option<&str> {
+pub fn markdown_stem(name: &str) -> Option<&str> {
     let lower = name.to_ascii_lowercase();
     if lower.ends_with(".markdown") {
         return Some(&name[..name.len() - ".markdown".len()]);
@@ -531,15 +541,15 @@ fn resolve_by_basename(index: &BasenameIndex, target: &str) -> Option<PathBuf> {
 /// 3. 仍找不到时，在向上命中 `.vellum` / `.obsidian` 的库根内按**唯一 basename** 兜底
 ///
 /// 返回表按**调用方传入的原字符串**键控（渲染层按 `data-wikilink` 原样查表）。
+/// `vault_index` 由调用方预建（`build_basename_index`）——多次解析共用一份索引，
+/// 避免同一库被反复遍历（打开时一次解析与后续 resolve_wikilinks 各扫一遍）。
+/// None = 单文件模式：无 basename 兜底，只剩祖先逐级向上找。
 pub fn resolve_wikilink_map(
     from_path: &Path,
     targets: &[String],
+    vault_index: Option<&BasenameIndex>,
 ) -> HashMap<String, Option<String>> {
     let from_dir = from_path.parent().map(Path::to_path_buf);
-    let vault_index = from_dir
-        .as_deref()
-        .and_then(find_library_root)
-        .map(|(root, _marker)| build_basename_index(&root));
 
     let mut resolved: HashMap<String, Option<String>> = HashMap::new();
 
@@ -551,9 +561,7 @@ pub fn resolve_wikilink_map(
                 .as_deref()
                 .and_then(|dir| resolve_by_ancestors(dir, target))
                 .or_else(|| {
-                    vault_index
-                        .as_ref()
-                        .and_then(|index| resolve_by_basename(index, target))
+                    vault_index.and_then(|index| resolve_by_basename(index, target))
                 })
         };
 
@@ -564,6 +572,171 @@ pub fn resolve_wikilink_map(
     }
 
     resolved
+}
+
+/// 打开时顺带把 wikilink 解析表算出来：随文档一并返回，
+/// 不再让前端等第二次 IPC 才见链接。
+/// `index` 由调用方预建——`resolve_open_target` 只在文档确有目标时建一次
+/// （目录清单折叠或按库根另扫），打开与解析共用一份数据，不重复扫库。
+pub fn resolve_wikilinks_for_document(
+    from_path: &Path,
+    targets: &[String],
+    index: Option<&BasenameIndex>,
+) -> HashMap<String, Option<String>> {
+    resolve_wikilink_map(from_path, targets, index)
+}
+
+pub fn extract_wikilink_targets(markdown: &str) -> Vec<String> {
+    let masked = mask_code(markdown);
+    let mut seen = std::collections::HashSet::new();
+    let mut targets = Vec::new();
+    for inner in wikilink_inners(&masked) {
+        let target = wikilink_target(inner);
+        if target.is_empty() || !seen.insert(target.clone()) {
+            continue;
+        }
+        targets.push(target);
+    }
+    targets
+}
+
+fn wikilink_inners(text: &str) -> Vec<&str> {
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+    let mut inners = Vec::new();
+    let mut search = 0usize;
+
+    while search + 1 < len {
+        if bytes[search] != b'[' || bytes[search + 1] != b'[' {
+            search += 1;
+            continue;
+        }
+        let inner_start = search + 2;
+        let mut cursor = inner_start;
+        let mut matched = false;
+        while cursor < len {
+            match bytes[cursor] {
+                b'[' | b'\n' => break,
+                b']' => {
+                    if cursor + 1 < len
+                        && bytes[cursor + 1] == b']'
+                        && cursor > inner_start
+                    {
+                        inners.push(&text[inner_start..cursor]);
+                        matched = true;
+                    }
+                    break;
+                }
+                _ => cursor += 1,
+            }
+        }
+        search = if matched { cursor + 2 } else { search + 1 };
+    }
+
+    inners
+}
+
+fn wikilink_target(inner: &str) -> String {
+    let inner = inner.trim_matches(is_js_space);
+    let head = inner.split('|').next().unwrap_or("");
+    let target = head.split('#').next().unwrap_or("").trim_matches(is_js_space);
+    markdown_stem(target).unwrap_or(target).to_string()
+}
+
+fn is_js_space(c: char) -> bool {
+    matches!(
+        c,
+        '\u{0009}'..='\u{000D}'
+            | '\u{0020}'
+            | '\u{00A0}'
+            | '\u{1680}'
+            | '\u{2000}'..='\u{200A}'
+            | '\u{2028}'
+            | '\u{2029}'
+            | '\u{202F}'
+            | '\u{205F}'
+            | '\u{3000}'
+            | '\u{FEFF}'
+    )
+}
+
+fn fence_marker(line: &str) -> Option<u8> {
+    let mut rest = line;
+    let mut skipped = 0usize;
+    for c in line.chars() {
+        if skipped < 3 && is_js_space(c) {
+            skipped += 1;
+            rest = &rest[c.len_utf8()..];
+        } else {
+            break;
+        }
+    }
+    let marker = *rest.as_bytes().first()?;
+    if marker != b'`' && marker != b'~' {
+        return None;
+    }
+    if rest.as_bytes().iter().take_while(|b| **b == marker).count() >= 3 {
+        Some(marker)
+    } else {
+        None
+    }
+}
+
+fn mask_code(markdown: &str) -> String {
+    let mut fence: Option<u8> = None;
+    markdown
+        .split('\n')
+        .map(|line| {
+            if let Some(marker) = fence_marker(line) {
+                match fence {
+                    None => fence = Some(marker),
+                    Some(current) if current == marker => fence = None,
+                    _ => {}
+                }
+                return String::new();
+            }
+            if fence.is_some() {
+                return String::new();
+            }
+            mask_inline_code(line)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn mask_inline_code(line: &str) -> String {
+    let bytes = line.as_bytes();
+    let mut out = String::with_capacity(line.len());
+    let mut index = 0usize;
+
+    while index < line.len() {
+        if bytes[index] != b'`' {
+            let c = line[index..].chars().next().unwrap();
+            out.push(c);
+            index += c.len_utf8();
+            continue;
+        }
+        let mut run = 0usize;
+        while index + run < line.len() && bytes[index + run] == b'`' {
+            run += 1;
+        }
+        let needle = vec![b'`'; run];
+        let Some(offset) = find_subslice(&bytes[index + run..], &needle) else {
+            out.push_str(&line[index..]);
+            break;
+        };
+        let close = index + run + offset;
+        out.extend(std::iter::repeat_n(' ', close + run - index));
+        index = close + run;
+    }
+
+    out
+}
+
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
 }
 
 /// `read_note_preview` 的返回契约（严格 camelCase）。

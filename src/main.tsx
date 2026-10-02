@@ -15,7 +15,7 @@ const FONT_SPECS = [
 ];
 
 /// 显式触发自定义字体加载（不阻塞渲染）。`font-display: block` 配合
-/// `<link rel="preload">` 已能避免 FOUT；窗口初始隐藏进一步保证了首帧即正确字体。
+/// `<link rel="preload">` 已能避免 FOUT；字体预载在后台进行，不挡首帧显示。
 async function waitForFonts(): Promise<void> {
   if (FONT_SPECS.every((spec) => document.fonts.check(spec))) return;
   await Promise.race([
@@ -41,22 +41,22 @@ try {
   // matchMedia / localStorage 不可用：不设 data-theme，样式按 :root 浅色走
 }
 
-// 立即渲染 App，字体在后台加载（font-display: block 防止 FOUT，窗口隐藏保证首帧体验）
+// 立即渲染 App，字体在后台加载（font-display: block 防止 FOUT，后台加载不阻塞显示）
 root.render(
   <React.StrictMode>
-    <App />
+    <App onStartupVisible={onStartupVisible} />
   </React.StrictMode>,
 );
 
 void waitForFonts();
 
-// 字体候选表闲时预热（requestIdleCallback / setTimeout 兜底）：设置页的字体选择器
-// 打开时直接拿到全量本机字体，不再先摆随包两款再跳全量
-prefetchSystemFonts();
-
-/// 启动静默更新检查（实现见 lib/updater.ts）：尊重设置页「更新」节的
-/// 「启动时自动检查更新」（出厂开）。偏好是异步读盘的，故先读设置再决定要不要查——
-/// 不阻塞渲染；读盘失败由 loadAppPreferences 回退出厂值。
-void loadAppPreferences().then((preferences) => {
-  if (preferences.autoCheckUpdates) return checkForUpdates();
-});
+/// 首个内容可见之后才跑的两件事（useStartupWindow 亮窗回调，只触发一次）：
+/// 字体候选表预热（requestIdleCallback / setTimeout 兜底，设置页字体选择器直接吃到
+/// 全量本机字体）与启动静默更新检查（lib/updater.ts，尊重设置页「启动时自动检查更新」，
+/// 偏好异步读盘、失败回退出厂值）。两者都不许挡首帧——枚举字体与查网都排在显示之后。
+function onStartupVisible(): void {
+  prefetchSystemFonts();
+  void loadAppPreferences().then((preferences) => {
+    if (preferences.autoCheckUpdates) return checkForUpdates();
+  });
+}
