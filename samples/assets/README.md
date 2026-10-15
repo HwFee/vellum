@@ -1,7 +1,8 @@
-# Sample Assets
+# 示例文档配图（`samples/assets/`）
 
-`samples/` 里示例文档的配图：
+存放 [`samples/`](../) 示例文档在 Vellum 中渲染的实机截图：
 
-- `binary-search.png`、`warp-shuffle.png`：`binary-search.md` 与 `warp-shuffle.md` 在 Vellum 里渲染的截图，供 README 与 `docs/vellum-widget-md.md` 引用。
+- `binary-search.png`：[`samples/binary-search.md`](../binary-search.md) 渲染画面（供 [`README.md`](../../README.md) 与 [`docs/vellum-widget-md.md`](../../docs/vellum-widget-md.md) 引用）。
+- `warp-shuffle.png`：[`samples/warp-shuffle.md`](../warp-shuffle.md) 渲染画面（供 [`docs/vellum-widget-md.md`](../../docs/vellum-widget-md.md) 引用）。
 
-要验证本地图片或 GIF 的渲染，把文件放在这里，再到 `../sample.md` 取消对应的注释行。
+如需验证本地图片或 GIF 在 Vellum 中的解析效果，可将图片放入本目录，并取消 [`samples/sample.md`](../sample.md) 中对应图片行的注释。

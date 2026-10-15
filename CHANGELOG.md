@@ -20,7 +20,7 @@
 - **README 重写、新增 `docs/vellum-widget-md.md`**：README 从约 11KB 压到约 6KB，首图改为 Vellum 渲染的 `samples/binary-search.md`，细节指向 `docs/`；新增技能介绍文档与两篇由技能产出的示例（`samples/binary-search.md`、`samples/warp-shuffle.md`，配图在 `samples/assets/`）。
 - **清理过期内容**：`AGENTS.md` / `docs/agents/tooling.md` 里已失效的 `HwFee-skills` 联接流程与性能技能表、「后台 shell 靠用户级变量」的旧描述（实测 `PI_BG_SHELL=bash`）、扩展 README 里已清理的 `docs/superpowers` 与 `outputs/mdlog` 来源；`.gitignore` 增 `*.log`（上传工具日志含账号信息，不入库）。
 - **技能 `vellum-mdlog` 更名为 `vellum-widget-md` 并重写**：定位改为「在 Vellum 里写带图示/交互的 Markdown」，不再依赖 mdlog 连接（默认分支直接写文件）；主流程收成五步（选形态 → 起草 → 自查 → 检查 → 交付），新增能力阶梯（原生 Markdown → 内联 HTML → 静态 widget → 交互 widget，并记录 sanitize 会剥掉 `style`/`<svg>`/`<button>` 等的实测）、静态图模板、交互配方（步进器/滑杆/标签页/悬停）、契约 7（授权门禁、存活上限、静态/交互判定）；mdlog 专属规则拆到 `references/mdlog-live.md`；新增 `tools/check-widgets.mjs`（整篇 `.md` 或草稿的契约检查，并联动 `svg-lint`）。
-- **pi 扩展 mdlog 改为「只在本仓库加载」**：删掉 `~/.pi/agent/extensions/mdlog` 全局目录联接，改由入库的 `.pi/settings.json` 声明 `extensions: ["../extensions/mdlog"]`（`.gitignore` 由 `.pi/` 改为 `.pi/*` + `!.pi/settings.json` 例外）——别的 pi 项目不再加载它，也不会多出一套 `/mdlog` 命令与 `vellum_figure` 工具；clone 后无需重建联接（加载仍需项目信任）。
+- **pi 扩展 mdlog 改为「只在本仓库加载」**：删掉 `~/.pi/agent/extensions/mdlog` 全局目录联接，改由入库的 `.pi/settings.json` 声明 `extensions: ["../pi/extensions/mdlog"]`（`.gitignore` 由 `.pi/` 改为 `.pi/*` + `!.pi/settings.json` 例外）——别的 pi 项目不再加载它，也不会多出一套 `/mdlog` 命令与 `vellum_figure` 工具；clone 后无需重建联接（加载仍需项目信任）。
 
 ## [1.13.1] - 2026-09-30
 
